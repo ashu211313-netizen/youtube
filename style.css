@@ -1,715 +1,1047 @@
-* {
-  box-sizing: border-box;
-}
-
-:root {
-  --bg: #f5f5f7;
-  --panel: #ffffff;
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --line: #e5e5e7;
-  --accent: #ffd400;
-  --success: #34c759;
-  --danger: #ff3b30;
-  --radius: 24px;
-}
-
-html {
-  min-height: 100%;
-  background: var(--bg);
-}
-
-body {
-  min-height: 100vh;
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  -webkit-text-size-adjust: 100%;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.is-hidden {
-  display: none !important;
-}
-
-.auth-screen {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.auth-card {
-  width: min(440px, 100%);
-  padding: 34px;
-  border-radius: 30px;
-  background: var(--panel);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
-}
-
-.auth-card h1 {
-  margin: 8px 0 12px;
-  font-size: 34px;
-  letter-spacing: -0.04em;
-}
-
-.auth-description {
-  margin: 0 0 24px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.login-form {
-  display: grid;
-  gap: 15px;
-}
-
-.login-form label {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.login-form input {
-  width: 100%;
-  padding: 13px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: white;
-}
-
-.form-message {
-  min-height: 20px;
-  margin: 0;
-  color: var(--danger);
-  font-size: 13px;
-  text-align: center;
-}
-
-.app-shell {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 260px 1fr;
-}
-
-.sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  padding: 36px 24px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  background: rgba(255, 255, 255, 0.88);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  border-right: 1px solid var(--line);
-}
-
-.sidebar h1 {
-  margin: 4px 0 0;
-  font-size: 24px;
-  line-height: 1.1;
-}
-
-.eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--muted);
-}
-
-.nav {
-  display: grid;
-  gap: 8px;
-}
-
-.nav-item,
-.mobile-nav-item {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  text-align: left;
-  padding: 14px 16px;
-  border-radius: 14px;
-  font-weight: 700;
-}
-
-.nav-item.active {
-  background: var(--text);
-  color: white;
-}
-
-.sidebar-foot {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.sidebar-foot p {
-  margin: 0 0 8px;
-  font-weight: 700;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-.text-button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--danger);
-  font-weight: 800;
-}
-
-.main {
-  min-width: 0;
-  padding: 28px 44px 80px;
-}
-
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 28px;
-}
-
-.topbar h2 {
-  margin: 6px 0 0;
-  font-size: 30px;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.sync-status {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.sync-status.online {
-  color: var(--success);
-}
-
-.sync-status.error {
-  color: var(--danger);
-}
-
-.primary-btn,
-.secondary-btn,
-.form-submit {
-  border: 0;
-  border-radius: 999px;
-  padding: 13px 20px;
-  font-weight: 800;
-}
-
-.primary-btn,
-.form-submit {
-  background: var(--accent);
-  color: #111;
-}
-
-.primary-btn:disabled,
-.form-submit:disabled {
-  cursor: wait;
-  opacity: 0.55;
-}
-
-.secondary-btn {
-  background: var(--text);
-  color: white;
-}
-
-.page {
-  display: none;
-}
-
-.page.active {
-  display: block;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.card {
-  padding: 24px;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-
-.stat-card span,
-.stat-card small {
-  color: var(--muted);
-}
-
-.stat-card strong {
-  display: block;
-  margin: 14px 0 4px;
-  font-size: 44px;
-  letter-spacing: -0.04em;
-}
-
-.dashboard-goal {
-  margin-bottom: 16px;
-}
-
-.section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.section-head h3 {
-  margin: 4px 0 0;
-  font-size: 24px;
-}
-
-.page-section-head {
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.goal-card h4 {
-  margin: 28px 0 6px;
-  font-size: 30px;
-}
-
-.goal-card p {
-  color: var(--muted);
-}
-
-.progress {
-  height: 12px;
-  margin-top: 20px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg);
-}
-
-.progress span {
-  display: block;
-  width: 0;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-  transition: width 0.25s ease;
-}
-
-.empty-state {
-  padding: 20px 0;
-  color: var(--muted);
-}
-
-.table-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.data-table th,
-.data-table td {
-  padding: 14px 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  white-space: nowrap;
-}
-
-.data-table th {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.filter-btn {
-  padding: 9px 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: white;
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.filter-btn.active {
-  border-color: var(--text);
-  background: var(--text);
-  color: white;
-}
-
-.cards-list {
-  display: grid;
-  gap: 14px;
-}
-
-.item-card {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 16px;
-  padding: 20px;
-  border-radius: 20px;
-  background: white;
-}
-
-.item-card h4 {
-  margin: 8px 0;
-  font-size: 20px;
-}
-
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.status {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 7px 11px;
-  border-radius: 999px;
-  background: var(--bg);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.item-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.delete-btn {
-  border: 0;
-  background: transparent;
-  color: var(--danger);
-  font-weight: 800;
-}
-
-.kanban {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 16px;
-  padding-bottom: 20px;
-  overflow: visible;
-}
-
-.kanban-column {
-  min-height: 220px;
-  padding: 14px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.55);
-}
-
-.kanban-column h4 {
-  margin: 4px 4px 14px;
-}
-
-.idea-card {
-  margin-bottom: 10px;
-  padding: 16px;
-  border-radius: 16px;
-  background: white;
-}
-
-.idea-card strong {
-  display: block;
-  margin-bottom: 8px;
-}
-
-.idea-card p {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 13px;
-  white-space: pre-wrap;
-}
-
-.idea-card select {
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: white;
-}
-
-.modal {
-  width: min(560px, calc(100% - 28px));
-  padding: 24px;
-  border: 0;
-  border-radius: 28px;
-  background: white;
-}
-
-.modal::backdrop {
-  background: rgba(0, 0, 0, 0.35);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-}
-
-.modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-}
-
-.modal h3 {
-  margin: 4px 0 0;
-  font-size: 26px;
-}
-
-.icon-btn {
-  width: 38px;
-  height: 38px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--bg);
-  font-size: 20px;
-}
-
-.quick-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.quick-grid button {
-  padding: 26px 16px;
-  border: 0;
-  border-radius: 18px;
-  background: var(--bg);
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.form-grid {
-  display: grid;
-  gap: 14px;
-}
-
-.form-grid label {
-  display: grid;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.form-grid input,
-.form-grid select,
-.form-grid textarea {
-  width: 100%;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: white;
-}
-
-.form-grid textarea {
-  min-height: 100px;
-  resize: vertical;
-}
-
-.form-submit {
-  width: 100%;
-  margin-top: 16px;
-}
-
-.toast {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 20000;
-  max-width: min(360px, calc(100% - 40px));
-  padding: 12px 16px;
-  border-radius: 14px;
-  background: var(--text);
-  color: white;
-  font-size: 13px;
-  font-weight: 700;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(10px);
-  transition: 0.2s ease;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.toast.error {
-  background: var(--danger);
-}
-
-.mobile-nav {
-  display: none;
-}
-
-@media (max-width: 980px) {
-  .app-shell {
-    grid-template-columns: 1fr;
+const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
+
+if (!window.supabase?.createClient) {
+  throw new Error("Supabaseライブラリを読み込めませんでした。");
+}
+
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
+
+let data = {
+  videos: [],
+  ideas: [],
+  goals: []
+};
+
+let activeVideoFilter = "all";
+let realtimeChannel = null;
+let toastTimer = null;
+let refreshTimer = null;
+
+const elements = {
+  authScreen: document.getElementById("authScreen"),
+  appRoot: document.getElementById("appRoot"),
+  mobileNav: document.getElementById("mobileNav"),
+  loginForm: document.getElementById("loginForm"),
+  loginEmail: document.getElementById("loginEmail"),
+  loginPassword: document.getElementById("loginPassword"),
+  loginButton: document.getElementById("loginButton"),
+  loginMessage: document.getElementById("loginMessage"),
+  loginUserLabel: document.getElementById("loginUserLabel"),
+  logoutButton: document.getElementById("logoutButton"),
+  syncStatus: document.getElementById("syncStatus"),
+  toast: document.getElementById("toast"),
+  quickModal: document.getElementById("quickModal"),
+  formModal: document.getElementById("formModal"),
+  formTitle: document.getElementById("formTitle"),
+  dynamicForm: document.getElementById("dynamicForm")
+};
+
+function showToast(message, type = "success") {
+  clearTimeout(toastTimer);
+  elements.toast.textContent = message;
+  elements.toast.className = `toast show${type === "error" ? " error" : ""}`;
+
+  toastTimer = setTimeout(() => {
+    elements.toast.className = "toast";
+  }, 2600);
+}
+
+function setSyncStatus(text, status = "") {
+  elements.syncStatus.textContent = text;
+  elements.syncStatus.className = `sync-status${status ? ` ${status}` : ""}`;
+}
+
+function formatDate(date) {
+  if (!date) {
+    return "未設定";
   }
 
-  .sidebar {
-    display: none;
+  const parsed = new Date(`${date}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "未設定";
   }
 
-  .main {
-    padding: 20px 18px calc(120px + env(safe-area-inset-bottom));
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  }).format(parsed);
+}
+
+function setupDate() {
+  const label = document.getElementById("todayLabel");
+
+  label.textContent = new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short"
+  }).format(new Date());
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function showAuthScreen() {
+  elements.authScreen.classList.remove("is-hidden");
+  elements.appRoot.classList.add("is-hidden");
+  elements.mobileNav.classList.add("is-hidden");
+}
+
+function showApplication(user) {
+  elements.authScreen.classList.add("is-hidden");
+  elements.appRoot.classList.remove("is-hidden");
+  elements.mobileNav.classList.remove("is-hidden");
+  elements.loginUserLabel.textContent = user?.email || "ログイン中";
+}
+
+function switchPage(pageId) {
+  const targetPage = document.getElementById(pageId);
+
+  if (!targetPage) {
+    return;
   }
 
-  .stats-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  document.querySelectorAll(".page").forEach(page => {
+    page.classList.remove("active");
+  });
+
+  document.querySelectorAll("[data-page]").forEach(button => {
+    button.classList.remove("active");
+  });
+
+  targetPage.classList.add("active");
+
+  document.querySelectorAll(`[data-page="${pageId}"]`).forEach(button => {
+    button.classList.add("active");
+  });
+
+  const titles = {
+    dashboard: "ダッシュボード",
+    videos: "動画管理",
+    ideas: "企画管理",
+    goals: "目標・実績"
+  };
+
+  document.getElementById("pageTitle").textContent =
+    titles[pageId] || "Channel Manager";
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+function mapVideo(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    type: row.video_type || "Shorts",
+    status: row.status || "企画中",
+    owner: row.owner || "",
+    postDate: row.post_date || "",
+    views24: Number(row.views_24 || 0),
+    youtubeUrl: row.youtube_url || "",
+    memo: row.memo || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+function mapIdea(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status || "アイデア",
+    note: row.note || "",
+    priority: Number(row.priority || 1),
+    plannedDate: row.planned_date || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+function mapGoal(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    current: Number(row.current_value || 0),
+    target: Number(row.target_value || 0),
+    deadline: row.deadline || "",
+    achieved: Boolean(row.achieved),
+    achievedDate: row.achieved_date || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+async function loadAllData({ silent = false } = {}) {
+  if (!silent) {
+    setSyncStatus("同期中");
   }
 
-  .mobile-nav {
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom));
-    z-index: 9999;
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    align-items: center;
-    padding: 8px;
-    border: 1px solid var(--line);
-    border-radius: 22px;
-    background: rgba(255, 255, 255, 0.96);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
-    pointer-events: auto;
-    touch-action: manipulation;
+  const [
+    videosResult,
+    ideasResult,
+    goalsResult
+  ] = await Promise.all([
+    supabaseClient
+      .from("videos")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabaseClient
+      .from("ideas")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabaseClient
+      .from("goals")
+      .select("*")
+      .order("created_at", { ascending: false })
+  ]);
+
+  const firstError =
+    videosResult.error ||
+    ideasResult.error ||
+    goalsResult.error;
+
+  if (firstError) {
+    console.error(firstError);
+    setSyncStatus("同期エラー", "error");
+
+    if (!silent) {
+      showToast(`読み込みに失敗しました：${firstError.message}`, "error");
+    }
+
+    return;
   }
 
-  .mobile-nav button {
-    position: relative;
-    z-index: 10000;
-    pointer-events: auto;
-    touch-action: manipulation;
+  data = {
+    videos: videosResult.data.map(mapVideo),
+    ideas: ideasResult.data.map(mapIdea),
+    goals: goalsResult.data.map(mapGoal)
+  };
+
+  renderAll();
+  setSyncStatus("同期済み", "online");
+}
+
+function countMonthlyPosts() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  return data.videos.filter(video => {
+    if (video.status !== "投稿済み" || !video.postDate) {
+      return false;
+    }
+
+    const postDate = new Date(`${video.postDate}T00:00:00`);
+
+    return (
+      postDate.getFullYear() === currentYear &&
+      postDate.getMonth() === currentMonth
+    );
+  }).length;
+}
+
+function renderDashboard() {
+  document.getElementById("monthlyPosts").textContent = countMonthlyPosts();
+
+  const waiting = data.videos.filter(video =>
+    ["編集待ち", "編集中", "確認待ち"].includes(video.status)
+  );
+
+  const ideaStock = data.ideas.filter(idea =>
+    idea.status !== "実行済み"
+  );
+
+  document.getElementById("waitingCount").textContent = waiting.length;
+  document.getElementById("ideaCount").textContent = ideaStock.length;
+
+  const activeGoal = data.goals.find(goal => !goal.achieved);
+  const titleElement = document.getElementById("currentGoalTitle");
+  const metaElement = document.getElementById("currentGoalMeta");
+  const percentElement = document.getElementById("goalPercent");
+  const progressElement = document.getElementById("goalProgress");
+
+  if (!activeGoal) {
+    titleElement.textContent = "目標はまだありません";
+    metaElement.textContent = "目標ページから追加してください";
+    percentElement.textContent = "0%";
+    progressElement.style.width = "0%";
+  } else {
+    const denominator = Math.max(Number(activeGoal.target), 1);
+    const percent = Math.min(
+      100,
+      Math.max(
+        0,
+        Math.round((Number(activeGoal.current) / denominator) * 100)
+      )
+    );
+
+    titleElement.textContent = activeGoal.title;
+    metaElement.textContent =
+      `現在 ${activeGoal.current} / 目標 ${activeGoal.target}`;
+    percentElement.textContent = `${percent}%`;
+    progressElement.style.width = `${percent}%`;
   }
 
-  .mobile-nav-item {
-    padding: 13px 4px;
-    text-align: center;
-    font-size: 12px;
+  const posted = data.videos
+    .filter(video => video.status === "投稿済み")
+    .sort((a, b) => {
+      return String(b.postDate).localeCompare(String(a.postDate));
+    });
+
+  const recentElement = document.getElementById("recentVideos");
+
+  if (!posted.length) {
+    recentElement.className = "table-wrap empty-state";
+    recentElement.textContent = "投稿済み動画はまだありません";
+    return;
   }
 
-  .mobile-nav-item.active {
-    border-radius: 14px;
-    background: var(--text);
-    color: white;
+  recentElement.className = "table-wrap";
+  recentElement.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>動画名</th>
+          <th>種類</th>
+          <th>投稿日</th>
+          <th>24時間再生</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${posted.slice(0, 5).map(video => `
+          <tr>
+            <td>${escapeHtml(video.title)}</td>
+            <td>${escapeHtml(video.type)}</td>
+            <td>${formatDate(video.postDate)}</td>
+            <td>${Number(video.views24).toLocaleString()}回</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderVideos() {
+  const list = document.getElementById("videoList");
+
+  const videos = activeVideoFilter === "all"
+    ? data.videos
+    : data.videos.filter(video => video.status === activeVideoFilter);
+
+  if (!videos.length) {
+    list.innerHTML =
+      `<div class="card empty-state">該当する動画はありません</div>`;
+    return;
   }
 
-  .mobile-add {
-    width: 46px;
-    height: 46px;
-    margin: auto;
-    border: 0;
-    border-radius: 50%;
-    background: var(--accent);
-    font-size: 24px;
-    font-weight: 800;
+  list.innerHTML = videos.map(video => `
+    <article class="item-card">
+      <div>
+        <span class="status">${escapeHtml(video.status)}</span>
+        <h4>${escapeHtml(video.title)}</h4>
+
+        <div class="meta">
+          <span>${escapeHtml(video.type)}</span>
+          <span>担当：${escapeHtml(video.owner || "未設定")}</span>
+          <span>投稿日：${formatDate(video.postDate)}</span>
+          ${video.views24
+            ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>`
+            : ""
+          }
+          ${video.youtubeUrl
+            ? `<a href="${escapeHtml(video.youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>`
+            : ""
+          }
+        </div>
+      </div>
+
+      <div class="item-actions">
+        <button
+          type="button"
+          class="delete-btn"
+          data-delete-type="video"
+          data-delete-id="${video.id}"
+        >
+          削除
+        </button>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderIdeas() {
+  const statuses = ["アイデア", "検討中", "実行予定", "実行済み"];
+  const board = document.getElementById("ideaBoard");
+
+  board.innerHTML = statuses.map(status => {
+    const items = data.ideas.filter(idea => idea.status === status);
+
+    return `
+      <section class="kanban-column">
+        <h4>${status} <span>(${items.length})</span></h4>
+
+        ${items.map(idea => `
+          <article class="idea-card">
+            <strong>${escapeHtml(idea.title)}</strong>
+            <p>${escapeHtml(idea.note || "メモなし")}</p>
+
+            <select data-idea-status-id="${idea.id}">
+              ${statuses.map(optionStatus => `
+                <option
+                  value="${optionStatus}"
+                  ${optionStatus === idea.status ? "selected" : ""}
+                >
+                  ${optionStatus}
+                </option>
+              `).join("")}
+            </select>
+
+            <button
+              type="button"
+              class="delete-btn"
+              data-delete-type="idea"
+              data-delete-id="${idea.id}"
+            >
+              削除
+            </button>
+          </article>
+        `).join("") || `<div class="empty-state">なし</div>`}
+      </section>
+    `;
+  }).join("");
+}
+
+function renderGoals() {
+  const list = document.getElementById("goalList");
+
+  if (!data.goals.length) {
+    list.innerHTML =
+      `<div class="card empty-state">目標はまだありません</div>`;
+    return;
   }
 
-  .toast {
-    right: 14px;
-    bottom: calc(92px + env(safe-area-inset-bottom));
+  list.innerHTML = data.goals.map(goal => {
+    const denominator = Math.max(Number(goal.target), 1);
+    const percent = Math.min(
+      100,
+      Math.max(
+        0,
+        Math.round((Number(goal.current) / denominator) * 100)
+      )
+    );
+
+    return `
+      <article class="item-card">
+        <div>
+          <span class="status">${goal.achieved ? "達成済み" : "進行中"}</span>
+          <h4>${escapeHtml(goal.title)}</h4>
+
+          <div class="meta">
+            <span>現在 ${goal.current}</span>
+            <span>目標 ${goal.target}</span>
+            <span>期限 ${formatDate(goal.deadline)}</span>
+            ${goal.achievedDate
+              ? `<span>達成日 ${formatDate(goal.achievedDate)}</span>`
+              : ""
+            }
+          </div>
+
+          <div class="progress">
+            <span style="width: ${percent}%"></span>
+          </div>
+        </div>
+
+        <div class="item-actions">
+          ${!goal.achieved
+            ? `
+              <button
+                type="button"
+                class="secondary-btn"
+                data-achieve-goal="${goal.id}"
+              >
+                達成
+              </button>
+            `
+            : ""
+          }
+
+          <button
+            type="button"
+            class="delete-btn"
+            data-delete-type="goal"
+            data-delete-id="${goal.id}"
+          >
+            削除
+          </button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderAll() {
+  renderDashboard();
+  renderVideos();
+  renderIdeas();
+  renderGoals();
+}
+
+function openForm(type) {
+  if (elements.quickModal.open) {
+    elements.quickModal.close();
+  }
+
+  const forms = {
+    video: {
+      title: "動画を追加",
+      html: `
+        <div class="form-grid">
+          <label>
+            動画タイトル
+            <input name="title" required />
+          </label>
+
+          <label>
+            動画形式
+            <select name="type">
+              <option>Shorts</option>
+              <option>横動画</option>
+            </select>
+          </label>
+
+          <label>
+            ステータス
+            <select name="status">
+              <option>企画中</option>
+              <option>編集待ち</option>
+              <option>編集中</option>
+              <option>確認待ち</option>
+              <option>投稿済み</option>
+            </select>
+          </label>
+
+          <label>
+            担当者
+            <input name="owner" placeholder="自分 / 相方" />
+          </label>
+
+          <label>
+            投稿日
+            <input type="date" name="postDate" />
+          </label>
+
+          <label>
+            24時間後の再生数
+            <input type="number" name="views24" min="0" />
+          </label>
+
+          <label>
+            YouTube URL
+            <input type="url" name="youtubeUrl" placeholder="https://youtube.com/..." />
+          </label>
+
+          <label>
+            メモ
+            <textarea name="memo"></textarea>
+          </label>
+        </div>
+
+        <button class="form-submit" type="submit">追加する</button>
+      `
+    },
+
+    idea: {
+      title: "企画を追加",
+      html: `
+        <div class="form-grid">
+          <label>
+            企画名
+            <input name="title" required />
+          </label>
+
+          <label>
+            ステータス
+            <select name="status">
+              <option>アイデア</option>
+              <option>検討中</option>
+              <option>実行予定</option>
+              <option>実行済み</option>
+            </select>
+          </label>
+
+          <label>
+            メモ
+            <textarea name="note"></textarea>
+          </label>
+        </div>
+
+        <button class="form-submit" type="submit">追加する</button>
+      `
+    },
+
+    goal: {
+      title: "目標を追加",
+      html: `
+        <div class="form-grid">
+          <label>
+            目標名
+            <input name="title" required />
+          </label>
+
+          <label>
+            現在の数値
+            <input type="number" name="current" value="0" required />
+          </label>
+
+          <label>
+            目標数値
+            <input type="number" name="target" value="100" required />
+          </label>
+
+          <label>
+            期限
+            <input type="date" name="deadline" />
+          </label>
+        </div>
+
+        <button class="form-submit" type="submit">追加する</button>
+      `
+    }
+  };
+
+  const selectedForm = forms[type];
+
+  if (!selectedForm) {
+    return;
+  }
+
+  elements.formTitle.textContent = selectedForm.title;
+  elements.dynamicForm.innerHTML = selectedForm.html;
+  elements.dynamicForm.dataset.type = type;
+  elements.formModal.showModal();
+}
+
+async function insertVideo(values) {
+  const { error } = await supabaseClient
+    .from("videos")
+    .insert({
+      title: values.title.trim(),
+      video_type: values.type,
+      status: values.status,
+      owner: values.owner.trim() || null,
+      post_date: values.postDate || null,
+      views_24: Number(values.views24 || 0),
+      youtube_url: values.youtubeUrl.trim() || null,
+      memo: values.memo.trim() || null
+    });
+
+  if (error) {
+    throw error;
   }
 }
 
-@media (max-width: 620px) {
-  .topbar h2 {
-    font-size: 25px;
-  }
+async function insertIdea(values) {
+  const { error } = await supabaseClient
+    .from("ideas")
+    .insert({
+      title: values.title.trim(),
+      status: values.status,
+      note: values.note.trim() || null
+    });
 
-  .topbar-actions {
-    gap: 8px;
-  }
-
-  .sync-status {
-    display: none;
-  }
-
-  .primary-btn {
-    padding: 11px 15px;
-  }
-
-  .stats-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .stat-card {
-    padding: 18px;
-  }
-
-  .stat-card strong {
-    font-size: 34px;
-  }
-
-  .kanban {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .item-card {
-    grid-template-columns: 1fr;
-  }
-
-  .item-actions {
-    justify-content: flex-end;
+  if (error) {
+    throw error;
   }
 }
 
-@media (max-width: 430px) {
-  .auth-card {
-    padding: 26px 20px;
-  }
+async function insertGoal(values) {
+  const { error } = await supabaseClient
+    .from("goals")
+    .insert({
+      title: values.title.trim(),
+      current_value: Number(values.current || 0),
+      target_value: Number(values.target || 0),
+      deadline: values.deadline || null,
+      achieved: false,
+      achieved_date: null
+    });
 
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .kanban {
-    grid-template-columns: 1fr;
+  if (error) {
+    throw error;
   }
 }
+
+async function handleSubmit(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector('[type="submit"]');
+  const values = Object.fromEntries(new FormData(form).entries());
+  const type = form.dataset.type;
+
+  submitButton.disabled = true;
+  submitButton.textContent = "保存中...";
+
+  try {
+    if (type === "video") {
+      await insertVideo(values);
+    } else if (type === "idea") {
+      await insertIdea(values);
+    } else if (type === "goal") {
+      await insertGoal(values);
+    } else {
+      throw new Error("保存形式が不明です。");
+    }
+
+    elements.formModal.close();
+    await loadAllData({ silent: true });
+    showToast("保存しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`保存できませんでした：${error.message}`, "error");
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "追加する";
+  }
+}
+
+async function deleteItem(type, id) {
+  const tableMap = {
+    video: "videos",
+    idea: "ideas",
+    goal: "goals"
+  };
+
+  const table = tableMap[type];
+
+  if (!table) {
+    return;
+  }
+
+  const confirmed = window.confirm("削除してもよろしいですか？");
+
+  if (!confirmed) {
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from(table)
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    showToast(`削除できませんでした：${error.message}`, "error");
+    return;
+  }
+
+  await loadAllData({ silent: true });
+  showToast("削除しました");
+}
+
+async function moveIdea(id, status) {
+  const { error } = await supabaseClient
+    .from("ideas")
+    .update({
+      status,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    showToast(`変更できませんでした：${error.message}`, "error");
+    await loadAllData({ silent: true });
+    return;
+  }
+
+  await loadAllData({ silent: true });
+}
+
+async function achieveGoal(id) {
+  const goal = data.goals.find(item => item.id === id);
+
+  if (!goal) {
+    return;
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const { error } = await supabaseClient
+    .from("goals")
+    .update({
+      achieved: true,
+      achieved_date: today,
+      current_value: goal.target,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    showToast(`更新できませんでした：${error.message}`, "error");
+    return;
+  }
+
+  await loadAllData({ silent: true });
+  showToast("目標を達成済みにしました");
+}
+
+function scheduleRealtimeRefresh() {
+  clearTimeout(refreshTimer);
+
+  refreshTimer = setTimeout(() => {
+    loadAllData({ silent: true });
+  }, 200);
+}
+
+function subscribeRealtime() {
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  realtimeChannel = supabaseClient
+    .channel("boat-manager-shared-data")
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "videos"
+      },
+      scheduleRealtimeRefresh
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "ideas"
+      },
+      scheduleRealtimeRefresh
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "goals"
+      },
+      scheduleRealtimeRefresh
+    )
+    .subscribe(status => {
+      if (status === "SUBSCRIBED") {
+        setSyncStatus("リアルタイム同期中", "online");
+      }
+
+      if (
+        status === "CHANNEL_ERROR" ||
+        status === "TIMED_OUT"
+      ) {
+        setSyncStatus("同期接続エラー", "error");
+      }
+    });
+}
+
+async function login(email, password) {
+  const { data: authData, error } =
+    await supabaseClient.auth.signInWithPassword({
+      email,
+      password
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  return authData.user;
+}
+
+async function logout() {
+  const { error } = await supabaseClient.auth.signOut();
+
+  if (error) {
+    showToast(`ログアウトできませんでした：${error.message}`, "error");
+    return;
+  }
+
+  if (realtimeChannel) {
+    await supabaseClient.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+
+  data = {
+    videos: [],
+    ideas: [],
+    goals: []
+  };
+
+  showAuthScreen();
+}
+
+async function startAuthenticatedApp(user) {
+  showApplication(user);
+  setupDate();
+  renderAll();
+  await loadAllData();
+  subscribeRealtime();
+}
+
+async function initialize() {
+  setupEventListeners();
+
+  const {
+    data: { session },
+    error
+  } = await supabaseClient.auth.getSession();
+
+  if (error) {
+    console.error(error);
+    showAuthScreen();
+    elements.loginMessage.textContent =
+      "ログイン状態を確認できませんでした。";
+    return;
+  }
+
+  if (session?.user) {
+    await startAuthenticatedApp(session.user);
+  } else {
+    showAuthScreen();
+  }
+
+  supabaseClient.auth.onAuthStateChange((event, sessionData) => {
+    if (event === "SIGNED_OUT" || !sessionData) {
+      showAuthScreen();
+    }
+  });
+}
+
+function setupEventListeners() {
+  elements.loginForm.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    elements.loginMessage.textContent = "";
+    elements.loginButton.disabled = true;
+    elements.loginButton.textContent = "ログイン中...";
+
+    try {
+      const user = await login(
+        elements.loginEmail.value.trim(),
+        elements.loginPassword.value
+      );
+
+      elements.loginPassword.value = "";
+      await startAuthenticatedApp(user);
+    } catch (error) {
+      console.error(error);
+      elements.loginMessage.textContent =
+        "メールアドレスまたはパスワードを確認してください。";
+    } finally {
+      elements.loginButton.disabled = false;
+      elements.loginButton.textContent = "ログイン";
+    }
+  });
+
+  elements.logoutButton.addEventListener("click", logout);
+
+  document.addEventListener("click", event => {
+    const pageButton = event.target.closest("[data-page]");
+
+    if (pageButton) {
+      event.preventDefault();
+      switchPage(pageButton.dataset.page);
+      return;
+    }
+
+    const openModalButton = event.target.closest("[data-open-modal]");
+
+    if (openModalButton) {
+      event.preventDefault();
+      openForm(openModalButton.dataset.openModal);
+      return;
+    }
+
+    const closeButton = event.target.closest("[data-close]");
+
+    if (closeButton) {
+      event.preventDefault();
+      closeButton.closest("dialog")?.close();
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-type]");
+
+    if (deleteButton) {
+      event.preventDefault();
+      deleteItem(
+        deleteButton.dataset.deleteType,
+        deleteButton.dataset.deleteId
+      );
+      return;
+    }
+
+    const achieveButton = event.target.closest("[data-achieve-goal]");
+
+    if (achieveButton) {
+      event.preventDefault();
+      achieveGoal(achieveButton.dataset.achieveGoal);
+    }
+  });
+
+  document.addEventListener("change", event => {
+    const select = event.target.closest("[data-idea-status-id]");
+
+    if (select) {
+      moveIdea(select.dataset.ideaStatusId, select.value);
+    }
+  });
+
+  document.getElementById("openQuickAdd").addEventListener("click", () => {
+    elements.quickModal.showModal();
+  });
+
+  document.getElementById("mobileQuickAdd").addEventListener("click", () => {
+    elements.quickModal.showModal();
+  });
+
+  elements.dynamicForm.addEventListener("submit", handleSubmit);
+
+  document.querySelectorAll(".filter-btn").forEach(button => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(item => {
+        item.classList.remove("active");
+      });
+
+      button.classList.add("active");
+      activeVideoFilter = button.dataset.filter;
+      renderVideos();
+    });
+  });
+
+  [elements.quickModal, elements.formModal].forEach(dialog => {
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) {
+        dialog.close();
+      }
+    });
+  });
+}
+
+initialize().catch(error => {
+  console.error(error);
+  showAuthScreen();
+  elements.loginMessage.textContent =
+    "初期化に失敗しました。ページを再読み込みしてください。";
+});
