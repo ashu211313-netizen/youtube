@@ -2,12 +2,36 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f5f7" />
   <title>Boat Channel Manager</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=10" />
 </head>
 <body>
-  <div class="app-shell">
+  <section id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <p class="eyebrow">BOAT RACE</p>
+      <h1>Channel Manager</h1>
+      <p class="auth-description">登録したメールアドレスとパスワードでログインしてください。</p>
+
+      <form id="loginForm" class="login-form">
+        <label>
+          メールアドレス
+          <input id="loginEmail" type="email" autocomplete="email" required />
+        </label>
+
+        <label>
+          パスワード
+          <input id="loginPassword" type="password" autocomplete="current-password" required />
+        </label>
+
+        <button id="loginButton" class="form-submit" type="submit">ログイン</button>
+        <p id="loginMessage" class="form-message" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+
+  <div id="appRoot" class="app-shell is-hidden">
     <aside class="sidebar">
       <div>
         <p class="eyebrow">BOAT RACE</p>
@@ -15,15 +39,15 @@
       </div>
 
       <nav class="nav">
-        <button class="nav-item active" data-page="dashboard">ダッシュボード</button>
-        <button class="nav-item" data-page="videos">動画管理</button>
-        <button class="nav-item" data-page="ideas">企画管理</button>
-        <button class="nav-item" data-page="goals">目標・実績</button>
+        <button type="button" class="nav-item active" data-page="dashboard">ダッシュボード</button>
+        <button type="button" class="nav-item" data-page="videos">動画管理</button>
+        <button type="button" class="nav-item" data-page="ideas">企画管理</button>
+        <button type="button" class="nav-item" data-page="goals">目標・実績</button>
       </nav>
 
       <div class="sidebar-foot">
-        <p>2人用 管理サイト</p>
-        <span>Prototype v1</span>
+        <p id="loginUserLabel">ログイン中</p>
+        <button type="button" id="logoutButton" class="text-button">ログアウト</button>
       </div>
     </aside>
 
@@ -33,21 +57,27 @@
           <p class="eyebrow" id="todayLabel"></p>
           <h2 id="pageTitle">ダッシュボード</h2>
         </div>
-        <button id="openQuickAdd" class="primary-btn">＋ 追加</button>
+
+        <div class="topbar-actions">
+          <span id="syncStatus" class="sync-status">接続中</span>
+          <button type="button" id="openQuickAdd" class="primary-btn">＋ 追加</button>
+        </div>
       </header>
 
       <section id="dashboard" class="page active">
         <div class="stats-grid">
           <article class="card stat-card">
             <span>今月の投稿数</span>
-            <strong id="monthlyPosts">3</strong>
-            <small>目標 8本</small>
+            <strong id="monthlyPosts">0</strong>
+            <small>投稿済み動画から集計</small>
           </article>
+
           <article class="card stat-card">
             <span>編集待ち</span>
             <strong id="waitingCount">0</strong>
-            <small>動画管理から更新</small>
+            <small>編集中・確認待ちを含む</small>
           </article>
+
           <article class="card stat-card">
             <span>企画ストック</span>
             <strong id="ideaCount">0</strong>
@@ -55,32 +85,19 @@
           </article>
         </div>
 
-        <div class="dashboard-grid">
-          <article class="card goal-card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">NEXT GOAL</p>
-                <h3>次の目標</h3>
-              </div>
-              <span id="goalPercent">85%</span>
+        <article class="card goal-card dashboard-goal">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">NEXT GOAL</p>
+              <h3>次の目標</h3>
             </div>
-            <h4 id="currentGoalTitle">登録者150人</h4>
-            <p id="currentGoalMeta">現在128人 / 目標150人</p>
-            <div class="progress"><span id="goalProgress"></span></div>
-          </article>
+            <span id="goalPercent">0%</span>
+          </div>
 
-          <article class="card">
-            <div class="section-head">
-              <div>
-                <p class="eyebrow">TO DO</p>
-                <h3>今やること</h3>
-              </div>
-            </div>
-            <div id="todoPreview" class="stack-list empty-state">
-              まだ動画が登録されていません
-            </div>
-          </article>
-        </div>
+          <h4 id="currentGoalTitle">目標はまだありません</h4>
+          <p id="currentGoalMeta">目標ページから追加してください</p>
+          <div class="progress"><span id="goalProgress"></span></div>
+        </article>
 
         <article class="card">
           <div class="section-head">
@@ -89,6 +106,7 @@
               <h3>最近投稿した動画</h3>
             </div>
           </div>
+
           <div id="recentVideos" class="table-wrap empty-state">
             投稿済み動画はまだありません
           </div>
@@ -101,16 +119,18 @@
             <p class="eyebrow">VIDEO PIPELINE</p>
             <h3>動画管理</h3>
           </div>
-          <button class="secondary-btn" data-open-modal="video">＋ 動画を追加</button>
+          <button type="button" class="secondary-btn" data-open-modal="video">＋ 動画を追加</button>
         </div>
+
         <div class="filter-row" id="videoFilters">
-          <button class="filter-btn active" data-filter="all">すべて</button>
-          <button class="filter-btn" data-filter="企画中">企画中</button>
-          <button class="filter-btn" data-filter="編集待ち">編集待ち</button>
-          <button class="filter-btn" data-filter="編集中">編集中</button>
-          <button class="filter-btn" data-filter="確認待ち">確認待ち</button>
-          <button class="filter-btn" data-filter="投稿済み">投稿済み</button>
+          <button type="button" class="filter-btn active" data-filter="all">すべて</button>
+          <button type="button" class="filter-btn" data-filter="企画中">企画中</button>
+          <button type="button" class="filter-btn" data-filter="編集待ち">編集待ち</button>
+          <button type="button" class="filter-btn" data-filter="編集中">編集中</button>
+          <button type="button" class="filter-btn" data-filter="確認待ち">確認待ち</button>
+          <button type="button" class="filter-btn" data-filter="投稿済み">投稿済み</button>
         </div>
+
         <div id="videoList" class="cards-list"></div>
       </section>
 
@@ -120,8 +140,9 @@
             <p class="eyebrow">IDEA STOCK</p>
             <h3>企画管理</h3>
           </div>
-          <button class="secondary-btn" data-open-modal="idea">＋ 企画を追加</button>
+          <button type="button" class="secondary-btn" data-open-modal="idea">＋ 企画を追加</button>
         </div>
+
         <div class="kanban" id="ideaBoard"></div>
       </section>
 
@@ -131,19 +152,20 @@
             <p class="eyebrow">GOALS & ACHIEVEMENTS</p>
             <h3>目標・実績</h3>
           </div>
-          <button class="secondary-btn" data-open-modal="goal">＋ 目標を追加</button>
+          <button type="button" class="secondary-btn" data-open-modal="goal">＋ 目標を追加</button>
         </div>
+
         <div id="goalList" class="cards-list"></div>
       </section>
     </main>
   </div>
 
-  <div class="mobile-nav">
-    <button class="mobile-nav-item active" data-page="dashboard">ホーム</button>
-    <button class="mobile-nav-item" data-page="videos">動画</button>
-    <button id="mobileQuickAdd" class="mobile-add">＋</button>
-    <button class="mobile-nav-item" data-page="ideas">企画</button>
-    <button class="mobile-nav-item" data-page="goals">目標</button>
+  <div id="mobileNav" class="mobile-nav is-hidden">
+    <button type="button" class="mobile-nav-item active" data-page="dashboard">ホーム</button>
+    <button type="button" class="mobile-nav-item" data-page="videos">動画</button>
+    <button type="button" id="mobileQuickAdd" class="mobile-add">＋</button>
+    <button type="button" class="mobile-nav-item" data-page="ideas">企画</button>
+    <button type="button" class="mobile-nav-item" data-page="goals">目標</button>
   </div>
 
   <dialog id="quickModal" class="modal">
@@ -152,12 +174,13 @@
         <p class="eyebrow">QUICK ADD</p>
         <h3>何を追加しますか？</h3>
       </div>
-      <button class="icon-btn" data-close>×</button>
+      <button type="button" class="icon-btn" data-close>×</button>
     </div>
+
     <div class="quick-grid">
-      <button data-open-modal="video">動画</button>
-      <button data-open-modal="idea">企画</button>
-      <button data-open-modal="goal">目標</button>
+      <button type="button" data-open-modal="video">動画</button>
+      <button type="button" data-open-modal="idea">企画</button>
+      <button type="button" data-open-modal="goal">目標</button>
     </div>
   </dialog>
 
@@ -167,11 +190,15 @@
         <p class="eyebrow">ADD DATA</p>
         <h3 id="formTitle">追加</h3>
       </div>
-      <button class="icon-btn" data-close>×</button>
+      <button type="button" class="icon-btn" data-close>×</button>
     </div>
+
     <form id="dynamicForm"></form>
   </dialog>
 
-  <script src="app.js"></script>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
