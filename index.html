@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boat Channel Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div>
+        <p class="eyebrow">BOAT RACE</p>
+        <h1>Channel Manager</h1>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-page="dashboard">ダッシュボード</button>
+        <button class="nav-item" data-page="videos">動画管理</button>
+        <button class="nav-item" data-page="ideas">企画管理</button>
+        <button class="nav-item" data-page="goals">目標・実績</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <p>2人用 管理サイト</p>
+        <span>Prototype v1</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="todayLabel"></p>
+          <h2 id="pageTitle">ダッシュボード</h2>
+        </div>
+        <button id="openQuickAdd" class="primary-btn">＋ 追加</button>
+      </header>
+
+      <section id="dashboard" class="page active">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">CURRENT STATUS</p>
+            <h3>チャンネルの今を、<br>ひと目で確認。</h3>
+          </div>
+          <div class="hero-badge">YouTube運営</div>
+        </div>
+
+        <div class="stats-grid">
+          <article class="card stat-card">
+            <span>現在の登録者数</span>
+            <strong id="subscriberCount">128</strong>
+            <small>前回記録から +14</small>
+          </article>
+          <article class="card stat-card">
+            <span>今月の投稿数</span>
+            <strong id="monthlyPosts">3</strong>
+            <small>目標 8本</small>
+          </article>
+          <article class="card stat-card">
+            <span>編集待ち</span>
+            <strong id="waitingCount">0</strong>
+            <small>動画管理から更新</small>
+          </article>
+          <article class="card stat-card">
+            <span>企画ストック</span>
+            <strong id="ideaCount">0</strong>
+            <small>未実行の企画</small>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="card goal-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">NEXT GOAL</p>
+                <h3>次の目標</h3>
+              </div>
+              <span id="goalPercent">85%</span>
+            </div>
+            <h4 id="currentGoalTitle">登録者150人</h4>
+            <p id="currentGoalMeta">現在128人 / 目標150人</p>
+            <div class="progress"><span id="goalProgress"></span></div>
+          </article>
+
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">TO DO</p>
+                <h3>今やること</h3>
+              </div>
+            </div>
+            <div id="todoPreview" class="stack-list empty-state">
+              まだ動画が登録されていません
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">RECENT VIDEOS</p>
+              <h3>最近投稿した動画</h3>
+            </div>
+          </div>
+          <div id="recentVideos" class="table-wrap empty-state">
+            投稿済み動画はまだありません
+          </div>
+        </article>
+      </section>
+
+      <section id="videos" class="page">
+        <div class="section-head page-section-head">
+          <div>
+            <p class="eyebrow">VIDEO PIPELINE</p>
+            <h3>動画管理</h3>
+          </div>
+          <button class="secondary-btn" data-open-modal="video">＋ 動画を追加</button>
+        </div>
+        <div class="filter-row" id="videoFilters">
+          <button class="filter-btn active" data-filter="all">すべて</button>
+          <button class="filter-btn" data-filter="企画中">企画中</button>
+          <button class="filter-btn" data-filter="編集待ち">編集待ち</button>
+          <button class="filter-btn" data-filter="編集中">編集中</button>
+          <button class="filter-btn" data-filter="確認待ち">確認待ち</button>
+          <button class="filter-btn" data-filter="投稿済み">投稿済み</button>
+        </div>
+        <div id="videoList" class="cards-list"></div>
+      </section>
+
+      <section id="ideas" class="page">
+        <div class="section-head page-section-head">
+          <div>
+            <p class="eyebrow">IDEA STOCK</p>
+            <h3>企画管理</h3>
+          </div>
+          <button class="secondary-btn" data-open-modal="idea">＋ 企画を追加</button>
+        </div>
+        <div class="kanban" id="ideaBoard"></div>
+      </section>
+
+      <section id="goals" class="page">
+        <div class="section-head page-section-head">
+          <div>
+            <p class="eyebrow">GOALS & ACHIEVEMENTS</p>
+            <h3>目標・実績</h3>
+          </div>
+          <button class="secondary-btn" data-open-modal="goal">＋ 目標を追加</button>
+        </div>
+        <div id="goalList" class="cards-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="mobile-nav">
+    <button class="mobile-nav-item active" data-page="dashboard">ホーム</button>
+    <button class="mobile-nav-item" data-page="videos">動画</button>
+    <button id="mobileQuickAdd" class="mobile-add">＋</button>
+    <button class="mobile-nav-item" data-page="ideas">企画</button>
+    <button class="mobile-nav-item" data-page="goals">目標</button>
+  </div>
+
+  <dialog id="quickModal" class="modal">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">QUICK ADD</p>
+        <h3>何を追加しますか？</h3>
+      </div>
+      <button class="icon-btn" data-close>×</button>
+    </div>
+    <div class="quick-grid">
+      <button data-open-modal="video">動画</button>
+      <button data-open-modal="idea">企画</button>
+      <button data-open-modal="goal">目標</button>
+      <button data-open-modal="subscriber">登録者数</button>
+    </div>
+  </dialog>
+
+  <dialog id="formModal" class="modal form-modal">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">ADD DATA</p>
+        <h3 id="formTitle">追加</h3>
+      </div>
+      <button class="icon-btn" data-close>×</button>
+    </div>
+    <form id="dynamicForm"></form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
