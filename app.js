@@ -1,4 +1,7 @@
-const STORAGE_KEY = "boatChannelManagerData";
+
+const SUPABASE_URL = "https://jyxrrnfhypqaecfojsle.supabase.co";
+
+const SUPABASE_KEY = "あなたのPublishable Key";const STORAGE_KEY = "boatChannelManagerData";
 
 const defaultData = {
   subscribers: 128,
