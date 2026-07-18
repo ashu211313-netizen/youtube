@@ -1,8 +1,8 @@
-
 const SUPABASE_URL = "https://jyxrrnfhypqaecfojsle.supabase.co";
 
-const SUPABASE_KEY = "あなたのPublishable Key";const STORAGE_KEY = "boatChannelManagerData";
+const SUPABASE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
 
+const STORAGE_KEY = "boatChannelManagerData";
 const defaultData = {
   subscribers: 128,
   monthlyPosts: 3,
