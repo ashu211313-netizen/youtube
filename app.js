@@ -1,65 +1,131 @@
-const SUPABASE_URL = "https://jyxrrnfhypqaecfojsle.supabase.co";
+const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
 
-const SUPABASE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-
-const STORAGE_KEY = "boatChannelManagerData";
-const defaultData = {
-  subscribers: 128,
-  monthlyPosts: 3,
-  videos: [],
-  ideas: [],
-  goals: [
-    {
-      id: crypto.randomUUID(),
-      title: "登録者150人",
-      current: 128,
-      target: 150,
-      deadline: "2026-08-31",
-      achieved: false,
-      achievedDate: ""
-    }
-  ]
-};
-
-let data = loadData();
-let activeVideoFilter = "all";
-
-function loadData() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  return saved ? JSON.parse(saved) : defaultData;
+if (!window.supabase?.createClient) {
+  throw new Error("Supabaseライブラリを読み込めませんでした。");
 }
 
-function saveData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  renderAll();
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
+
+let data = {
+  videos: [],
+  ideas: [],
+  goals: []
+};
+
+let activeVideoFilter = "all";
+let realtimeChannel = null;
+let toastTimer = null;
+let refreshTimer = null;
+
+const elements = {
+  authScreen: document.getElementById("authScreen"),
+  appRoot: document.getElementById("appRoot"),
+  mobileNav: document.getElementById("mobileNav"),
+  loginForm: document.getElementById("loginForm"),
+  loginEmail: document.getElementById("loginEmail"),
+  loginPassword: document.getElementById("loginPassword"),
+  loginButton: document.getElementById("loginButton"),
+  loginMessage: document.getElementById("loginMessage"),
+  loginUserLabel: document.getElementById("loginUserLabel"),
+  logoutButton: document.getElementById("logoutButton"),
+  syncStatus: document.getElementById("syncStatus"),
+  toast: document.getElementById("toast"),
+  quickModal: document.getElementById("quickModal"),
+  formModal: document.getElementById("formModal"),
+  formTitle: document.getElementById("formTitle"),
+  dynamicForm: document.getElementById("dynamicForm")
+};
+
+function showToast(message, type = "success") {
+  clearTimeout(toastTimer);
+  elements.toast.textContent = message;
+  elements.toast.className = `toast show${type === "error" ? " error" : ""}`;
+
+  toastTimer = setTimeout(() => {
+    elements.toast.className = "toast";
+  }, 2600);
+}
+
+function setSyncStatus(text, status = "") {
+  elements.syncStatus.textContent = text;
+  elements.syncStatus.className = `sync-status${status ? ` ${status}` : ""}`;
 }
 
 function formatDate(date) {
-  if (!date) return "未設定";
+  if (!date) {
+    return "未設定";
+  }
+
+  const parsed = new Date(`${date}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "未設定";
+  }
+
   return new Intl.DateTimeFormat("ja-JP", {
     year: "numeric",
     month: "short",
     day: "numeric"
-  }).format(new Date(date));
+  }).format(parsed);
 }
 
 function setupDate() {
-  const now = new Date();
-  document.getElementById("todayLabel").textContent =
-    new Intl.DateTimeFormat("ja-JP", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      weekday: "short"
-    }).format(now);
+  const label = document.getElementById("todayLabel");
+
+  label.textContent = new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short"
+  }).format(new Date());
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function showAuthScreen() {
+  elements.authScreen.classList.remove("is-hidden");
+  elements.appRoot.classList.add("is-hidden");
+  elements.mobileNav.classList.add("is-hidden");
+}
+
+function showApplication(user) {
+  elements.authScreen.classList.add("is-hidden");
+  elements.appRoot.classList.remove("is-hidden");
+  elements.mobileNav.classList.remove("is-hidden");
+  elements.loginUserLabel.textContent = user?.email || "ログイン中";
 }
 
 function switchPage(pageId) {
-  document.querySelectorAll(".page").forEach(page => page.classList.remove("active"));
-  document.querySelectorAll("[data-page]").forEach(btn => btn.classList.remove("active"));
+  const targetPage = document.getElementById(pageId);
 
-  document.getElementById(pageId).classList.add("active");
-  document.querySelectorAll(`[data-page="${pageId}"]`).forEach(btn => btn.classList.add("active"));
+  if (!targetPage) {
+    return;
+  }
+
+  document.querySelectorAll(".page").forEach(page => {
+    page.classList.remove("active");
+  });
+
+  document.querySelectorAll("[data-page]").forEach(button => {
+    button.classList.remove("active");
+  });
+
+  targetPage.classList.add("active");
+
+  document.querySelectorAll(`[data-page="${pageId}"]`).forEach(button => {
+    button.classList.add("active");
+  });
 
   const titles = {
     dashboard: "ダッシュボード",
@@ -67,98 +133,250 @@ function switchPage(pageId) {
     ideas: "企画管理",
     goals: "目標・実績"
   };
-  document.getElementById("pageTitle").textContent = titles[pageId];
-  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  document.getElementById("pageTitle").textContent =
+    titles[pageId] || "Channel Manager";
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+function mapVideo(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    type: row.video_type || "Shorts",
+    status: row.status || "企画中",
+    owner: row.owner || "",
+    postDate: row.post_date || "",
+    views24: Number(row.views_24 || 0),
+    youtubeUrl: row.youtube_url || "",
+    memo: row.memo || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+function mapIdea(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status || "アイデア",
+    note: row.note || "",
+    priority: Number(row.priority || 1),
+    plannedDate: row.planned_date || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+function mapGoal(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    current: Number(row.current_value || 0),
+    target: Number(row.target_value || 0),
+    deadline: row.deadline || "",
+    achieved: Boolean(row.achieved),
+    achievedDate: row.achieved_date || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+async function loadAllData({ silent = false } = {}) {
+  if (!silent) {
+    setSyncStatus("同期中");
+  }
+
+  const [
+    videosResult,
+    ideasResult,
+    goalsResult
+  ] = await Promise.all([
+    supabaseClient
+      .from("videos")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabaseClient
+      .from("ideas")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabaseClient
+      .from("goals")
+      .select("*")
+      .order("created_at", { ascending: false })
+  ]);
+
+  const firstError =
+    videosResult.error ||
+    ideasResult.error ||
+    goalsResult.error;
+
+  if (firstError) {
+    console.error(firstError);
+    setSyncStatus("同期エラー", "error");
+
+    if (!silent) {
+      showToast(`読み込みに失敗しました：${firstError.message}`, "error");
+    }
+
+    return;
+  }
+
+  data = {
+    videos: videosResult.data.map(mapVideo),
+    ideas: ideasResult.data.map(mapIdea),
+    goals: goalsResult.data.map(mapGoal)
+  };
+
+  renderAll();
+  setSyncStatus("同期済み", "online");
+}
+
+function countMonthlyPosts() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  return data.videos.filter(video => {
+    if (video.status !== "投稿済み" || !video.postDate) {
+      return false;
+    }
+
+    const postDate = new Date(`${video.postDate}T00:00:00`);
+
+    return (
+      postDate.getFullYear() === currentYear &&
+      postDate.getMonth() === currentMonth
+    );
+  }).length;
 }
 
 function renderDashboard() {
-  document.getElementById("monthlyPosts").textContent = data.monthlyPosts;
+  document.getElementById("monthlyPosts").textContent = countMonthlyPosts();
 
-  const waiting = data.videos.filter(v => ["編集待ち", "編集中", "確認待ち"].includes(v.status));
-  const ideaStock = data.ideas.filter(i => !["実行済み", "ボツ"].includes(i.status));
+  const waiting = data.videos.filter(video =>
+    ["編集待ち", "編集中", "確認待ち"].includes(video.status)
+  );
+
+  const ideaStock = data.ideas.filter(idea =>
+    idea.status !== "実行済み"
+  );
+
   document.getElementById("waitingCount").textContent = waiting.length;
   document.getElementById("ideaCount").textContent = ideaStock.length;
 
-  const activeGoal = data.goals.find(g => !g.achieved);
-  if (activeGoal) {
-    const percent = Math.min(100, Math.round((Number(activeGoal.current) / Number(activeGoal.target)) * 100));
-    document.getElementById("currentGoalTitle").textContent = activeGoal.title;
-    document.getElementById("currentGoalMeta").textContent =
-      `現在${activeGoal.current} / 目標${activeGoal.target}`;
-    document.getElementById("goalPercent").textContent = `${percent}%`;
-    document.getElementById("goalProgress").style.width = `${percent}%`;
-  }
+  const activeGoal = data.goals.find(goal => !goal.achieved);
+  const titleElement = document.getElementById("currentGoalTitle");
+  const metaElement = document.getElementById("currentGoalMeta");
+  const percentElement = document.getElementById("goalPercent");
+  const progressElement = document.getElementById("goalProgress");
 
-  const todoPreview = document.getElementById("todoPreview");
-  if (!waiting.length) {
-    todoPreview.className = "stack-list empty-state";
-    todoPreview.textContent = "編集待ちの動画はありません";
+  if (!activeGoal) {
+    titleElement.textContent = "目標はまだありません";
+    metaElement.textContent = "目標ページから追加してください";
+    percentElement.textContent = "0%";
+    progressElement.style.width = "0%";
   } else {
-    todoPreview.className = "stack-list";
-    todoPreview.innerHTML = waiting.slice(0, 4).map(v => `
-      <div class="stack-item">
-        <strong>${escapeHtml(v.title)}</strong>
-        <span>${escapeHtml(v.status)}・担当 ${escapeHtml(v.owner || "未設定")}</span>
-      </div>
-    `).join("");
+    const denominator = Math.max(Number(activeGoal.target), 1);
+    const percent = Math.min(
+      100,
+      Math.max(
+        0,
+        Math.round((Number(activeGoal.current) / denominator) * 100)
+      )
+    );
+
+    titleElement.textContent = activeGoal.title;
+    metaElement.textContent =
+      `現在 ${activeGoal.current} / 目標 ${activeGoal.target}`;
+    percentElement.textContent = `${percent}%`;
+    progressElement.style.width = `${percent}%`;
   }
 
-  const posted = data.videos.filter(v => v.status === "投稿済み");
-  const recent = document.getElementById("recentVideos");
+  const posted = data.videos
+    .filter(video => video.status === "投稿済み")
+    .sort((a, b) => {
+      return String(b.postDate).localeCompare(String(a.postDate));
+    });
+
+  const recentElement = document.getElementById("recentVideos");
+
   if (!posted.length) {
-    recent.className = "table-wrap empty-state";
-    recent.textContent = "投稿済み動画はまだありません";
-  } else {
-    recent.className = "table-wrap";
-    recent.innerHTML = `
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>動画名</th>
-            <th>種類</th>
-            <th>投稿日</th>
-            <th>24時間再生</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${posted.slice(0, 5).map(v => `
-            <tr>
-              <td>${escapeHtml(v.title)}</td>
-              <td>${escapeHtml(v.type)}</td>
-              <td>${formatDate(v.postDate)}</td>
-              <td>${Number(v.views24 || 0).toLocaleString()}回</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
+    recentElement.className = "table-wrap empty-state";
+    recentElement.textContent = "投稿済み動画はまだありません";
+    return;
   }
+
+  recentElement.className = "table-wrap";
+  recentElement.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>動画名</th>
+          <th>種類</th>
+          <th>投稿日</th>
+          <th>24時間再生</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${posted.slice(0, 5).map(video => `
+          <tr>
+            <td>${escapeHtml(video.title)}</td>
+            <td>${escapeHtml(video.type)}</td>
+            <td>${formatDate(video.postDate)}</td>
+            <td>${Number(video.views24).toLocaleString()}回</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 function renderVideos() {
   const list = document.getElementById("videoList");
+
   const videos = activeVideoFilter === "all"
     ? data.videos
-    : data.videos.filter(v => v.status === activeVideoFilter);
+    : data.videos.filter(video => video.status === activeVideoFilter);
 
   if (!videos.length) {
-    list.innerHTML = `<div class="card empty-state">該当する動画はありません</div>`;
+    list.innerHTML =
+      `<div class="card empty-state">該当する動画はありません</div>`;
     return;
   }
 
-  list.innerHTML = videos.map(v => `
+  list.innerHTML = videos.map(video => `
     <article class="item-card">
       <div>
-        <span class="status">${escapeHtml(v.status)}</span>
-        <h4>${escapeHtml(v.title)}</h4>
+        <span class="status">${escapeHtml(video.status)}</span>
+        <h4>${escapeHtml(video.title)}</h4>
+
         <div class="meta">
-          <span>${escapeHtml(v.type)}</span>
-          <span>担当：${escapeHtml(v.owner || "未設定")}</span>
-          <span>投稿日：${formatDate(v.postDate)}</span>
-          ${v.views24 ? `<span>24時間：${Number(v.views24).toLocaleString()}回</span>` : ""}
+          <span>${escapeHtml(video.type)}</span>
+          <span>担当：${escapeHtml(video.owner || "未設定")}</span>
+          <span>投稿日：${formatDate(video.postDate)}</span>
+          ${video.views24
+            ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>`
+            : ""
+          }
+          ${video.youtubeUrl
+            ? `<a href="${escapeHtml(video.youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>`
+            : ""
+          }
         </div>
       </div>
-      <button class="delete-btn" onclick="deleteItem('video', '${v.id}')">削除</button>
+
+      <div class="item-actions">
+        <button
+          type="button"
+          class="delete-btn"
+          data-delete-type="video"
+          data-delete-id="${video.id}"
+        >
+          削除
+        </button>
+      </div>
     </article>
   `).join("");
 }
@@ -168,18 +386,36 @@ function renderIdeas() {
   const board = document.getElementById("ideaBoard");
 
   board.innerHTML = statuses.map(status => {
-    const items = data.ideas.filter(i => i.status === status);
+    const items = data.ideas.filter(idea => idea.status === status);
+
     return `
       <section class="kanban-column">
         <h4>${status} <span>(${items.length})</span></h4>
-        ${items.map(i => `
+
+        ${items.map(idea => `
           <article class="idea-card">
-            <strong>${escapeHtml(i.title)}</strong>
-            <p>${escapeHtml(i.note || "メモなし")}</p>
-            <select onchange="moveIdea('${i.id}', this.value)">
-              ${statuses.map(s => `<option ${s === i.status ? "selected" : ""}>${s}</option>`).join("")}
+            <strong>${escapeHtml(idea.title)}</strong>
+            <p>${escapeHtml(idea.note || "メモなし")}</p>
+
+            <select data-idea-status-id="${idea.id}">
+              ${statuses.map(optionStatus => `
+                <option
+                  value="${optionStatus}"
+                  ${optionStatus === idea.status ? "selected" : ""}
+                >
+                  ${optionStatus}
+                </option>
+              `).join("")}
             </select>
-            <button class="delete-btn" onclick="deleteItem('idea', '${i.id}')">削除</button>
+
+            <button
+              type="button"
+              class="delete-btn"
+              data-delete-type="idea"
+              data-delete-id="${idea.id}"
+            >
+              削除
+            </button>
           </article>
         `).join("") || `<div class="empty-state">なし</div>`}
       </section>
@@ -189,29 +425,66 @@ function renderIdeas() {
 
 function renderGoals() {
   const list = document.getElementById("goalList");
+
   if (!data.goals.length) {
-    list.innerHTML = `<div class="card empty-state">目標はまだありません</div>`;
+    list.innerHTML =
+      `<div class="card empty-state">目標はまだありません</div>`;
     return;
   }
 
-  list.innerHTML = data.goals.map(g => {
-    const percent = Math.min(100, Math.round((Number(g.current) / Number(g.target)) * 100));
+  list.innerHTML = data.goals.map(goal => {
+    const denominator = Math.max(Number(goal.target), 1);
+    const percent = Math.min(
+      100,
+      Math.max(
+        0,
+        Math.round((Number(goal.current) / denominator) * 100)
+      )
+    );
+
     return `
       <article class="item-card">
         <div>
-          <span class="status">${g.achieved ? "達成済み" : "進行中"}</span>
-          <h4>${escapeHtml(g.title)}</h4>
+          <span class="status">${goal.achieved ? "達成済み" : "進行中"}</span>
+          <h4>${escapeHtml(goal.title)}</h4>
+
           <div class="meta">
-            <span>現在 ${g.current}</span>
-            <span>目標 ${g.target}</span>
-            <span>期限 ${formatDate(g.deadline)}</span>
-            ${g.achievedDate ? `<span>達成日 ${formatDate(g.achievedDate)}</span>` : ""}
+            <span>現在 ${goal.current}</span>
+            <span>目標 ${goal.target}</span>
+            <span>期限 ${formatDate(goal.deadline)}</span>
+            ${goal.achievedDate
+              ? `<span>達成日 ${formatDate(goal.achievedDate)}</span>`
+              : ""
+            }
           </div>
-          <div class="progress"><span style="width:${percent}%"></span></div>
+
+          <div class="progress">
+            <span style="width: ${percent}%"></span>
+          </div>
         </div>
-        <div>
-          ${!g.achieved ? `<button class="secondary-btn" onclick="achieveGoal('${g.id}')">達成</button>` : ""}
-          <button class="delete-btn" onclick="deleteItem('goal', '${g.id}')">削除</button>
+
+        <div class="item-actions">
+          ${!goal.achieved
+            ? `
+              <button
+                type="button"
+                class="secondary-btn"
+                data-achieve-goal="${goal.id}"
+              >
+                達成
+              </button>
+            `
+            : ""
+          }
+
+          <button
+            type="button"
+            class="delete-btn"
+            data-delete-type="goal"
+            data-delete-id="${goal.id}"
+          >
+            削除
+          </button>
         </div>
       </article>
     `;
@@ -226,24 +499,30 @@ function renderAll() {
 }
 
 function openForm(type) {
-  document.getElementById("quickModal").close();
-  const modal = document.getElementById("formModal");
-  const title = document.getElementById("formTitle");
-  const form = document.getElementById("dynamicForm");
+  if (elements.quickModal.open) {
+    elements.quickModal.close();
+  }
 
   const forms = {
     video: {
       title: "動画を追加",
       html: `
         <div class="form-grid">
-          <label>動画タイトル<input name="title" required></label>
-          <label>動画形式
+          <label>
+            動画タイトル
+            <input name="title" required />
+          </label>
+
+          <label>
+            動画形式
             <select name="type">
               <option>Shorts</option>
               <option>横動画</option>
             </select>
           </label>
-          <label>ステータス
+
+          <label>
+            ステータス
             <select name="status">
               <option>企画中</option>
               <option>編集待ち</option>
@@ -252,19 +531,48 @@ function openForm(type) {
               <option>投稿済み</option>
             </select>
           </label>
-          <label>担当者<input name="owner" placeholder="自分 / 相方"></label>
-          <label>投稿日<input type="date" name="postDate"></label>
-          <label>24時間後の再生数<input type="number" name="views24" min="0"></label>
+
+          <label>
+            担当者
+            <input name="owner" placeholder="自分 / 相方" />
+          </label>
+
+          <label>
+            投稿日
+            <input type="date" name="postDate" />
+          </label>
+
+          <label>
+            24時間後の再生数
+            <input type="number" name="views24" min="0" />
+          </label>
+
+          <label>
+            YouTube URL
+            <input type="url" name="youtubeUrl" placeholder="https://youtube.com/..." />
+          </label>
+
+          <label>
+            メモ
+            <textarea name="memo"></textarea>
+          </label>
         </div>
-        <button class="form-submit">追加する</button>
+
+        <button class="form-submit" type="submit">追加する</button>
       `
     },
+
     idea: {
       title: "企画を追加",
       html: `
         <div class="form-grid">
-          <label>企画名<input name="title" required></label>
-          <label>ステータス
+          <label>
+            企画名
+            <input name="title" required />
+          </label>
+
+          <label>
+            ステータス
             <select name="status">
               <option>アイデア</option>
               <option>検討中</option>
@@ -272,138 +580,468 @@ function openForm(type) {
               <option>実行済み</option>
             </select>
           </label>
-          <label>メモ<textarea name="note"></textarea></label>
+
+          <label>
+            メモ
+            <textarea name="note"></textarea>
+          </label>
         </div>
-        <button class="form-submit">追加する</button>
+
+        <button class="form-submit" type="submit">追加する</button>
       `
     },
+
     goal: {
       title: "目標を追加",
       html: `
         <div class="form-grid">
-          <label>目標名<input name="title" required></label>
-          <label>現在の数値<input type="number" name="current" value="0" required></label>
-          <label>目標数値<input type="number" name="target" value="100" required></label>
-          <label>期限<input type="date" name="deadline"></label>
-        </div>
-        <button class="form-submit">追加する</button>
-      `
-    }  };
+          <label>
+            目標名
+            <input name="title" required />
+          </label>
 
-  title.textContent = forms[type].title;
-  form.innerHTML = forms[type].html;
-  form.dataset.type = type;
-  modal.showModal();
+          <label>
+            現在の数値
+            <input type="number" name="current" value="0" required />
+          </label>
+
+          <label>
+            目標数値
+            <input type="number" name="target" value="100" required />
+          </label>
+
+          <label>
+            期限
+            <input type="date" name="deadline" />
+          </label>
+        </div>
+
+        <button class="form-submit" type="submit">追加する</button>
+      `
+    }
+  };
+
+  const selectedForm = forms[type];
+
+  if (!selectedForm) {
+    return;
+  }
+
+  elements.formTitle.textContent = selectedForm.title;
+  elements.dynamicForm.innerHTML = selectedForm.html;
+  elements.dynamicForm.dataset.type = type;
+  elements.formModal.showModal();
 }
 
-function handleSubmit(event) {
+async function insertVideo(values) {
+  const { error } = await supabaseClient
+    .from("videos")
+    .insert({
+      title: values.title.trim(),
+      video_type: values.type,
+      status: values.status,
+      owner: values.owner.trim() || null,
+      post_date: values.postDate || null,
+      views_24: Number(values.views24 || 0),
+      youtube_url: values.youtubeUrl.trim() || null,
+      memo: values.memo.trim() || null
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function insertIdea(values) {
+  const { error } = await supabaseClient
+    .from("ideas")
+    .insert({
+      title: values.title.trim(),
+      status: values.status,
+      note: values.note.trim() || null
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function insertGoal(values) {
+  const { error } = await supabaseClient
+    .from("goals")
+    .insert({
+      title: values.title.trim(),
+      current_value: Number(values.current || 0),
+      target_value: Number(values.target || 0),
+      deadline: values.deadline || null,
+      achieved: false,
+      achieved_date: null
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function handleSubmit(event) {
   event.preventDefault();
+
   const form = event.currentTarget;
+  const submitButton = form.querySelector('[type="submit"]');
   const values = Object.fromEntries(new FormData(form).entries());
   const type = form.dataset.type;
 
-  if (type === "video") {
-    data.videos.unshift({
-      id: crypto.randomUUID(),
-      title: values.title,
-      type: values.type,
-      status: values.status,
-      owner: values.owner,
-      postDate: values.postDate,
-      views24: Number(values.views24 || 0)
-    });
+  submitButton.disabled = true;
+  submitButton.textContent = "保存中...";
+
+  try {
+    if (type === "video") {
+      await insertVideo(values);
+    } else if (type === "idea") {
+      await insertIdea(values);
+    } else if (type === "goal") {
+      await insertGoal(values);
+    } else {
+      throw new Error("保存形式が不明です。");
+    }
+
+    elements.formModal.close();
+    await loadAllData({ silent: true });
+    showToast("保存しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`保存できませんでした：${error.message}`, "error");
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "追加する";
+  }
+}
+
+async function deleteItem(type, id) {
+  const tableMap = {
+    video: "videos",
+    idea: "ideas",
+    goal: "goals"
+  };
+
+  const table = tableMap[type];
+
+  if (!table) {
+    return;
   }
 
-  if (type === "idea") {
-    data.ideas.unshift({
-      id: crypto.randomUUID(),
-      title: values.title,
-      status: values.status,
-      note: values.note
-    });
+  const confirmed = window.confirm("削除してもよろしいですか？");
+
+  if (!confirmed) {
+    return;
   }
 
-  if (type === "goal") {
-    data.goals.unshift({
-      id: crypto.randomUUID(),
-      title: values.title,
-      current: Number(values.current),
-      target: Number(values.target),
-      deadline: values.deadline,
-      achieved: false,
-      achievedDate: ""
-    });
+  const { error } = await supabaseClient
+    .from(table)
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    showToast(`削除できませんでした：${error.message}`, "error");
+    return;
   }
 
-  document.getElementById("formModal").close();
-  saveData();
+  await loadAllData({ silent: true });
+  showToast("削除しました");
 }
 
-function deleteItem(type, id) {
-  if (type === "video") data.videos = data.videos.filter(v => v.id !== id);
-  if (type === "idea") data.ideas = data.ideas.filter(i => i.id !== id);
-  if (type === "goal") data.goals = data.goals.filter(g => g.id !== id);
-  saveData();
+async function moveIdea(id, status) {
+  const { error } = await supabaseClient
+    .from("ideas")
+    .update({
+      status,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    showToast(`変更できませんでした：${error.message}`, "error");
+    await loadAllData({ silent: true });
+    return;
+  }
+
+  await loadAllData({ silent: true });
 }
 
-function moveIdea(id, status) {
-  const idea = data.ideas.find(i => i.id === id);
-  if (idea) idea.status = status;
-  saveData();
+async function achieveGoal(id) {
+  const goal = data.goals.find(item => item.id === id);
+
+  if (!goal) {
+    return;
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const { error } = await supabaseClient
+    .from("goals")
+    .update({
+      achieved: true,
+      achieved_date: today,
+      current_value: goal.target,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    showToast(`更新できませんでした：${error.message}`, "error");
+    return;
+  }
+
+  await loadAllData({ silent: true });
+  showToast("目標を達成済みにしました");
 }
 
-function achieveGoal(id) {
-  const goal = data.goals.find(g => g.id === id);
-  if (!goal) return;
-  goal.achieved = true;
-  goal.achievedDate = new Date().toISOString().split("T")[0];
-  goal.current = goal.target;
-  saveData();
+function scheduleRealtimeRefresh() {
+  clearTimeout(refreshTimer);
+
+  refreshTimer = setTimeout(() => {
+    loadAllData({ silent: true });
+  }, 200);
 }
 
-function escapeHtml(value = "") {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+function subscribeRealtime() {
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  realtimeChannel = supabaseClient
+    .channel("boat-manager-shared-data")
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "videos"
+      },
+      scheduleRealtimeRefresh
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "ideas"
+      },
+      scheduleRealtimeRefresh
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "goals"
+      },
+      scheduleRealtimeRefresh
+    )
+    .subscribe(status => {
+      if (status === "SUBSCRIBED") {
+        setSyncStatus("リアルタイム同期中", "online");
+      }
+
+      if (
+        status === "CHANNEL_ERROR" ||
+        status === "TIMED_OUT"
+      ) {
+        setSyncStatus("同期接続エラー", "error");
+      }
+    });
 }
 
-document.querySelectorAll("[data-page]").forEach(button => {
-  button.addEventListener("click", () => switchPage(button.dataset.page));
-});
+async function login(email, password) {
+  const { data: authData, error } =
+    await supabaseClient.auth.signInWithPassword({
+      email,
+      password
+    });
 
-document.querySelectorAll("[data-open-modal]").forEach(button => {
-  button.addEventListener("click", () => openForm(button.dataset.openModal));
-});
+  if (error) {
+    throw error;
+  }
 
-document.querySelectorAll("[data-close]").forEach(button => {
-  button.addEventListener("click", () => button.closest("dialog").close());
-});
+  return authData.user;
+}
 
-document.getElementById("openQuickAdd").addEventListener("click", () => {
-  document.getElementById("quickModal").showModal();
-});
+async function logout() {
+  const { error } = await supabaseClient.auth.signOut();
 
-document.getElementById("mobileQuickAdd").addEventListener("click", () => {
-  document.getElementById("quickModal").showModal();
-});
+  if (error) {
+    showToast(`ログアウトできませんでした：${error.message}`, "error");
+    return;
+  }
 
-document.getElementById("dynamicForm").addEventListener("submit", handleSubmit);
+  if (realtimeChannel) {
+    await supabaseClient.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
 
-document.querySelectorAll(".filter-btn").forEach(button => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
-    button.classList.add("active");
-    activeVideoFilter = button.dataset.filter;
-    renderVideos();
+  data = {
+    videos: [],
+    ideas: [],
+    goals: []
+  };
+
+  showAuthScreen();
+}
+
+async function startAuthenticatedApp(user) {
+  showApplication(user);
+  setupDate();
+  renderAll();
+  await loadAllData();
+  subscribeRealtime();
+}
+
+async function initialize() {
+  setupEventListeners();
+
+  const {
+    data: { session },
+    error
+  } = await supabaseClient.auth.getSession();
+
+  if (error) {
+    console.error(error);
+    showAuthScreen();
+    elements.loginMessage.textContent =
+      "ログイン状態を確認できませんでした。";
+    return;
+  }
+
+  if (session?.user) {
+    await startAuthenticatedApp(session.user);
+  } else {
+    showAuthScreen();
+  }
+
+  supabaseClient.auth.onAuthStateChange((event, sessionData) => {
+    if (event === "SIGNED_OUT" || !sessionData) {
+      showAuthScreen();
+    }
   });
+}
+
+function setupEventListeners() {
+  elements.loginForm.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    elements.loginMessage.textContent = "";
+    elements.loginButton.disabled = true;
+    elements.loginButton.textContent = "ログイン中...";
+
+    try {
+      const user = await login(
+        elements.loginEmail.value.trim(),
+        elements.loginPassword.value
+      );
+
+      elements.loginPassword.value = "";
+      await startAuthenticatedApp(user);
+    } catch (error) {
+      console.error(error);
+      elements.loginMessage.textContent =
+        "メールアドレスまたはパスワードを確認してください。";
+    } finally {
+      elements.loginButton.disabled = false;
+      elements.loginButton.textContent = "ログイン";
+    }
+  });
+
+  elements.logoutButton.addEventListener("click", logout);
+
+  document.addEventListener("click", event => {
+    const pageButton = event.target.closest("[data-page]");
+
+    if (pageButton) {
+      event.preventDefault();
+      switchPage(pageButton.dataset.page);
+      return;
+    }
+
+    const openModalButton = event.target.closest("[data-open-modal]");
+
+    if (openModalButton) {
+      event.preventDefault();
+      openForm(openModalButton.dataset.openModal);
+      return;
+    }
+
+    const closeButton = event.target.closest("[data-close]");
+
+    if (closeButton) {
+      event.preventDefault();
+      closeButton.closest("dialog")?.close();
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-type]");
+
+    if (deleteButton) {
+      event.preventDefault();
+      deleteItem(
+        deleteButton.dataset.deleteType,
+        deleteButton.dataset.deleteId
+      );
+      return;
+    }
+
+    const achieveButton = event.target.closest("[data-achieve-goal]");
+
+    if (achieveButton) {
+      event.preventDefault();
+      achieveGoal(achieveButton.dataset.achieveGoal);
+    }
+  });
+
+  document.addEventListener("change", event => {
+    const select = event.target.closest("[data-idea-status-id]");
+
+    if (select) {
+      moveIdea(select.dataset.ideaStatusId, select.value);
+    }
+  });
+
+  document.getElementById("openQuickAdd").addEventListener("click", () => {
+    elements.quickModal.showModal();
+  });
+
+  document.getElementById("mobileQuickAdd").addEventListener("click", () => {
+    elements.quickModal.showModal();
+  });
+
+  elements.dynamicForm.addEventListener("submit", handleSubmit);
+
+  document.querySelectorAll(".filter-btn").forEach(button => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(item => {
+        item.classList.remove("active");
+      });
+
+      button.classList.add("active");
+      activeVideoFilter = button.dataset.filter;
+      renderVideos();
+    });
+  });
+
+  [elements.quickModal, elements.formModal].forEach(dialog => {
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) {
+        dialog.close();
+      }
+    });
+  });
+}
+
+initialize().catch(error => {
+  console.error(error);
+  showAuthScreen();
+  elements.loginMessage.textContent =
+    "初期化に失敗しました。ページを再読み込みしてください。";
 });
-
-setupDate();
-renderAll();
-
-window.deleteItem = deleteItem;
-window.moveIdea = moveIdea;
-window.achieveGoal = achieveGoal;
