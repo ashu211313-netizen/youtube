@@ -14,11 +14,18 @@
   --radius: 24px;
 }
 
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+
 body {
+  min-height: 100vh;
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
+  -webkit-text-size-adjust: 100%;
 }
 
 button,
@@ -30,6 +37,67 @@ textarea {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  padding: 34px;
+  border-radius: 30px;
+  background: var(--panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
+}
+
+.auth-card h1 {
+  margin: 8px 0 12px;
+  font-size: 34px;
+  letter-spacing: -0.04em;
+}
+
+.auth-description {
+  margin: 0 0 24px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.login-form {
+  display: grid;
+  gap: 15px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+}
+
+.form-message {
+  min-height: 20px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+  text-align: center;
 }
 
 .app-shell {
@@ -47,6 +115,7 @@ button {
   flex-direction: column;
   justify-content: space-between;
   background: rgba(255, 255, 255, 0.88);
+  -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   border-right: 1px solid var(--line);
 }
@@ -92,26 +161,56 @@ button {
 }
 
 .sidebar-foot p {
-  margin-bottom: 4px;
+  margin: 0 0 8px;
   font-weight: 700;
   color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.text-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--danger);
+  font-weight: 800;
 }
 
 .main {
-  padding: 28px 44px 80px;
   min-width: 0;
+  padding: 28px 44px 80px;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 18px;
   margin-bottom: 28px;
 }
 
 .topbar h2 {
   margin: 6px 0 0;
   font-size: 30px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sync-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sync-status.online {
+  color: var(--success);
+}
+
+.sync-status.error {
+  color: var(--danger);
 }
 
 .primary-btn,
@@ -129,6 +228,12 @@ button {
   color: #111;
 }
 
+.primary-btn:disabled,
+.form-submit:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .secondary-btn {
   background: var(--text);
   color: white;
@@ -144,16 +249,16 @@ button {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
 
 .card {
-  background: var(--panel);
-  border: 1px solid rgba(0,0,0,0.04);
-  border-radius: var(--radius);
   padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 
 .stat-card span,
@@ -163,15 +268,12 @@ button {
 
 .stat-card strong {
   display: block;
-  font-size: 44px;
   margin: 14px 0 4px;
+  font-size: 44px;
   letter-spacing: -0.04em;
 }
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 16px;
+.dashboard-goal {
   margin-bottom: 16px;
 }
 
@@ -194,8 +296,8 @@ button {
 }
 
 .goal-card h4 {
-  font-size: 30px;
   margin: 28px 0 6px;
+  font-size: 30px;
 }
 
 .goal-card p {
@@ -204,47 +306,29 @@ button {
 
 .progress {
   height: 12px;
-  background: var(--bg);
-  border-radius: 999px;
-  overflow: hidden;
   margin-top: 20px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg);
 }
 
 .progress span {
   display: block;
+  width: 0;
   height: 100%;
-  background: var(--accent);
   border-radius: inherit;
-}
-
-.stack-list {
-  display: grid;
-  gap: 10px;
-}
-
-.stack-item {
-  padding: 14px 16px;
-  background: var(--bg);
-  border-radius: 16px;
-}
-
-.stack-item strong {
-  display: block;
-  margin-bottom: 4px;
-}
-
-.stack-item span {
-  color: var(--muted);
-  font-size: 13px;
+  background: var(--accent);
+  transition: width 0.25s ease;
 }
 
 .empty-state {
-  color: var(--muted);
   padding: 20px 0;
+  color: var(--muted);
 }
 
 .table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .data-table {
@@ -254,9 +338,9 @@ button {
 
 .data-table th,
 .data-table td {
-  text-align: left;
   padding: 14px 10px;
   border-bottom: 1px solid var(--line);
+  text-align: left;
   white-space: nowrap;
 }
 
@@ -273,18 +357,18 @@ button {
 }
 
 .filter-btn {
+  padding: 9px 14px;
   border: 1px solid var(--line);
+  border-radius: 999px;
   background: white;
   color: var(--muted);
-  padding: 9px 14px;
-  border-radius: 999px;
   font-weight: 700;
 }
 
 .filter-btn.active {
+  border-color: var(--text);
   background: var(--text);
   color: white;
-  border-color: var(--text);
 }
 
 .cards-list {
@@ -293,17 +377,17 @@ button {
 }
 
 .item-card {
-  background: white;
-  border-radius: 20px;
-  padding: 20px;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 16px;
   align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 20px;
+  background: white;
 }
 
 .item-card h4 {
-  margin: 0 0 8px;
+  margin: 8px 0;
   font-size: 20px;
 }
 
@@ -321,9 +405,15 @@ button {
   width: fit-content;
   padding: 7px 11px;
   border-radius: 999px;
+  background: var(--bg);
   font-size: 12px;
   font-weight: 800;
-  background: var(--bg);
+}
+
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .delete-btn {
@@ -336,17 +426,17 @@ button {
 .kanban {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  overflow: visible;
-  padding-bottom: 20px;
   align-items: start;
+  gap: 16px;
+  padding-bottom: 20px;
+  overflow: visible;
 }
 
 .kanban-column {
-  background: rgba(255,255,255,0.55);
-  border-radius: 22px;
-  padding: 14px;
   min-height: 220px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .kanban-column h4 {
@@ -354,10 +444,10 @@ button {
 }
 
 .idea-card {
-  background: white;
+  margin-bottom: 10px;
   padding: 16px;
   border-radius: 16px;
-  margin-bottom: 10px;
+  background: white;
 }
 
 .idea-card strong {
@@ -369,26 +459,29 @@ button {
   margin: 0 0 12px;
   color: var(--muted);
   font-size: 13px;
+  white-space: pre-wrap;
 }
 
 .idea-card select {
   width: 100%;
+  margin-bottom: 8px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 8px;
   background: white;
 }
 
 .modal {
   width: min(560px, calc(100% - 28px));
+  padding: 24px;
   border: 0;
   border-radius: 28px;
-  padding: 24px;
   background: white;
 }
 
 .modal::backdrop {
-  background: rgba(0,0,0,0.35);
+  background: rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 
@@ -405,11 +498,11 @@ button {
 }
 
 .icon-btn {
-  border: 0;
-  background: var(--bg);
   width: 38px;
   height: 38px;
+  border: 0;
   border-radius: 50%;
+  background: var(--bg);
   font-size: 20px;
 }
 
@@ -420,10 +513,10 @@ button {
 }
 
 .quick-grid button {
-  border: 0;
-  background: var(--bg);
-  border-radius: 18px;
   padding: 26px 16px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--bg);
   font-size: 18px;
   font-weight: 800;
 }
@@ -444,9 +537,9 @@ button {
 .form-grid select,
 .form-grid textarea {
   width: 100%;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 12px 14px;
   background: white;
 }
 
@@ -456,8 +549,35 @@ button {
 }
 
 .form-submit {
-  margin-top: 16px;
   width: 100%;
+  margin-top: 16px;
+}
+
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20000;
+  max-width: min(360px, calc(100% - 40px));
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--text);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition: 0.2s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.error {
+  background: var(--danger);
 }
 
 .mobile-nav {
@@ -474,59 +594,80 @@ button {
   }
 
   .main {
-    padding: 20px 18px 100px;
+    padding: 20px 18px calc(120px + env(safe-area-inset-bottom));
   }
 
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .dashboard-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mobile-nav {
     position: fixed;
     left: 12px;
     right: 12px;
-    bottom: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 9999;
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     align-items: center;
     padding: 8px;
-    border-radius: 22px;
-    background: rgba(255,255,255,0.92);
     border: 1px solid var(--line);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.96);
+    -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
-    box-shadow: 0 12px 30px rgba(0,0,0,0.12);
-    z-index: 10;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+    pointer-events: auto;
+    touch-action: manipulation;
+  }
+
+  .mobile-nav button {
+    position: relative;
+    z-index: 10000;
+    pointer-events: auto;
+    touch-action: manipulation;
   }
 
   .mobile-nav-item {
+    padding: 13px 4px;
     text-align: center;
-    padding: 10px 4px;
     font-size: 12px;
   }
 
   .mobile-nav-item.active {
-    color: var(--text);
+    border-radius: 14px;
+    background: var(--text);
+    color: white;
   }
 
   .mobile-add {
     width: 46px;
     height: 46px;
     margin: auto;
-    border-radius: 50%;
     border: 0;
+    border-radius: 50%;
     background: var(--accent);
     font-size: 24px;
     font-weight: 800;
+  }
+
+  .toast {
+    right: 14px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
   }
 }
 
 @media (max-width: 620px) {
   .topbar h2 {
     font-size: 25px;
+  }
+
+  .topbar-actions {
+    gap: 8px;
+  }
+
+  .sync-status {
+    display: none;
   }
 
   .primary-btn {
@@ -553,10 +694,21 @@ button {
   .item-card {
     grid-template-columns: 1fr;
   }
+
+  .item-actions {
+    justify-content: flex-end;
+  }
 }
 
-
 @media (max-width: 430px) {
+  .auth-card {
+    padding: 26px 20px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
   .kanban {
     grid-template-columns: 1fr;
   }
