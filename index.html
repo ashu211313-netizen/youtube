@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#f5f5f7" />
   <title>Boat Channel Manager</title>
-  <link rel="stylesheet" href="style.css?v=11" />
+  <link rel="stylesheet" href="style.css?v=13" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -85,9 +85,15 @@
           </article>
 
           <article class="card stat-card">
+            <span>企画中</span>
+            <strong id="planningCount">0</strong>
+            <small>動画ステータスが企画中</small>
+          </article>
+
+          <article class="card stat-card">
             <span>編集待ち</span>
-            <strong id="waitingCount">0</strong>
-            <small>編集中・確認待ちを含む</small>
+            <strong id="editingWaitingCount">0</strong>
+            <small>動画ステータスが編集待ち</small>
           </article>
 
           <article class="card stat-card">
@@ -131,16 +137,16 @@
             <p class="eyebrow">VIDEO PIPELINE</p>
             <h3>動画管理</h3>
           </div>
-          <button type="button" class="secondary-btn" data-open-modal="video">＋ 動画を追加</button>
+          <button type="button" class="secondary-btn" data-open-form="video">＋ 動画を追加</button>
         </div>
 
         <div class="filter-row" id="videoFilters">
-          <button type="button" class="filter-btn active" data-filter="all">すべて</button>
-          <button type="button" class="filter-btn" data-filter="企画中">企画中</button>
-          <button type="button" class="filter-btn" data-filter="編集待ち">編集待ち</button>
-          <button type="button" class="filter-btn" data-filter="編集中">編集中</button>
-          <button type="button" class="filter-btn" data-filter="確認待ち">確認待ち</button>
-          <button type="button" class="filter-btn" data-filter="投稿済み">投稿済み</button>
+          <button type="button" class="filter-btn active" data-filter="all">すべて <span class="filter-count" data-filter-count="all">0</span></button>
+          <button type="button" class="filter-btn" data-filter="企画中">企画中 <span class="filter-count" data-filter-count="企画中">0</span></button>
+          <button type="button" class="filter-btn" data-filter="編集待ち">編集待ち <span class="filter-count" data-filter-count="編集待ち">0</span></button>
+          <button type="button" class="filter-btn" data-filter="編集中">編集中 <span class="filter-count" data-filter-count="編集中">0</span></button>
+          <button type="button" class="filter-btn" data-filter="確認待ち">確認待ち <span class="filter-count" data-filter-count="確認待ち">0</span></button>
+          <button type="button" class="filter-btn" data-filter="投稿済み">投稿済み <span class="filter-count" data-filter-count="投稿済み">0</span></button>
         </div>
 
         <div id="videoList" class="cards-list"></div>
@@ -152,7 +158,7 @@
             <p class="eyebrow">IDEA STOCK</p>
             <h3>企画管理</h3>
           </div>
-          <button type="button" class="secondary-btn" data-open-modal="idea">＋ 企画を追加</button>
+          <button type="button" class="secondary-btn" data-open-form="idea">＋ 企画を追加</button>
         </div>
 
         <div class="kanban" id="ideaBoard"></div>
@@ -164,7 +170,7 @@
             <p class="eyebrow">GOALS & ACHIEVEMENTS</p>
             <h3>目標・実績</h3>
           </div>
-          <button type="button" class="secondary-btn" data-open-modal="goal">＋ 目標を追加</button>
+          <button type="button" class="secondary-btn" data-open-form="goal">＋ 目標を追加</button>
         </div>
 
         <div id="goalList" class="cards-list"></div>
@@ -190,27 +196,45 @@
     </div>
 
     <div class="quick-grid">
-      <button type="button" data-open-modal="video">動画</button>
-      <button type="button" data-open-modal="idea">企画</button>
-      <button type="button" data-open-modal="goal">目標</button>
+      <button type="button" data-open-form="video">動画</button>
+      <button type="button" data-open-form="idea">企画</button>
+      <button type="button" data-open-form="goal">目標</button>
     </div>
   </dialog>
 
   <dialog id="formModal" class="modal form-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">ADD DATA</p>
+        <p class="eyebrow" id="formEyebrow">ADD DATA</p>
         <h3 id="formTitle">追加</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
     </div>
 
     <form id="dynamicForm"></form>
+    <p id="formError" class="form-error" aria-live="polite"></p>
+  </dialog>
+
+  <dialog id="videoDetailModal" class="modal detail-modal">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">VIDEO DETAILS</p>
+        <h3 id="videoDetailTitle">動画詳細</h3>
+      </div>
+      <button type="button" class="icon-btn" data-close>×</button>
+    </div>
+
+    <div id="videoDetailBody" class="detail-body"></div>
+
+    <div class="detail-actions">
+      <button type="button" id="detailEditButton" class="secondary-btn">編集</button>
+      <button type="button" id="detailDeleteButton" class="danger-outline-btn">削除</button>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
