@@ -7,8 +7,18 @@ if (!window.supabase?.createClient) {
 
 const supabaseClient = window.supabase.createClient(
   SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY
+  SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  }
 );
+
+const VIDEO_STATUSES = ["企画中", "編集待ち", "編集中", "確認待ち", "投稿済み"];
+const IDEA_STATUSES = ["アイデア", "検討中", "実行予定", "実行済み"];
 
 let data = {
   videos: [],
@@ -20,6 +30,7 @@ let activeVideoFilter = "all";
 let realtimeChannel = null;
 let toastTimer = null;
 let refreshTimer = null;
+let currentDetailVideoId = null;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -36,9 +47,29 @@ const elements = {
   toast: document.getElementById("toast"),
   quickModal: document.getElementById("quickModal"),
   formModal: document.getElementById("formModal"),
+  formEyebrow: document.getElementById("formEyebrow"),
   formTitle: document.getElementById("formTitle"),
-  dynamicForm: document.getElementById("dynamicForm")
+  dynamicForm: document.getElementById("dynamicForm"),
+  formError: document.getElementById("formError"),
+  videoDetailModal: document.getElementById("videoDetailModal"),
+  videoDetailTitle: document.getElementById("videoDetailTitle"),
+  videoDetailBody: document.getElementById("videoDetailBody"),
+  detailEditButton: document.getElementById("detailEditButton"),
+  detailDeleteButton: document.getElementById("detailDeleteButton")
 };
+
+function getErrorMessage(error) {
+  if (!error) {
+    return "原因不明のエラーです。";
+  }
+
+  const parts = [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .map(value => String(value).trim())
+    .filter((value, index, array) => array.indexOf(value) === index);
+
+  return parts.join(" / ") || String(error);
+}
 
 function showToast(message, type = "success") {
   clearTimeout(toastTimer);
@@ -47,12 +78,35 @@ function showToast(message, type = "success") {
 
   toastTimer = setTimeout(() => {
     elements.toast.className = "toast";
-  }, 2600);
+  }, type === "error" ? 5200 : 2800);
 }
 
 function setSyncStatus(text, status = "") {
   elements.syncStatus.textContent = text;
   elements.syncStatus.className = `sync-status${status ? ` ${status}` : ""}`;
+}
+
+function setLoading(button, loading, loadingText = "保存中...") {
+  if (!button) {
+    return;
+  }
+
+  if (loading) {
+    button.dataset.originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = loadingText;
+    return;
+  }
+
+  button.disabled = false;
+  button.textContent = button.dataset.originalText || button.textContent;
+  delete button.dataset.originalText;
+}
+
+function todayString() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().split("T")[0];
 }
 
 function formatDate(date) {
@@ -74,14 +128,13 @@ function formatDate(date) {
 }
 
 function setupDate() {
-  const label = document.getElementById("todayLabel");
-
-  label.textContent = new Intl.DateTimeFormat("ja-JP", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "short"
-  }).format(new Date());
+  document.getElementById("todayLabel").textContent =
+    new Intl.DateTimeFormat("ja-JP", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      weekday: "short"
+    }).format(new Date());
 }
 
 function escapeHtml(value = "") {
@@ -91,6 +144,19 @@ function escapeHtml(value = "") {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function safeExternalUrl(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function showAuthScreen() {
@@ -137,10 +203,7 @@ function switchPage(pageId) {
   document.getElementById("pageTitle").textContent =
     titles[pageId] || "Channel Manager";
 
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function mapVideo(row) {
@@ -154,7 +217,8 @@ function mapVideo(row) {
     views24: Number(row.views_24 || 0),
     youtubeUrl: row.youtube_url || "",
     memo: row.memo || "",
-    createdAt: row.created_at || ""
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
   };
 }
 
@@ -166,7 +230,8 @@ function mapIdea(row) {
     note: row.note || "",
     priority: Number(row.priority || 1),
     plannedDate: row.planned_date || "",
-    createdAt: row.created_at || ""
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
   };
 }
 
@@ -179,7 +244,8 @@ function mapGoal(row) {
     deadline: row.deadline || "",
     achieved: Boolean(row.achieved),
     achievedDate: row.achieved_date || "",
-    createdAt: row.created_at || ""
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
   };
 }
 
@@ -188,39 +254,23 @@ async function loadAllData({ silent = false } = {}) {
     setSyncStatus("同期中");
   }
 
-  const [
-    videosResult,
-    ideasResult,
-    goalsResult
-  ] = await Promise.all([
-    supabaseClient
-      .from("videos")
-      .select("*")
-      .order("created_at", { ascending: false }),
-    supabaseClient
-      .from("ideas")
-      .select("*")
-      .order("created_at", { ascending: false }),
-    supabaseClient
-      .from("goals")
-      .select("*")
-      .order("created_at", { ascending: false })
+  const [videosResult, ideasResult, goalsResult] = await Promise.all([
+    supabaseClient.from("videos").select("*").order("created_at", { ascending: false }),
+    supabaseClient.from("ideas").select("*").order("created_at", { ascending: false }),
+    supabaseClient.from("goals").select("*").order("created_at", { ascending: false })
   ]);
 
-  const firstError =
-    videosResult.error ||
-    ideasResult.error ||
-    goalsResult.error;
+  const firstError = videosResult.error || ideasResult.error || goalsResult.error;
 
   if (firstError) {
     console.error(firstError);
     setSyncStatus("同期エラー", "error");
 
     if (!silent) {
-      showToast(`読み込みに失敗しました：${firstError.message}`, "error");
+      showToast(`読み込みに失敗しました：${getErrorMessage(firstError)}`, "error");
     }
 
-    return;
+    return false;
   }
 
   data = {
@@ -230,41 +280,59 @@ async function loadAllData({ silent = false } = {}) {
   };
 
   renderAll();
+
+  if (elements.videoDetailModal.open && currentDetailVideoId) {
+    const detailVideo = data.videos.find(video => video.id === currentDetailVideoId);
+    if (detailVideo) {
+      renderVideoDetail(detailVideo);
+    } else {
+      elements.videoDetailModal.close();
+      currentDetailVideoId = null;
+    }
+  }
+
   setSyncStatus("同期済み", "online");
+  return true;
+}
+
+function isCurrentMonth(dateValue) {
+  if (!dateValue) {
+    return false;
+  }
+
+  const date = new Date(`${dateValue}T00:00:00`);
+  const now = new Date();
+
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth()
+  );
 }
 
 function countMonthlyPosts() {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
+  return data.videos.filter(video =>
+    video.status === "投稿済み" && isCurrentMonth(video.postDate)
+  ).length;
+}
 
-  return data.videos.filter(video => {
-    if (video.status !== "投稿済み" || !video.postDate) {
-      return false;
-    }
-
-    const postDate = new Date(`${video.postDate}T00:00:00`);
-
-    return (
-      postDate.getFullYear() === currentYear &&
-      postDate.getMonth() === currentMonth
-    );
-  }).length;
+function countMonthlyPostsByType(videoType) {
+  return data.videos.filter(video =>
+    video.status === "投稿済み" &&
+    video.type === videoType &&
+    isCurrentMonth(video.postDate)
+  ).length;
 }
 
 function renderDashboard() {
   document.getElementById("monthlyPosts").textContent = countMonthlyPosts();
-
-  const waiting = data.videos.filter(video =>
-    ["編集待ち", "編集中", "確認待ち"].includes(video.status)
-  );
-
-  const ideaStock = data.ideas.filter(idea =>
-    idea.status !== "実行済み"
-  );
-
-  document.getElementById("waitingCount").textContent = waiting.length;
-  document.getElementById("ideaCount").textContent = ideaStock.length;
+  document.getElementById("monthlyShorts").textContent = countMonthlyPostsByType("Shorts");
+  document.getElementById("monthlyLongVideos").textContent = countMonthlyPostsByType("横動画");
+  document.getElementById("planningCount").textContent =
+    data.videos.filter(video => video.status === "企画中").length;
+  document.getElementById("editingWaitingCount").textContent =
+    data.videos.filter(video => video.status === "編集待ち").length;
+  document.getElementById("ideaCount").textContent =
+    data.ideas.filter(idea => idea.status !== "実行済み").length;
 
   const activeGoal = data.goals.find(goal => !goal.achieved);
   const titleElement = document.getElementById("currentGoalTitle");
@@ -279,26 +347,19 @@ function renderDashboard() {
     progressElement.style.width = "0%";
   } else {
     const denominator = Math.max(Number(activeGoal.target), 1);
-    const percent = Math.min(
-      100,
-      Math.max(
-        0,
-        Math.round((Number(activeGoal.current) / denominator) * 100)
-      )
-    );
+    const percent = Math.min(100, Math.max(0,
+      Math.round((Number(activeGoal.current) / denominator) * 100)
+    ));
 
     titleElement.textContent = activeGoal.title;
-    metaElement.textContent =
-      `現在 ${activeGoal.current} / 目標 ${activeGoal.target}`;
+    metaElement.textContent = `現在 ${activeGoal.current} / 目標 ${activeGoal.target}`;
     percentElement.textContent = `${percent}%`;
     progressElement.style.width = `${percent}%`;
   }
 
   const posted = data.videos
     .filter(video => video.status === "投稿済み")
-    .sort((a, b) => {
-      return String(b.postDate).localeCompare(String(a.postDate));
-    });
+    .sort((a, b) => String(b.postDate).localeCompare(String(a.postDate)));
 
   const recentElement = document.getElementById("recentVideos");
 
@@ -333,59 +394,74 @@ function renderDashboard() {
   `;
 }
 
+function renderVideoFilterCounts() {
+  const counts = {
+    all: data.videos.length
+  };
+
+  VIDEO_STATUSES.forEach(status => {
+    counts[status] = data.videos.filter(video => video.status === status).length;
+  });
+
+  document.querySelectorAll("[data-filter-count]").forEach(element => {
+    element.textContent = counts[element.dataset.filterCount] ?? 0;
+  });
+}
+
 function renderVideos() {
   const list = document.getElementById("videoList");
+  renderVideoFilterCounts();
 
   const videos = activeVideoFilter === "all"
     ? data.videos
     : data.videos.filter(video => video.status === activeVideoFilter);
 
   if (!videos.length) {
-    list.innerHTML =
-      `<div class="card empty-state">該当する動画はありません</div>`;
+    list.innerHTML = `<div class="card empty-state">該当する動画はありません</div>`;
     return;
   }
 
-  list.innerHTML = videos.map(video => `
-    <article class="item-card">
-      <div>
-        <span class="status">${escapeHtml(video.status)}</span>
-        <h4>${escapeHtml(video.title)}</h4>
+  list.innerHTML = videos.map(video => {
+    const youtubeUrl = safeExternalUrl(video.youtubeUrl);
 
-        <div class="meta">
-          <span>${escapeHtml(video.type)}</span>
-          <span>担当：${escapeHtml(video.owner || "未設定")}</span>
-          <span>投稿日：${formatDate(video.postDate)}</span>
-          ${video.views24
-            ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>`
-            : ""
-          }
-          ${video.youtubeUrl
-            ? `<a href="${escapeHtml(video.youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>`
-            : ""
-          }
+    return `
+      <article class="item-card video-card is-clickable" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
+        <div>
+          <div class="video-card-top">
+            <select class="status-select" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">
+              ${VIDEO_STATUSES.map(status => `
+                <option value="${status}" ${status === video.status ? "selected" : ""}>${status}</option>
+              `).join("")}
+            </select>
+          </div>
+
+          <h4>${escapeHtml(video.title)}</h4>
+
+          <div class="meta">
+            <span>${escapeHtml(video.type)}</span>
+            <span>担当：${escapeHtml(video.owner || "未設定")}</span>
+            <span>投稿日：${formatDate(video.postDate)}</span>
+            ${video.views24 ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>` : ""}
+            ${youtubeUrl ? `<a href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>` : ""}
+          </div>
+
+          ${video.memo ? `<p class="card-memo-preview">${escapeHtml(video.memo)}</p>` : ""}
         </div>
-      </div>
 
-      <div class="item-actions">
-        <button
-          type="button"
-          class="delete-btn"
-          data-delete-type="video"
-          data-delete-id="${video.id}"
-        >
-          削除
-        </button>
-      </div>
-    </article>
-  `).join("");
+        <div class="item-actions">
+          <button type="button" class="small-action-btn" data-open-video-detail="${video.id}">詳細</button>
+          <button type="button" class="small-action-btn" data-edit-type="video" data-edit-id="${video.id}">編集</button>
+          <button type="button" class="delete-btn" data-delete-type="video" data-delete-id="${video.id}">削除</button>
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 function renderIdeas() {
-  const statuses = ["アイデア", "検討中", "実行予定", "実行済み"];
   const board = document.getElementById("ideaBoard");
 
-  board.innerHTML = statuses.map(status => {
+  board.innerHTML = IDEA_STATUSES.map(status => {
     const items = data.ideas.filter(idea => idea.status === status);
 
     return `
@@ -397,25 +473,16 @@ function renderIdeas() {
             <strong>${escapeHtml(idea.title)}</strong>
             <p>${escapeHtml(idea.note || "メモなし")}</p>
 
-            <select data-idea-status-id="${idea.id}">
-              ${statuses.map(optionStatus => `
-                <option
-                  value="${optionStatus}"
-                  ${optionStatus === idea.status ? "selected" : ""}
-                >
-                  ${optionStatus}
-                </option>
+            <select data-idea-status-id="${idea.id}" aria-label="${escapeHtml(idea.title)}のステータス">
+              ${IDEA_STATUSES.map(optionStatus => `
+                <option value="${optionStatus}" ${optionStatus === idea.status ? "selected" : ""}>${optionStatus}</option>
               `).join("")}
             </select>
 
-            <button
-              type="button"
-              class="delete-btn"
-              data-delete-type="idea"
-              data-delete-id="${idea.id}"
-            >
-              削除
-            </button>
+            <div class="item-actions">
+              <button type="button" class="small-action-btn" data-edit-type="idea" data-edit-id="${idea.id}">編集</button>
+              <button type="button" class="delete-btn" data-delete-type="idea" data-delete-id="${idea.id}">削除</button>
+            </div>
           </article>
         `).join("") || `<div class="empty-state">なし</div>`}
       </section>
@@ -427,20 +494,15 @@ function renderGoals() {
   const list = document.getElementById("goalList");
 
   if (!data.goals.length) {
-    list.innerHTML =
-      `<div class="card empty-state">目標はまだありません</div>`;
+    list.innerHTML = `<div class="card empty-state">目標はまだありません</div>`;
     return;
   }
 
   list.innerHTML = data.goals.map(goal => {
     const denominator = Math.max(Number(goal.target), 1);
-    const percent = Math.min(
-      100,
-      Math.max(
-        0,
-        Math.round((Number(goal.current) / denominator) * 100)
-      )
-    );
+    const percent = Math.min(100, Math.max(0,
+      Math.round((Number(goal.current) / denominator) * 100)
+    ));
 
     return `
       <article class="item-card">
@@ -452,39 +514,18 @@ function renderGoals() {
             <span>現在 ${goal.current}</span>
             <span>目標 ${goal.target}</span>
             <span>期限 ${formatDate(goal.deadline)}</span>
-            ${goal.achievedDate
-              ? `<span>達成日 ${formatDate(goal.achievedDate)}</span>`
-              : ""
-            }
+            ${goal.achievedDate ? `<span>達成日 ${formatDate(goal.achievedDate)}</span>` : ""}
           </div>
 
-          <div class="progress">
-            <span style="width: ${percent}%"></span>
-          </div>
+          <div class="progress"><span style="width: ${percent}%"></span></div>
         </div>
 
         <div class="item-actions">
-          ${!goal.achieved
-            ? `
-              <button
-                type="button"
-                class="secondary-btn"
-                data-achieve-goal="${goal.id}"
-              >
-                達成
-              </button>
-            `
-            : ""
-          }
-
-          <button
-            type="button"
-            class="delete-btn"
-            data-delete-type="goal"
-            data-delete-id="${goal.id}"
-          >
-            削除
-          </button>
+          ${!goal.achieved ? `
+            <button type="button" class="secondary-btn" data-achieve-goal="${goal.id}">達成</button>
+          ` : ""}
+          <button type="button" class="small-action-btn" data-edit-type="goal" data-edit-id="${goal.id}">編集</button>
+          <button type="button" class="delete-btn" data-delete-type="goal" data-delete-id="${goal.id}">削除</button>
         </div>
       </article>
     `;
@@ -498,189 +539,185 @@ function renderAll() {
   renderGoals();
 }
 
-function openForm(type) {
+function getEntity(type, id) {
+  const keyMap = {
+    video: "videos",
+    idea: "ideas",
+    goal: "goals"
+  };
+
+  return data[keyMap[type]]?.find(item => item.id === id) || null;
+}
+
+function formValue(value) {
+  return escapeHtml(value ?? "");
+}
+
+function optionSelected(current, option) {
+  return current === option ? "selected" : "";
+}
+
+function openForm(type, id = "") {
   if (elements.quickModal.open) {
     elements.quickModal.close();
   }
 
-  const forms = {
-    video: {
-      title: "動画を追加",
-      html: `
-        <div class="form-grid">
-          <label>
-            動画タイトル
-            <input name="title" required />
-          </label>
+  const entity = id ? getEntity(type, id) : null;
+  const isEdit = Boolean(entity);
 
-          <label>
-            動画形式
-            <select name="type">
-              <option>Shorts</option>
-              <option>横動画</option>
-            </select>
-          </label>
+  elements.formError.textContent = "";
+  elements.formEyebrow.textContent = isEdit ? "EDIT DATA" : "ADD DATA";
+  elements.dynamicForm.dataset.type = type;
+  elements.dynamicForm.dataset.mode = isEdit ? "edit" : "create";
+  elements.dynamicForm.dataset.id = entity?.id || "";
 
-          <label>
-            ステータス
-            <select name="status">
-              <option>企画中</option>
-              <option>編集待ち</option>
-              <option>編集中</option>
-              <option>確認待ち</option>
-              <option>投稿済み</option>
-            </select>
-          </label>
+  if (type === "video") {
+    const video = entity || {
+      title: "",
+      type: "Shorts",
+      status: "企画中",
+      owner: "",
+      postDate: "",
+      views24: 0,
+      youtubeUrl: "",
+      memo: ""
+    };
 
-          <label>
-            担当者
-            <input name="owner" placeholder="自分 / 相方" />
-          </label>
+    elements.formTitle.textContent = isEdit ? "動画を編集" : "動画を追加";
+    elements.dynamicForm.innerHTML = `
+      <div class="form-grid">
+        <label>動画タイトル<input name="title" value="${formValue(video.title)}" required /></label>
+        <label>動画形式
+          <select name="type">
+            <option ${optionSelected(video.type, "Shorts")}>Shorts</option>
+            <option ${optionSelected(video.type, "横動画")}>横動画</option>
+          </select>
+        </label>
+        <label>ステータス
+          <select name="status">
+            ${VIDEO_STATUSES.map(status => `<option ${optionSelected(video.status, status)}>${status}</option>`).join("")}
+          </select>
+        </label>
+        <label>担当者<input name="owner" value="${formValue(video.owner)}" placeholder="自分 / 相方" /></label>
+        <label>投稿日<input type="date" name="postDate" value="${formValue(video.postDate)}" /></label>
+        <label>24時間後の再生数<input type="number" name="views24" min="0" value="${Number(video.views24 || 0)}" /></label>
+        <label>YouTube URL<input type="url" name="youtubeUrl" value="${formValue(video.youtubeUrl)}" placeholder="https://youtube.com/..." /></label>
+        <label>メモ<textarea name="memo">${formValue(video.memo)}</textarea></label>
+      </div>
+      <button class="form-submit" type="submit">${isEdit ? "変更を保存" : "追加する"}</button>
+    `;
+  } else if (type === "idea") {
+    const idea = entity || { title: "", status: "アイデア", note: "" };
 
-          <label>
-            投稿日
-            <input type="date" name="postDate" />
-          </label>
+    elements.formTitle.textContent = isEdit ? "企画を編集" : "企画を追加";
+    elements.dynamicForm.innerHTML = `
+      <div class="form-grid">
+        <label>企画名<input name="title" value="${formValue(idea.title)}" required /></label>
+        <label>ステータス
+          <select name="status">
+            ${IDEA_STATUSES.map(status => `<option ${optionSelected(idea.status, status)}>${status}</option>`).join("")}
+          </select>
+        </label>
+        <label>メモ<textarea name="note">${formValue(idea.note)}</textarea></label>
+      </div>
+      <button class="form-submit" type="submit">${isEdit ? "変更を保存" : "追加する"}</button>
+    `;
+  } else if (type === "goal") {
+    const goal = entity || { title: "", current: 0, target: 100, deadline: "" };
 
-          <label>
-            24時間後の再生数
-            <input type="number" name="views24" min="0" />
-          </label>
-
-          <label>
-            YouTube URL
-            <input type="url" name="youtubeUrl" placeholder="https://youtube.com/..." />
-          </label>
-
-          <label>
-            メモ
-            <textarea name="memo"></textarea>
-          </label>
-        </div>
-
-        <button class="form-submit" type="submit">追加する</button>
-      `
-    },
-
-    idea: {
-      title: "企画を追加",
-      html: `
-        <div class="form-grid">
-          <label>
-            企画名
-            <input name="title" required />
-          </label>
-
-          <label>
-            ステータス
-            <select name="status">
-              <option>アイデア</option>
-              <option>検討中</option>
-              <option>実行予定</option>
-              <option>実行済み</option>
-            </select>
-          </label>
-
-          <label>
-            メモ
-            <textarea name="note"></textarea>
-          </label>
-        </div>
-
-        <button class="form-submit" type="submit">追加する</button>
-      `
-    },
-
-    goal: {
-      title: "目標を追加",
-      html: `
-        <div class="form-grid">
-          <label>
-            目標名
-            <input name="title" required />
-          </label>
-
-          <label>
-            現在の数値
-            <input type="number" name="current" value="0" required />
-          </label>
-
-          <label>
-            目標数値
-            <input type="number" name="target" value="100" required />
-          </label>
-
-          <label>
-            期限
-            <input type="date" name="deadline" />
-          </label>
-        </div>
-
-        <button class="form-submit" type="submit">追加する</button>
-      `
-    }
-  };
-
-  const selectedForm = forms[type];
-
-  if (!selectedForm) {
+    elements.formTitle.textContent = isEdit ? "目標を編集" : "目標を追加";
+    elements.dynamicForm.innerHTML = `
+      <div class="form-grid">
+        <label>目標名<input name="title" value="${formValue(goal.title)}" required /></label>
+        <label>現在の数値<input type="number" name="current" value="${Number(goal.current || 0)}" required /></label>
+        <label>目標数値<input type="number" name="target" value="${Number(goal.target || 0)}" required /></label>
+        <label>期限<input type="date" name="deadline" value="${formValue(goal.deadline)}" /></label>
+      </div>
+      <button class="form-submit" type="submit">${isEdit ? "変更を保存" : "追加する"}</button>
+    `;
+  } else {
     return;
   }
 
-  elements.formTitle.textContent = selectedForm.title;
-  elements.dynamicForm.innerHTML = selectedForm.html;
-  elements.dynamicForm.dataset.type = type;
   elements.formModal.showModal();
 }
 
-async function insertVideo(values) {
-  const { error } = await supabaseClient
-    .from("videos")
-    .insert({
-      title: values.title.trim(),
-      video_type: values.type,
-      status: values.status,
-      owner: values.owner.trim() || null,
-      post_date: values.postDate || null,
-      views_24: Number(values.views24 || 0),
-      youtube_url: values.youtubeUrl.trim() || null,
-      memo: values.memo.trim() || null
-    });
-
-  if (error) {
-    throw error;
+function validateTitle(value, label) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    throw new Error(`${label}を入力してください。`);
   }
+  return trimmed;
 }
 
-async function insertIdea(values) {
-  const { error } = await supabaseClient
-    .from("ideas")
-    .insert({
-      title: values.title.trim(),
-      status: values.status,
-      note: values.note.trim() || null
-    });
-
-  if (error) {
-    throw error;
+function confirmPostDateIfNeeded(status, postDate) {
+  if (status !== "投稿済み" || postDate) {
+    return postDate || null;
   }
+
+  const useToday = window.confirm(
+    "投稿日が未設定です。今日の日付を投稿日に設定しますか？\n\n「キャンセル」を選ぶと、投稿日を未設定のまま投稿済みにします。"
+  );
+
+  return useToday ? todayString() : null;
 }
 
-async function insertGoal(values) {
-  const { error } = await supabaseClient
-    .from("goals")
-    .insert({
-      title: values.title.trim(),
-      current_value: Number(values.current || 0),
-      target_value: Number(values.target || 0),
-      deadline: values.deadline || null,
-      achieved: false,
-      achieved_date: null
-    });
+async function saveVideo(values, mode, id) {
+  const payload = {
+    title: validateTitle(values.title, "動画タイトル"),
+    video_type: values.type,
+    status: values.status,
+    owner: String(values.owner || "").trim() || null,
+    post_date: confirmPostDateIfNeeded(values.status, values.postDate),
+    views_24: Number(values.views24 || 0),
+    youtube_url: String(values.youtubeUrl || "").trim() || null,
+    memo: String(values.memo || "").trim() || null,
+    updated_at: new Date().toISOString()
+  };
 
-  if (error) {
-    throw error;
-  }
+  const query = mode === "edit"
+    ? supabaseClient.from("videos").update(payload).eq("id", id)
+    : supabaseClient.from("videos").insert(payload);
+
+  const { error } = await query;
+  if (error) throw error;
+}
+
+async function saveIdea(values, mode, id) {
+  const payload = {
+    title: validateTitle(values.title, "企画名"),
+    status: values.status,
+    note: String(values.note || "").trim() || null,
+    updated_at: new Date().toISOString()
+  };
+
+  const query = mode === "edit"
+    ? supabaseClient.from("ideas").update(payload).eq("id", id)
+    : supabaseClient.from("ideas").insert(payload);
+
+  const { error } = await query;
+  if (error) throw error;
+}
+
+async function saveGoal(values, mode, id) {
+  const payload = {
+    title: validateTitle(values.title, "目標名"),
+    current_value: Number(values.current || 0),
+    target_value: Number(values.target || 0),
+    deadline: values.deadline || null,
+    updated_at: new Date().toISOString()
+  };
+
+  const query = mode === "edit"
+    ? supabaseClient.from("goals").update(payload).eq("id", id)
+    : supabaseClient.from("goals").insert({
+        ...payload,
+        achieved: false,
+        achieved_date: null
+      });
+
+  const { error } = await query;
+  if (error) throw error;
 }
 
 async function handleSubmit(event) {
@@ -690,121 +727,220 @@ async function handleSubmit(event) {
   const submitButton = form.querySelector('[type="submit"]');
   const values = Object.fromEntries(new FormData(form).entries());
   const type = form.dataset.type;
+  const mode = form.dataset.mode;
+  const id = form.dataset.id;
 
-  submitButton.disabled = true;
-  submitButton.textContent = "保存中...";
+  elements.formError.textContent = "";
+  setLoading(submitButton, true, mode === "edit" ? "変更を保存中..." : "保存中...");
+  setSyncStatus("変更を保存中...");
 
   try {
     if (type === "video") {
-      await insertVideo(values);
+      await saveVideo(values, mode, id);
     } else if (type === "idea") {
-      await insertIdea(values);
+      await saveIdea(values, mode, id);
     } else if (type === "goal") {
-      await insertGoal(values);
+      await saveGoal(values, mode, id);
     } else {
       throw new Error("保存形式が不明です。");
     }
 
     elements.formModal.close();
     await loadAllData({ silent: true });
-    showToast("保存しました");
+    showToast(mode === "edit" ? "変更を保存しました" : "追加しました");
   } catch (error) {
     console.error(error);
-    showToast(`保存できませんでした：${error.message}`, "error");
+    const message = getErrorMessage(error);
+    elements.formError.textContent = `保存できませんでした：${message}`;
+    showToast(`保存できませんでした：${message}`, "error");
+    setSyncStatus("保存エラー", "error");
   } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = "追加する";
+    setLoading(submitButton, false);
   }
 }
 
-async function deleteItem(type, id) {
-  const tableMap = {
-    video: "videos",
-    idea: "ideas",
-    goal: "goals"
-  };
-
+async function deleteItem(type, id, triggerButton = null) {
+  const tableMap = { video: "videos", idea: "ideas", goal: "goals" };
+  const labelMap = { video: "動画", idea: "企画", goal: "目標" };
   const table = tableMap[type];
+  const entity = getEntity(type, id);
 
-  if (!table) {
+  if (!table || !entity) {
+    showToast("削除対象が見つかりませんでした。", "error");
     return;
   }
 
-  const confirmed = window.confirm("削除してもよろしいですか？");
+  const confirmed = window.confirm(
+    `「${entity.title}」を削除しますか？\n\nこの操作は取り消せません。`
+  );
 
   if (!confirmed) {
     return;
   }
 
-  const { error } = await supabaseClient
-    .from(table)
-    .delete()
-    .eq("id", id);
+  setLoading(triggerButton, true, "削除中...");
+  setSyncStatus("削除中...");
 
-  if (error) {
-    console.error(error);
-    showToast(`削除できませんでした：${error.message}`, "error");
-    return;
-  }
+  try {
+    const { error } = await supabaseClient.from(table).delete().eq("id", id);
+    if (error) throw error;
 
-  await loadAllData({ silent: true });
-  showToast("削除しました");
-}
+    if (type === "video" && currentDetailVideoId === id) {
+      elements.videoDetailModal.close();
+      currentDetailVideoId = null;
+    }
 
-async function moveIdea(id, status) {
-  const { error } = await supabaseClient
-    .from("ideas")
-    .update({
-      status,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", id);
-
-  if (error) {
-    console.error(error);
-    showToast(`変更できませんでした：${error.message}`, "error");
     await loadAllData({ silent: true });
-    return;
+    showToast(`${labelMap[type]}を削除しました`);
+  } catch (error) {
+    console.error(error);
+    const message = getErrorMessage(error);
+    showToast(`削除できませんでした：${message}`, "error");
+    setSyncStatus("削除エラー", "error");
+  } finally {
+    setLoading(triggerButton, false);
   }
-
-  await loadAllData({ silent: true });
 }
 
-async function achieveGoal(id) {
-  const goal = data.goals.find(item => item.id === id);
-
-  if (!goal) {
+async function updateVideoStatus(id, newStatus, selectElement) {
+  const video = data.videos.find(item => item.id === id);
+  if (!video || video.status === newStatus) {
     return;
   }
 
-  const today = new Date().toISOString().split("T")[0];
+  const previousStatus = video.status;
+  selectElement.disabled = true;
+  setSyncStatus("変更を保存中...");
 
-  const { error } = await supabaseClient
-    .from("goals")
-    .update({
-      achieved: true,
-      achieved_date: today,
-      current_value: goal.target,
+  try {
+    const payload = {
+      status: newStatus,
       updated_at: new Date().toISOString()
-    })
-    .eq("id", id);
+    };
 
-  if (error) {
+    if (newStatus === "投稿済み" && !video.postDate) {
+      const useToday = window.confirm(
+        "投稿日が未設定です。今日の日付を投稿日に設定しますか？\n\n「キャンセル」を選ぶと、投稿日を未設定のまま投稿済みにします。"
+      );
+
+      if (useToday) {
+        payload.post_date = todayString();
+      }
+    }
+
+    const { error } = await supabaseClient.from("videos").update(payload).eq("id", id);
+    if (error) throw error;
+
+    await loadAllData({ silent: true });
+    showToast(`ステータスを「${newStatus}」に変更しました`);
+  } catch (error) {
     console.error(error);
-    showToast(`更新できませんでした：${error.message}`, "error");
+    selectElement.value = previousStatus;
+    const message = getErrorMessage(error);
+    showToast(`ステータスを変更できませんでした：${message}`, "error");
+    setSyncStatus("保存エラー", "error");
+    await loadAllData({ silent: true });
+  } finally {
+    selectElement.disabled = false;
+  }
+}
+
+async function moveIdea(id, status, selectElement) {
+  const idea = data.ideas.find(item => item.id === id);
+  const previousStatus = idea?.status;
+
+  selectElement.disabled = true;
+  setSyncStatus("変更を保存中...");
+
+  try {
+    const { error } = await supabaseClient
+      .from("ideas")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (error) throw error;
+    await loadAllData({ silent: true });
+    showToast(`企画を「${status}」に変更しました`);
+  } catch (error) {
+    console.error(error);
+    if (previousStatus) selectElement.value = previousStatus;
+    const message = getErrorMessage(error);
+    showToast(`変更できませんでした：${message}`, "error");
+    setSyncStatus("保存エラー", "error");
+    await loadAllData({ silent: true });
+  } finally {
+    selectElement.disabled = false;
+  }
+}
+
+async function achieveGoal(id, triggerButton) {
+  const goal = data.goals.find(item => item.id === id);
+  if (!goal) return;
+
+  setLoading(triggerButton, true, "保存中...");
+  setSyncStatus("変更を保存中...");
+
+  try {
+    const { error } = await supabaseClient
+      .from("goals")
+      .update({
+        achieved: true,
+        achieved_date: todayString(),
+        current_value: goal.target,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", id);
+
+    if (error) throw error;
+    await loadAllData({ silent: true });
+    showToast("目標を達成済みにしました");
+  } catch (error) {
+    console.error(error);
+    const message = getErrorMessage(error);
+    showToast(`更新できませんでした：${message}`, "error");
+    setSyncStatus("保存エラー", "error");
+  } finally {
+    setLoading(triggerButton, false);
+  }
+}
+
+function renderVideoDetail(video) {
+  const youtubeUrl = safeExternalUrl(video.youtubeUrl);
+  elements.videoDetailTitle.textContent = video.title;
+  elements.videoDetailBody.innerHTML = `
+    <div class="detail-summary">
+      <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(video.status)}</strong></div>
+      <div class="detail-field"><span>動画形式</span><strong>${escapeHtml(video.type)}</strong></div>
+      <div class="detail-field"><span>担当</span><strong>${escapeHtml(video.owner || "未設定")}</strong></div>
+      <div class="detail-field"><span>投稿日</span><strong>${formatDate(video.postDate)}</strong></div>
+      <div class="detail-field"><span>24時間後の再生数</span><strong>${Number(video.views24).toLocaleString()}回</strong></div>
+      <div class="detail-field"><span>YouTube</span><strong>${youtubeUrl ? `<a class="detail-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">動画を開く</a>` : "未設定"}</strong></div>
+    </div>
+    <section class="detail-section">
+      <h4>メモ</h4>
+      <p>${video.memo ? escapeHtml(video.memo) : "メモはありません"}</p>
+    </section>
+  `;
+
+  elements.detailEditButton.dataset.editId = video.id;
+  elements.detailDeleteButton.dataset.deleteId = video.id;
+}
+
+function openVideoDetail(id) {
+  const video = data.videos.find(item => item.id === id);
+  if (!video) {
+    showToast("動画が見つかりませんでした。", "error");
     return;
   }
 
-  await loadAllData({ silent: true });
-  showToast("目標を達成済みにしました");
+  currentDetailVideoId = id;
+  renderVideoDetail(video);
+  elements.videoDetailModal.showModal();
 }
 
 function scheduleRealtimeRefresh() {
   clearTimeout(refreshTimer);
-
-  refreshTimer = setTimeout(() => {
-    loadAllData({ silent: true });
-  }, 200);
+  refreshTimer = setTimeout(() => loadAllData({ silent: true }), 200);
 }
 
 function subscribeRealtime() {
@@ -814,58 +950,23 @@ function subscribeRealtime() {
 
   realtimeChannel = supabaseClient
     .channel("boat-manager-shared-data")
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "videos"
-      },
-      scheduleRealtimeRefresh
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "ideas"
-      },
-      scheduleRealtimeRefresh
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "goals"
-      },
-      scheduleRealtimeRefresh
-    )
+    .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
     .subscribe(status => {
       if (status === "SUBSCRIBED") {
         setSyncStatus("リアルタイム同期中", "online");
       }
 
-      if (
-        status === "CHANNEL_ERROR" ||
-        status === "TIMED_OUT"
-      ) {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         setSyncStatus("同期接続エラー", "error");
       }
     });
 }
 
 async function login(email, password) {
-  const { data: authData, error } =
-    await supabaseClient.auth.signInWithPassword({
-      email,
-      password
-    });
-
-  if (error) {
-    throw error;
-  }
-
+  const { data: authData, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) throw error;
   return authData.user;
 }
 
@@ -873,7 +974,7 @@ async function logout() {
   const { error } = await supabaseClient.auth.signOut();
 
   if (error) {
-    showToast(`ログアウトできませんでした：${error.message}`, "error");
+    showToast(`ログアウトできませんでした：${getErrorMessage(error)}`, "error");
     return;
   }
 
@@ -882,12 +983,7 @@ async function logout() {
     realtimeChannel = null;
   }
 
-  data = {
-    videos: [],
-    ideas: [],
-    goals: []
-  };
-
+  data = { videos: [], ideas: [], goals: [] };
   showAuthScreen();
 }
 
@@ -902,16 +998,12 @@ async function startAuthenticatedApp(user) {
 async function initialize() {
   setupEventListeners();
 
-  const {
-    data: { session },
-    error
-  } = await supabaseClient.auth.getSession();
+  const { data: { session }, error } = await supabaseClient.auth.getSession();
 
   if (error) {
     console.error(error);
     showAuthScreen();
-    elements.loginMessage.textContent =
-      "ログイン状態を確認できませんでした。";
+    elements.loginMessage.textContent = `ログイン状態を確認できませんでした：${getErrorMessage(error)}`;
     return;
   }
 
@@ -931,26 +1023,18 @@ async function initialize() {
 function setupEventListeners() {
   elements.loginForm.addEventListener("submit", async event => {
     event.preventDefault();
-
     elements.loginMessage.textContent = "";
-    elements.loginButton.disabled = true;
-    elements.loginButton.textContent = "ログイン中...";
+    setLoading(elements.loginButton, true, "ログイン中...");
 
     try {
-      const user = await login(
-        elements.loginEmail.value.trim(),
-        elements.loginPassword.value
-      );
-
+      const user = await login(elements.loginEmail.value.trim(), elements.loginPassword.value);
       elements.loginPassword.value = "";
       await startAuthenticatedApp(user);
     } catch (error) {
       console.error(error);
-      elements.loginMessage.textContent =
-        "メールアドレスまたはパスワードを確認してください。";
+      elements.loginMessage.textContent = `ログインできませんでした：${getErrorMessage(error)}`;
     } finally {
-      elements.loginButton.disabled = false;
-      elements.loginButton.textContent = "ログイン";
+      setLoading(elements.loginButton, false);
     }
   });
 
@@ -958,90 +1042,121 @@ function setupEventListeners() {
 
   document.addEventListener("click", event => {
     const pageButton = event.target.closest("[data-page]");
-
     if (pageButton) {
       event.preventDefault();
       switchPage(pageButton.dataset.page);
       return;
     }
 
-    const openModalButton = event.target.closest("[data-open-modal]");
-
-    if (openModalButton) {
+    const openFormButton = event.target.closest("[data-open-form]");
+    if (openFormButton) {
       event.preventDefault();
-      openForm(openModalButton.dataset.openModal);
+      openForm(openFormButton.dataset.openForm);
       return;
     }
 
     const closeButton = event.target.closest("[data-close]");
-
     if (closeButton) {
       event.preventDefault();
       closeButton.closest("dialog")?.close();
       return;
     }
 
-    const deleteButton = event.target.closest("[data-delete-type]");
+    const editButton = event.target.closest("[data-edit-type]");
+    if (editButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      openForm(editButton.dataset.editType, editButton.dataset.editId);
+      return;
+    }
 
+    const deleteButton = event.target.closest("[data-delete-type]");
     if (deleteButton) {
       event.preventDefault();
-      deleteItem(
-        deleteButton.dataset.deleteType,
-        deleteButton.dataset.deleteId
-      );
+      event.stopPropagation();
+      deleteItem(deleteButton.dataset.deleteType, deleteButton.dataset.deleteId, deleteButton);
+      return;
+    }
+
+    const detailButton = event.target.closest("[data-open-video-detail]");
+    if (detailButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      openVideoDetail(detailButton.dataset.openVideoDetail);
       return;
     }
 
     const achieveButton = event.target.closest("[data-achieve-goal]");
-
     if (achieveButton) {
       event.preventDefault();
-      achieveGoal(achieveButton.dataset.achieveGoal);
+      achieveGoal(achieveButton.dataset.achieveGoal, achieveButton);
+      return;
+    }
+
+    const videoCard = event.target.closest("[data-video-card-id]");
+    if (videoCard && !event.target.closest("button, a, select, input, textarea, label")) {
+      openVideoDetail(videoCard.dataset.videoCardId);
+    }
+  });
+
+  document.addEventListener("keydown", event => {
+    if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-video-card-id]")) {
+      event.preventDefault();
+      openVideoDetail(event.target.dataset.videoCardId);
     }
   });
 
   document.addEventListener("change", event => {
-    const select = event.target.closest("[data-idea-status-id]");
+    const videoSelect = event.target.closest("[data-video-status-id]");
+    if (videoSelect) {
+      updateVideoStatus(videoSelect.dataset.videoStatusId, videoSelect.value, videoSelect);
+      return;
+    }
 
-    if (select) {
-      moveIdea(select.dataset.ideaStatusId, select.value);
+    const ideaSelect = event.target.closest("[data-idea-status-id]");
+    if (ideaSelect) {
+      moveIdea(ideaSelect.dataset.ideaStatusId, ideaSelect.value, ideaSelect);
     }
   });
 
-  document.getElementById("openQuickAdd").addEventListener("click", () => {
-    elements.quickModal.showModal();
-  });
-
-  document.getElementById("mobileQuickAdd").addEventListener("click", () => {
-    elements.quickModal.showModal();
-  });
-
+  document.getElementById("openQuickAdd").addEventListener("click", () => elements.quickModal.showModal());
+  document.getElementById("mobileQuickAdd").addEventListener("click", () => elements.quickModal.showModal());
   elements.dynamicForm.addEventListener("submit", handleSubmit);
+
+  elements.detailEditButton.addEventListener("click", () => {
+    const id = elements.detailEditButton.dataset.editId;
+    elements.videoDetailModal.close();
+    openForm("video", id);
+  });
+
+  elements.detailDeleteButton.addEventListener("click", () => {
+    deleteItem("video", elements.detailDeleteButton.dataset.deleteId, elements.detailDeleteButton);
+  });
 
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".filter-btn").forEach(item => {
-        item.classList.remove("active");
-      });
-
+      document.querySelectorAll(".filter-btn").forEach(item => item.classList.remove("active"));
       button.classList.add("active");
       activeVideoFilter = button.dataset.filter;
       renderVideos();
     });
   });
 
-  [elements.quickModal, elements.formModal].forEach(dialog => {
+  [elements.quickModal, elements.formModal, elements.videoDetailModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
       }
     });
   });
+
+  elements.videoDetailModal.addEventListener("close", () => {
+    currentDetailVideoId = null;
+  });
 }
 
 initialize().catch(error => {
   console.error(error);
   showAuthScreen();
-  elements.loginMessage.textContent =
-    "初期化に失敗しました。ページを再読み込みしてください。";
+  elements.loginMessage.textContent = `初期化に失敗しました：${getErrorMessage(error)}`;
 });
