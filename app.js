@@ -18,7 +18,10 @@ const supabaseClient = window.supabase.createClient(
 );
 
 const VIDEO_STATUSES = ["企画中", "編集待ち", "編集中", "確認待ち", "投稿済み"];
-const IDEA_STATUSES = ["アイデア", "検討中", "実行予定", "実行済み"];
+const VIDEO_STATUS_ORDER = new Map(
+  VIDEO_STATUSES.map((status, index) => [status, index])
+);
+const IDEA_STATUSES = ["アイデア", "実行済み"];
 
 let data = {
   videos: [],
@@ -33,6 +36,9 @@ let refreshTimer = null;
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailGoalId = null;
+let goalSortAvailable = true;
+let draggedGoalId = null;
+let suppressGoalCardClickUntil = 0;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -47,7 +53,6 @@ const elements = {
   logoutButton: document.getElementById("logoutButton"),
   syncStatus: document.getElementById("syncStatus"),
   toast: document.getElementById("toast"),
-  quickModal: document.getElementById("quickModal"),
   formModal: document.getElementById("formModal"),
   formEyebrow: document.getElementById("formEyebrow"),
   formTitle: document.getElementById("formTitle"),
@@ -238,7 +243,7 @@ function mapIdea(row) {
   return {
     id: row.id,
     title: row.title,
-    status: row.status || "アイデア",
+    status: row.status === "実行済み" ? "実行済み" : "アイデア",
     note: row.note || "",
     priority: Number(row.priority || 1),
     plannedDate: row.planned_date || "",
@@ -257,8 +262,53 @@ function mapGoal(row) {
     achieved: Boolean(row.achieved),
     achievedDate: row.achieved_date || "",
     createdAt: row.created_at || "",
-    updatedAt: row.updated_at || ""
+    updatedAt: row.updated_at || "",
+    sortOrder:
+      row.sort_order === null || row.sort_order === undefined
+        ? null
+        : Number(row.sort_order)
   };
+}
+
+async function fetchGoals() {
+  const orderedResult = await supabaseClient
+    .from("goals")
+    .select("*")
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true });
+
+  if (!orderedResult.error) {
+    goalSortAvailable = true;
+    return orderedResult;
+  }
+
+  const errorText = getErrorMessage(orderedResult.error);
+
+  if (!errorText.includes("sort_order")) {
+    return orderedResult;
+  }
+
+  goalSortAvailable = false;
+
+  return supabaseClient
+    .from("goals")
+    .select("*")
+    .order("created_at", { ascending: true });
+}
+
+function compareGoals(a, b) {
+  const aOrder = Number.isFinite(a.sortOrder) ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+  const bOrder = Number.isFinite(b.sortOrder) ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+
+  if (aOrder !== bOrder) {
+    return aOrder - bOrder;
+  }
+
+  return String(a.createdAt).localeCompare(String(b.createdAt));
+}
+
+function getOrderedGoals() {
+  return [...data.goals].sort(compareGoals);
 }
 
 async function loadAllData({ silent = false } = {}) {
@@ -269,7 +319,7 @@ async function loadAllData({ silent = false } = {}) {
   const [videosResult, ideasResult, goalsResult] = await Promise.all([
     supabaseClient.from("videos").select("*").order("created_at", { ascending: false }),
     supabaseClient.from("ideas").select("*").order("created_at", { ascending: false }),
-    supabaseClient.from("goals").select("*").order("created_at", { ascending: false })
+    fetchGoals()
   ]);
 
   const firstError = videosResult.error || ideasResult.error || goalsResult.error;
@@ -288,7 +338,7 @@ async function loadAllData({ silent = false } = {}) {
   data = {
     videos: videosResult.data.map(mapVideo),
     ideas: ideasResult.data.map(mapIdea),
-    goals: goalsResult.data.map(mapGoal)
+    goals: goalsResult.data.map(mapGoal).sort(compareGoals)
   };
 
   renderAll();
@@ -420,13 +470,51 @@ function renderVideoFilterCounts() {
   });
 }
 
+function videoSortDate(video) {
+  return String(video.updatedAt || video.createdAt || "");
+}
+
+function sortVideosForList(videos) {
+  return [...videos].sort((a, b) => {
+    if (activeVideoFilter === "投稿済み") {
+      return (
+        String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
+        videoSortDate(b).localeCompare(videoSortDate(a))
+      );
+    }
+
+    if (activeVideoFilter !== "all") {
+      return videoSortDate(b).localeCompare(videoSortDate(a));
+    }
+
+    const statusDifference =
+      (VIDEO_STATUS_ORDER.get(a.status) ?? 999) -
+      (VIDEO_STATUS_ORDER.get(b.status) ?? 999);
+
+    if (statusDifference !== 0) {
+      return statusDifference;
+    }
+
+    if (a.status === "投稿済み" && b.status === "投稿済み") {
+      return (
+        String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
+        videoSortDate(b).localeCompare(videoSortDate(a))
+      );
+    }
+
+    return videoSortDate(b).localeCompare(videoSortDate(a));
+  });
+}
+
 function renderVideos() {
   const list = document.getElementById("videoList");
   renderVideoFilterCounts();
 
-  const videos = activeVideoFilter === "all"
+  const filteredVideos = activeVideoFilter === "all"
     ? data.videos
     : data.videos.filter(video => video.status === activeVideoFilter);
+
+  const videos = sortVideosForList(filteredVideos);
 
   if (!videos.length) {
     list.innerHTML = `<div class="card empty-state">該当する動画はありません</div>`;
@@ -504,21 +592,59 @@ function renderIdeas() {
 
 function renderGoals() {
   const list = document.getElementById("goalList");
+  const goals = getOrderedGoals();
 
-  if (!data.goals.length) {
+  if (!goals.length) {
     list.innerHTML = `<div class="card empty-state">目標はまだありません</div>`;
     return;
   }
 
-  list.innerHTML = data.goals.map(goal => {
+  const unavailableMessage = goalSortAvailable
+    ? ""
+    : `<p class="goal-order-unavailable">Supabaseで並び替え用SQLを実行すると、順番を保存できるようになります。</p>`;
+
+  list.innerHTML = unavailableMessage + goals.map((goal, index) => {
     const denominator = Math.max(Number(goal.target), 1);
     const percent = Math.min(100, Math.max(0,
       Math.round((Number(goal.current) / denominator) * 100)
     ));
 
+    const controls = goalSortAvailable
+      ? `
+        <div class="goal-order-controls" aria-label="目標の順番変更">
+          <button
+            type="button"
+            class="goal-order-button"
+            data-goal-move="up"
+            data-goal-move-id="${goal.id}"
+            aria-label="${escapeHtml(goal.title)}を上へ移動"
+            ${index === 0 ? "disabled" : ""}
+          >↑</button>
+
+          <button
+            type="button"
+            class="goal-order-button"
+            data-goal-move="down"
+            data-goal-move-id="${goal.id}"
+            aria-label="${escapeHtml(goal.title)}を下へ移動"
+            ${index === goals.length - 1 ? "disabled" : ""}
+          >↓</button>
+
+          <button
+            type="button"
+            class="goal-drag-handle"
+            draggable="true"
+            data-goal-drag-id="${goal.id}"
+            aria-label="${escapeHtml(goal.title)}をドラッグして並び替え"
+            title="ドラッグして並び替え"
+          >≡</button>
+        </div>
+      `
+      : "";
+
     return `
       <article
-        class="item-card is-tappable"
+        class="item-card is-tappable goal-sort-card"
         data-goal-card-id="${goal.id}"
         role="button"
         tabindex="0"
@@ -533,7 +659,11 @@ function renderGoals() {
           </div>
           <div class="progress"><span style="width:${percent}%"></span></div>
         </div>
-        <span class="detail-chevron">›</span>
+
+        <div class="goal-card-side">
+          ${controls}
+          <span class="detail-chevron" aria-hidden="true">›</span>
+        </div>
       </article>
     `;
   }).join("");
@@ -565,9 +695,6 @@ function optionSelected(current, option) {
 }
 
 function openForm(type, id = "") {
-  if (elements.quickModal.open) {
-    elements.quickModal.close();
-  }
 
   const entity = id ? getEntity(type, id) : null;
   const isEdit = Boolean(entity);
@@ -714,6 +841,16 @@ async function saveGoal(values, mode, id) {
     deadline: values.deadline || null,
     updated_at: new Date().toISOString()
   };
+
+  if (mode !== "edit" && goalSortAvailable) {
+    const currentOrders = data.goals
+      .map(goal => goal.sortOrder)
+      .filter(Number.isFinite);
+
+    payload.sort_order = currentOrders.length
+      ? Math.max(...currentOrders) + 1
+      : 1;
+  }
 
   const query = mode === "edit"
     ? supabaseClient.from("goals").update(payload).eq("id", id)
@@ -878,6 +1015,89 @@ async function moveIdea(id, status, selectElement) {
   } finally {
     selectElement.disabled = false;
   }
+}
+
+async function persistGoalOrder(orderedIds, triggerButton = null) {
+  if (!goalSortAvailable) {
+    showToast("先にSupabaseで並び替え用SQLを実行してください。", "error");
+    return;
+  }
+
+  const previousGoals = getOrderedGoals();
+  const orderMap = new Map(orderedIds.map((id, index) => [id, index + 1]));
+
+  data.goals = data.goals
+    .map(goal => ({
+      ...goal,
+      sortOrder: orderMap.get(goal.id) ?? goal.sortOrder
+    }))
+    .sort(compareGoals);
+
+  renderDashboard();
+  renderGoals();
+
+  setLoading(triggerButton, true, "…");
+  setSyncStatus("順番を保存中...");
+
+  try {
+    const results = await Promise.all(
+      orderedIds.map((id, index) =>
+        supabaseClient
+          .from("goals")
+          .update({ sort_order: index + 1 })
+          .eq("id", id)
+      )
+    );
+
+    const failed = results.find(result => result.error);
+    if (failed?.error) {
+      throw failed.error;
+    }
+
+    setSyncStatus("同期済み", "online");
+    showToast("目標の順番を変更しました");
+  } catch (error) {
+    console.error(error);
+    data.goals = previousGoals;
+    renderDashboard();
+    renderGoals();
+
+    const message = getErrorMessage(error);
+    showToast(`順番を保存できませんでした：${message}`, "error");
+    setSyncStatus("保存エラー", "error");
+    await loadAllData({ silent: true });
+  } finally {
+    setLoading(triggerButton, false);
+  }
+}
+
+async function moveGoalByDirection(id, direction, triggerButton) {
+  const goals = getOrderedGoals();
+  const currentIndex = goals.findIndex(goal => goal.id === id);
+
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const nextIndex = direction === "up"
+    ? currentIndex - 1
+    : currentIndex + 1;
+
+  if (nextIndex < 0 || nextIndex >= goals.length) {
+    return;
+  }
+
+  const orderedIds = goals.map(goal => goal.id);
+  [orderedIds[currentIndex], orderedIds[nextIndex]] =
+    [orderedIds[nextIndex], orderedIds[currentIndex]];
+
+  await persistGoalOrder(orderedIds, triggerButton);
+}
+
+function clearGoalDragStyles() {
+  document.querySelectorAll(".goal-sort-card").forEach(card => {
+    card.classList.remove("is-dragging", "is-drop-target");
+  });
 }
 
 async function achieveGoal(id, triggerButton) {
@@ -1166,8 +1386,24 @@ function setupEventListeners() {
       return;
     }
 
+    const goalMoveButton = event.target.closest("[data-goal-move]");
+    if (goalMoveButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveGoalByDirection(
+        goalMoveButton.dataset.goalMoveId,
+        goalMoveButton.dataset.goalMove,
+        goalMoveButton
+      );
+      return;
+    }
+
     const goalCard = event.target.closest("[data-goal-card-id]");
-    if (goalCard && !event.target.closest("button, a, select, input, textarea, label")) {
+    if (
+      goalCard &&
+      Date.now() >= suppressGoalCardClickUntil &&
+      !event.target.closest("button, a, select, input, textarea, label")
+    ) {
       event.preventDefault();
       openGoalDetail(goalCard.dataset.goalCardId);
       return;
@@ -1205,6 +1441,90 @@ function setupEventListeners() {
     }
   });
 
+  document.addEventListener("dragstart", event => {
+    const handle = event.target.closest("[data-goal-drag-id]");
+    if (!handle || !goalSortAvailable) {
+      return;
+    }
+
+    draggedGoalId = handle.dataset.goalDragId;
+    suppressGoalCardClickUntil = Date.now() + 800;
+
+    const card = handle.closest("[data-goal-card-id]");
+    card?.classList.add("is-dragging");
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggedGoalId);
+    }
+  });
+
+  document.addEventListener("dragover", event => {
+    if (!draggedGoalId) {
+      return;
+    }
+
+    const card = event.target.closest("[data-goal-card-id]");
+    if (!card || card.dataset.goalCardId === draggedGoalId) {
+      return;
+    }
+
+    event.preventDefault();
+    clearGoalDragStyles();
+    document
+      .querySelector(`[data-goal-card-id="${draggedGoalId}"]`)
+      ?.classList.add("is-dragging");
+    card.classList.add("is-drop-target");
+  });
+
+  document.addEventListener("drop", async event => {
+    if (!draggedGoalId) {
+      return;
+    }
+
+    const targetCard = event.target.closest("[data-goal-card-id]");
+    if (!targetCard) {
+      clearGoalDragStyles();
+      draggedGoalId = null;
+      return;
+    }
+
+    event.preventDefault();
+
+    const targetId = targetCard.dataset.goalCardId;
+    const sourceId = draggedGoalId;
+    const goals = getOrderedGoals();
+    const orderedIds = goals.map(goal => goal.id);
+    const sourceIndex = orderedIds.indexOf(sourceId);
+
+    if (sourceIndex < 0 || sourceId === targetId) {
+      clearGoalDragStyles();
+      draggedGoalId = null;
+      return;
+    }
+
+    orderedIds.splice(sourceIndex, 1);
+
+    const targetIndex = orderedIds.indexOf(targetId);
+    const rect = targetCard.getBoundingClientRect();
+    const placeAfter = event.clientY > rect.top + rect.height / 2;
+    const insertIndex = targetIndex + (placeAfter ? 1 : 0);
+
+    orderedIds.splice(insertIndex, 0, sourceId);
+
+    clearGoalDragStyles();
+    draggedGoalId = null;
+    suppressGoalCardClickUntil = Date.now() + 800;
+
+    await persistGoalOrder(orderedIds);
+  });
+
+  document.addEventListener("dragend", () => {
+    clearGoalDragStyles();
+    draggedGoalId = null;
+    suppressGoalCardClickUntil = Date.now() + 500;
+  });
+
   document.addEventListener("change", event => {
     const videoSelect = event.target.closest("[data-video-status-id]");
     if (videoSelect) {
@@ -1217,9 +1537,6 @@ function setupEventListeners() {
       moveIdea(ideaSelect.dataset.ideaStatusId, ideaSelect.value, ideaSelect);
     }
   });
-
-  document.getElementById("openQuickAdd").addEventListener("click", () => elements.quickModal.showModal());
-  document.getElementById("mobileQuickAdd").addEventListener("click", () => elements.quickModal.showModal());
   elements.dynamicForm.addEventListener("submit", handleSubmit);
 
   elements.detailEditButton.addEventListener("click", () => {
@@ -1261,7 +1578,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.quickModal, elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal].forEach(dialog => {
+  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
