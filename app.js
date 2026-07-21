@@ -31,6 +31,8 @@ let realtimeChannel = null;
 let toastTimer = null;
 let refreshTimer = null;
 let currentDetailVideoId = null;
+let currentDetailIdeaId = null;
+let currentDetailGoalId = null;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -55,7 +57,17 @@ const elements = {
   videoDetailTitle: document.getElementById("videoDetailTitle"),
   videoDetailBody: document.getElementById("videoDetailBody"),
   detailEditButton: document.getElementById("detailEditButton"),
-  detailDeleteButton: document.getElementById("detailDeleteButton")
+  detailDeleteButton: document.getElementById("detailDeleteButton"),
+  ideaDetailModal: document.getElementById("ideaDetailModal"),
+  ideaDetailTitle: document.getElementById("ideaDetailTitle"),
+  ideaDetailBody: document.getElementById("ideaDetailBody"),
+  ideaDetailEditButton: document.getElementById("ideaDetailEditButton"),
+  ideaDetailDeleteButton: document.getElementById("ideaDetailDeleteButton"),
+  goalDetailModal: document.getElementById("goalDetailModal"),
+  goalDetailTitle: document.getElementById("goalDetailTitle"),
+  goalDetailBody: document.getElementById("goalDetailBody"),
+  goalDetailEditButton: document.getElementById("goalDetailEditButton"),
+  goalDetailDeleteButton: document.getElementById("goalDetailDeleteButton")
 };
 
 function getErrorMessage(error) {
@@ -469,20 +481,20 @@ function renderIdeas() {
         <h4>${status} <span>(${items.length})</span></h4>
 
         ${items.map(idea => `
-          <article class="idea-card">
-            <strong>${escapeHtml(idea.title)}</strong>
-            <p>${escapeHtml(idea.note || "メモなし")}</p>
-
-            <select data-idea-status-id="${idea.id}" aria-label="${escapeHtml(idea.title)}のステータス">
-              ${IDEA_STATUSES.map(optionStatus => `
-                <option value="${optionStatus}" ${optionStatus === idea.status ? "selected" : ""}>${optionStatus}</option>
-              `).join("")}
-            </select>
-
-            <div class="item-actions">
-              <button type="button" class="small-action-btn" data-edit-type="idea" data-edit-id="${idea.id}">編集</button>
-              <button type="button" class="delete-btn" data-delete-type="idea" data-delete-id="${idea.id}">削除</button>
+          <article
+            class="idea-card idea-list-card is-tappable"
+            data-idea-card-id="${idea.id}"
+            role="button"
+            tabindex="0"
+          >
+            <div class="idea-list-main">
+              <strong>${escapeHtml(idea.title)}</strong>
+              <div class="idea-list-meta">
+                <span class="status">${escapeHtml(idea.status)}</span>
+                <span>更新 ${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</span>
+              </div>
             </div>
+            <span class="detail-chevron">›</span>
           </article>
         `).join("") || `<div class="empty-state">なし</div>`}
       </section>
@@ -505,28 +517,23 @@ function renderGoals() {
     ));
 
     return `
-      <article class="item-card">
+      <article
+        class="item-card is-tappable"
+        data-goal-card-id="${goal.id}"
+        role="button"
+        tabindex="0"
+      >
         <div>
           <span class="status">${goal.achieved ? "達成済み" : "進行中"}</span>
           <h4>${escapeHtml(goal.title)}</h4>
-
           <div class="meta">
             <span>現在 ${goal.current}</span>
             <span>目標 ${goal.target}</span>
             <span>期限 ${formatDate(goal.deadline)}</span>
-            ${goal.achievedDate ? `<span>達成日 ${formatDate(goal.achievedDate)}</span>` : ""}
           </div>
-
-          <div class="progress"><span style="width: ${percent}%"></span></div>
+          <div class="progress"><span style="width:${percent}%"></span></div>
         </div>
-
-        <div class="item-actions">
-          ${!goal.achieved ? `
-            <button type="button" class="secondary-btn" data-achieve-goal="${goal.id}">達成</button>
-          ` : ""}
-          <button type="button" class="small-action-btn" data-edit-type="goal" data-edit-id="${goal.id}">編集</button>
-          <button type="button" class="delete-btn" data-delete-type="goal" data-delete-id="${goal.id}">削除</button>
-        </div>
+        <span class="detail-chevron">›</span>
       </article>
     `;
   }).join("");
@@ -938,6 +945,72 @@ function openVideoDetail(id) {
   elements.videoDetailModal.showModal();
 }
 
+function renderIdeaDetail(idea) {
+  elements.ideaDetailTitle.textContent = idea.title;
+  elements.ideaDetailBody.innerHTML = `
+    <div class="detail-summary">
+      <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(idea.status)}</strong></div>
+      <div class="detail-field"><span>作成日</span><strong>${formatDate(idea.createdAt?.slice(0,10))}</strong></div>
+      <div class="detail-field"><span>更新日</span><strong>${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</strong></div>
+    </div>
+    <section class="detail-section">
+      <h4>メモ</h4>
+      <p>${idea.note ? escapeHtml(idea.note) : "メモはありません"}</p>
+    </section>
+  `;
+  elements.ideaDetailEditButton.dataset.editId = idea.id;
+  elements.ideaDetailDeleteButton.dataset.deleteId = idea.id;
+}
+
+function openIdeaDetail(id) {
+  const idea = data.ideas.find(item => item.id === id);
+  if (!idea) {
+    showToast("企画が見つかりませんでした。", "error");
+    return;
+  }
+  currentDetailIdeaId = id;
+  renderIdeaDetail(idea);
+  elements.ideaDetailModal.showModal();
+}
+
+function renderGoalDetail(goal) {
+  const denominator = Math.max(Number(goal.target), 1);
+  const percent = Math.min(100, Math.max(0,
+    Math.round((Number(goal.current) / denominator) * 100)
+  ));
+
+  elements.goalDetailTitle.textContent = goal.title;
+  elements.goalDetailBody.innerHTML = `
+    <div class="detail-summary">
+      <div class="detail-field"><span>状態</span><strong>${goal.achieved ? "達成済み" : "進行中"}</strong></div>
+      <div class="detail-field"><span>現在</span><strong>${goal.current}</strong></div>
+      <div class="detail-field"><span>目標</span><strong>${goal.target}</strong></div>
+      <div class="detail-field"><span>進捗</span><strong>${percent}%</strong></div>
+      <div class="detail-field"><span>期限</span><strong>${formatDate(goal.deadline)}</strong></div>
+      <div class="detail-field"><span>達成日</span><strong>${formatDate(goal.achievedDate)}</strong></div>
+    </div>
+    <div class="progress"><span style="width:${percent}%"></span></div>
+    ${!goal.achieved ? `
+      <section class="detail-section">
+        <button type="button" class="secondary-btn" data-achieve-goal="${goal.id}">達成済みにする</button>
+      </section>
+    ` : ""}
+  `;
+  elements.goalDetailEditButton.dataset.editId = goal.id;
+  elements.goalDetailDeleteButton.dataset.deleteId = goal.id;
+}
+
+function openGoalDetail(id) {
+  const goal = data.goals.find(item => item.id === id);
+  if (!goal) {
+    showToast("目標が見つかりませんでした。", "error");
+    return;
+  }
+  currentDetailGoalId = id;
+  renderGoalDetail(goal);
+  elements.goalDetailModal.showModal();
+}
+
 function scheduleRealtimeRefresh() {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => loadAllData({ silent: true }), 200);
@@ -1086,6 +1159,20 @@ function setupEventListeners() {
       return;
     }
 
+    const ideaCard = event.target.closest("[data-idea-card-id]");
+    if (ideaCard && !event.target.closest("button, a, select, input, textarea, label")) {
+      event.preventDefault();
+      openIdeaDetail(ideaCard.dataset.ideaCardId);
+      return;
+    }
+
+    const goalCard = event.target.closest("[data-goal-card-id]");
+    if (goalCard && !event.target.closest("button, a, select, input, textarea, label")) {
+      event.preventDefault();
+      openGoalDetail(goalCard.dataset.goalCardId);
+      return;
+    }
+
     const achieveButton = event.target.closest("[data-achieve-goal]");
     if (achieveButton) {
       event.preventDefault();
@@ -1100,9 +1187,21 @@ function setupEventListeners() {
   });
 
   document.addEventListener("keydown", event => {
-    if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-video-card-id]")) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+
+    if (event.target.matches("[data-video-card-id]")) {
       event.preventDefault();
       openVideoDetail(event.target.dataset.videoCardId);
+      return;
+    }
+    if (event.target.matches("[data-idea-card-id]")) {
+      event.preventDefault();
+      openIdeaDetail(event.target.dataset.ideaCardId);
+      return;
+    }
+    if (event.target.matches("[data-goal-card-id]")) {
+      event.preventDefault();
+      openGoalDetail(event.target.dataset.goalCardId);
     }
   });
 
@@ -1133,6 +1232,26 @@ function setupEventListeners() {
     deleteItem("video", elements.detailDeleteButton.dataset.deleteId, elements.detailDeleteButton);
   });
 
+  elements.ideaDetailEditButton.addEventListener("click", () => {
+    const id = elements.ideaDetailEditButton.dataset.editId;
+    elements.ideaDetailModal.close();
+    openForm("idea", id);
+  });
+
+  elements.ideaDetailDeleteButton.addEventListener("click", () => {
+    deleteItem("idea", elements.ideaDetailDeleteButton.dataset.deleteId, elements.ideaDetailDeleteButton);
+  });
+
+  elements.goalDetailEditButton.addEventListener("click", () => {
+    const id = elements.goalDetailEditButton.dataset.editId;
+    elements.goalDetailModal.close();
+    openForm("goal", id);
+  });
+
+  elements.goalDetailDeleteButton.addEventListener("click", () => {
+    deleteItem("goal", elements.goalDetailDeleteButton.dataset.deleteId, elements.goalDetailDeleteButton);
+  });
+
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {
       document.querySelectorAll(".filter-btn").forEach(item => item.classList.remove("active"));
@@ -1142,7 +1261,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.quickModal, elements.formModal, elements.videoDetailModal].forEach(dialog => {
+  [elements.quickModal, elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
@@ -1152,6 +1271,14 @@ function setupEventListeners() {
 
   elements.videoDetailModal.addEventListener("close", () => {
     currentDetailVideoId = null;
+  });
+
+  elements.ideaDetailModal.addEventListener("close", () => {
+    currentDetailIdeaId = null;
+  });
+
+  elements.goalDetailModal.addEventListener("close", () => {
+    currentDetailGoalId = null;
   });
 }
 
