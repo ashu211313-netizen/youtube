@@ -26,7 +26,10 @@ const IDEA_STATUSES = ["アイデア", "実行済み"];
 let data = {
   videos: [],
   ideas: [],
-  goals: []
+  goals: [],
+  activityLogs: [],
+  notifications: [],
+  trash: []
 };
 
 let activeVideoFilter = "all";
@@ -39,6 +42,8 @@ let currentDetailGoalId = null;
 let goalSortAvailable = true;
 let draggedGoalId = null;
 let suppressGoalCardClickUntil = 0;
+let draggedEntity = null;
+let suppressCardClickUntil = 0;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -72,7 +77,16 @@ const elements = {
   goalDetailTitle: document.getElementById("goalDetailTitle"),
   goalDetailBody: document.getElementById("goalDetailBody"),
   goalDetailEditButton: document.getElementById("goalDetailEditButton"),
-  goalDetailDeleteButton: document.getElementById("goalDetailDeleteButton")
+  goalDetailDeleteButton: document.getElementById("goalDetailDeleteButton"),
+  ideaCompleteButton: document.getElementById("ideaCompleteButton"),
+  notificationButton: document.getElementById("notificationButton"),
+  notificationBadge: document.getElementById("notificationBadge"),
+  notificationModal: document.getElementById("notificationModal"),
+  notificationList: document.getElementById("notificationList"),
+  markAllNotificationsRead: document.getElementById("markAllNotificationsRead"),
+  trashButton: document.getElementById("trashButton"),
+  trashModal: document.getElementById("trashModal"),
+  trashList: document.getElementById("trashList")
 };
 
 function getErrorMessage(error) {
@@ -235,7 +249,9 @@ function mapVideo(row) {
     youtubeUrl: row.youtube_url || "",
     memo: row.memo || "",
     createdAt: row.created_at || "",
-    updatedAt: row.updated_at || ""
+    updatedAt: row.updated_at || "",
+    sortOrder: row.sort_order == null ? null : Number(row.sort_order),
+    deletedAt: row.deleted_at || ""
   };
 }
 
@@ -248,7 +264,9 @@ function mapIdea(row) {
     priority: Number(row.priority || 1),
     plannedDate: row.planned_date || "",
     createdAt: row.created_at || "",
-    updatedAt: row.updated_at || ""
+    updatedAt: row.updated_at || "",
+    sortOrder: row.sort_order == null ? null : Number(row.sort_order),
+    deletedAt: row.deleted_at || ""
   };
 }
 
@@ -266,8 +284,114 @@ function mapGoal(row) {
     sortOrder:
       row.sort_order === null || row.sort_order === undefined
         ? null
-        : Number(row.sort_order)
+        : Number(row.sort_order),
+    deletedAt: row.deleted_at || ""
   };
+}
+
+
+function mapActivityLog(row) {
+  return {
+    id: row.id,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    entityTitle: row.entity_title || "",
+    action: row.action || "",
+    details: row.details || "",
+    actorEmail: row.actor_email || "",
+    createdAt: row.created_at || ""
+  };
+}
+
+function mapNotification(row) {
+  return {
+    id: row.id,
+    title: row.title || "",
+    message: row.message || "",
+    entityType: row.entity_type || "",
+    entityId: row.entity_id || "",
+    isRead: Boolean(row.is_read),
+    createdAt: row.created_at || ""
+  };
+}
+
+function entityLabel(type) {
+  return ({ video: "動画", idea: "企画", goal: "目標" })[type] || "項目";
+}
+
+function tableForType(type) {
+  return ({ video: "videos", idea: "ideas", goal: "goals" })[type] || "";
+}
+
+function arrayForType(type) {
+  return ({ video: "videos", idea: "ideas", goal: "goals" })[type] || "";
+}
+
+function getCurrentUserEmail() {
+  return elements.loginUserLabel?.textContent?.replace("ログイン中：", "") || "";
+}
+
+async function addActivityLog(type, entityId, title, action, details = "") {
+  const { error } = await supabaseClient.from("activity_logs").insert({
+    entity_type: type,
+    entity_id: entityId,
+    entity_title: title,
+    action,
+    details,
+    actor_email: getCurrentUserEmail()
+  });
+  if (error) console.error("履歴保存:", error);
+}
+
+async function addNotification(title, message, type = "", entityId = "") {
+  const { error } = await supabaseClient.from("notifications").insert({
+    title,
+    message,
+    entity_type: type,
+    entity_id: entityId,
+    is_read: false
+  });
+  if (error) console.error("通知保存:", error);
+}
+
+function logsFor(type, id) {
+  return data.activityLogs
+    .filter(log => log.entityType === type && String(log.entityId) === String(id))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function renderHistory(type, id) {
+  const logs = logsFor(type, id);
+  return `
+    <section class="history-section">
+      <h4>更新履歴</h4>
+      <div class="history-list">
+        ${logs.length ? logs.map(log => `
+          <article class="history-item">
+            <strong>${escapeHtml(log.action)}</strong>
+            ${log.details ? `<p>${escapeHtml(log.details)}</p>` : ""}
+            <span class="history-time">${formatDateTime(log.createdAt)}${log.actorEmail ? `・${escapeHtml(log.actorEmail)}` : ""}</span>
+          </article>
+        `).join("") : `<div class="empty-state">履歴はまだありません</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function formatDateTime(value) {
+  if (!value) return "日時不明";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit"
+  }).format(date);
+}
+
+function compareBySortOrder(a, b) {
+  const ao = Number.isFinite(a.sortOrder) ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+  const bo = Number.isFinite(b.sortOrder) ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+  return ao - bo || String(a.createdAt).localeCompare(String(b.createdAt));
 }
 
 async function fetchGoals() {
@@ -312,45 +436,58 @@ function getOrderedGoals() {
 }
 
 async function loadAllData({ silent = false } = {}) {
-  if (!silent) {
-    setSyncStatus("同期中");
-  }
+  if (!silent) setSyncStatus("同期中");
 
-  const [videosResult, ideasResult, goalsResult] = await Promise.all([
-    supabaseClient.from("videos").select("*").order("created_at", { ascending: false }),
-    supabaseClient.from("ideas").select("*").order("created_at", { ascending: false }),
-    fetchGoals()
+  const [videosResult, ideasResult, goalsResult, logsResult, notificationsResult] = await Promise.all([
+    supabaseClient.from("videos").select("*").order("sort_order", { ascending: true, nullsFirst: false }).order("created_at"),
+    supabaseClient.from("ideas").select("*").order("sort_order", { ascending: true, nullsFirst: false }).order("created_at"),
+    fetchGoals(),
+    supabaseClient.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500),
+    supabaseClient.from("notifications").select("*").order("created_at", { ascending: false }).limit(200)
   ]);
 
-  const firstError = videosResult.error || ideasResult.error || goalsResult.error;
+  const firstError = videosResult.error || ideasResult.error || goalsResult.error ||
+    logsResult.error || notificationsResult.error;
 
   if (firstError) {
     console.error(firstError);
     setSyncStatus("同期エラー", "error");
-
-    if (!silent) {
-      showToast(`読み込みに失敗しました：${getErrorMessage(firstError)}`, "error");
-    }
-
+    if (!silent) showToast(`読み込みに失敗しました：${getErrorMessage(firstError)}`, "error");
     return false;
   }
 
+  const allVideos = videosResult.data.map(mapVideo);
+  const allIdeas = ideasResult.data.map(mapIdea);
+  const allGoals = goalsResult.data.map(mapGoal);
+
   data = {
-    videos: videosResult.data.map(mapVideo),
-    ideas: ideasResult.data.map(mapIdea),
-    goals: goalsResult.data.map(mapGoal).sort(compareGoals)
+    videos: allVideos.filter(item => !item.deletedAt).sort(compareBySortOrder),
+    ideas: allIdeas.filter(item => !item.deletedAt).sort(compareBySortOrder),
+    goals: allGoals.filter(item => !item.deletedAt).sort(compareGoals),
+    activityLogs: logsResult.data.map(mapActivityLog),
+    notifications: notificationsResult.data.map(mapNotification),
+    trash: [
+      ...allVideos.filter(item => item.deletedAt).map(item => ({ ...item, entityType: "video" })),
+      ...allIdeas.filter(item => item.deletedAt).map(item => ({ ...item, entityType: "idea" })),
+      ...allGoals.filter(item => item.deletedAt).map(item => ({ ...item, entityType: "goal" }))
+    ].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)))
   };
 
   renderAll();
+  renderNotifications();
+  renderTrash();
 
   if (elements.videoDetailModal.open && currentDetailVideoId) {
-    const detailVideo = data.videos.find(video => video.id === currentDetailVideoId);
-    if (detailVideo) {
-      renderVideoDetail(detailVideo);
-    } else {
-      elements.videoDetailModal.close();
-      currentDetailVideoId = null;
-    }
+    const item = data.videos.find(video => video.id === currentDetailVideoId);
+    item ? renderVideoDetail(item) : elements.videoDetailModal.close();
+  }
+  if (elements.ideaDetailModal.open && currentDetailIdeaId) {
+    const item = data.ideas.find(idea => idea.id === currentDetailIdeaId);
+    item ? renderIdeaDetail(item) : elements.ideaDetailModal.close();
+  }
+  if (elements.goalDetailModal.open && currentDetailGoalId) {
+    const item = data.goals.find(goal => goal.id === currentDetailGoalId);
+    item ? renderGoalDetail(item) : elements.goalDetailModal.close();
   }
 
   setSyncStatus("同期済み", "online");
@@ -525,7 +662,7 @@ function renderVideos() {
     const youtubeUrl = safeExternalUrl(video.youtubeUrl);
 
     return `
-      <article class="item-card video-card is-clickable" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
+      <article class="item-card video-card is-clickable sortable-card" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
         <div>
           <div class="video-card-top">
             <select class="status-select" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">
@@ -549,6 +686,11 @@ function renderVideos() {
         </div>
 
         <div class="item-actions">
+          <div class="sort-controls">
+            <button type="button" class="sort-button" data-move-type="video" data-move-id="${video.id}" data-move-direction="up">↑</button>
+            <button type="button" class="sort-button" data-move-type="video" data-move-id="${video.id}" data-move-direction="down">↓</button>
+            <button type="button" class="sort-handle" draggable="true" data-drag-type="video" data-drag-id="${video.id}">≡</button>
+          </div>
           <button type="button" class="small-action-btn" data-open-video-detail="${video.id}">詳細</button>
           <button type="button" class="small-action-btn" data-edit-type="video" data-edit-id="${video.id}">編集</button>
           <button type="button" class="delete-btn" data-delete-type="video" data-delete-id="${video.id}">削除</button>
@@ -570,7 +712,7 @@ function renderIdeas() {
 
         ${items.map(idea => `
           <article
-            class="idea-card idea-list-card is-tappable"
+            class="idea-card idea-list-card is-tappable sortable-card"
             data-idea-card-id="${idea.id}"
             role="button"
             tabindex="0"
@@ -582,7 +724,14 @@ function renderIdeas() {
                 <span>更新 ${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</span>
               </div>
             </div>
-            <span class="detail-chevron">›</span>
+            <div class="card-sort-side">
+              <div class="sort-controls">
+                <button type="button" class="sort-button" data-move-type="idea" data-move-id="${idea.id}" data-move-direction="up">↑</button>
+                <button type="button" class="sort-button" data-move-type="idea" data-move-id="${idea.id}" data-move-direction="down">↓</button>
+                <button type="button" class="sort-handle" draggable="true" data-drag-type="idea" data-drag-id="${idea.id}">≡</button>
+              </div>
+              <span class="detail-chevron">›</span>
+            </div>
           </article>
         `).join("") || `<div class="empty-state">なし</div>`}
       </section>
@@ -669,6 +818,38 @@ function renderGoals() {
   }).join("");
 }
 
+
+function renderNotifications() {
+  const unread = data.notifications.filter(item => !item.isRead).length;
+  elements.notificationBadge.textContent = unread > 99 ? "99+" : unread;
+  elements.notificationBadge.classList.toggle("is-hidden", unread === 0);
+
+  elements.notificationList.innerHTML = data.notifications.length
+    ? data.notifications.map(item => `
+      <article class="notification-item ${item.isRead ? "" : "unread"}" data-notification-id="${item.id}">
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(item.message)}</p>
+        <span class="notification-time">${formatDateTime(item.createdAt)}</span>
+      </article>
+    `).join("")
+    : `<div class="empty-state">通知はありません</div>`;
+}
+
+function renderTrash() {
+  elements.trashList.innerHTML = data.trash.length
+    ? data.trash.map(item => `
+      <article class="trash-item">
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${entityLabel(item.entityType)}・削除 ${formatDateTime(item.deletedAt)}</p>
+        <div class="trash-actions">
+          <button type="button" class="secondary-btn" data-restore-type="${item.entityType}" data-restore-id="${item.id}">復元</button>
+          <button type="button" class="danger-outline-btn" data-permanent-delete-type="${item.entityType}" data-permanent-delete-id="${item.id}">完全削除</button>
+        </div>
+      </article>
+    `).join("")
+    : `<div class="empty-state">ゴミ箱は空です</div>`;
+}
+
 function renderAll() {
   renderDashboard();
   renderVideos();
@@ -752,7 +933,7 @@ function openForm(type, id = "") {
             ${IDEA_STATUSES.map(status => `<option ${optionSelected(idea.status, status)}>${status}</option>`).join("")}
           </select>
         </label>
-        <label>メモ<textarea name="note">${formValue(idea.note)}</textarea></label>
+        <label>企画内容・メモ<textarea name="note">${formValue(idea.note)}</textarea></label>
       </div>
       <button class="form-submit" type="submit">${isEdit ? "変更を保存" : "追加する"}</button>
     `;
@@ -797,40 +978,68 @@ function confirmPostDateIfNeeded(status, postDate) {
 }
 
 async function saveVideo(values, mode, id) {
+  const existing = mode === "edit" ? getEntity("video", id) : null;
   const payload = {
     title: validateTitle(values.title, "動画タイトル"),
     video_type: values.type,
     status: values.status,
-    owner: String(values.owner || "").trim() || null,
-    post_date: confirmPostDateIfNeeded(values.status, values.postDate),
+    owner: values.owner?.trim() || "",
+    post_date: values.postDate || null,
     views_24: Number(values.views24 || 0),
-    youtube_url: String(values.youtubeUrl || "").trim() || null,
-    memo: String(values.memo || "").trim() || null,
+    youtube_url: values.youtubeUrl?.trim() || "",
+    memo: values.memo || "",
     updated_at: new Date().toISOString()
   };
 
-  const query = mode === "edit"
-    ? supabaseClient.from("videos").update(payload).eq("id", id)
-    : supabaseClient.from("videos").insert(payload);
+  if (mode !== "edit") {
+    payload.sort_order = (Math.max(0, ...data.videos.map(v => Number(v.sortOrder) || 0)) + 1);
+  }
 
-  const { error } = await query;
+  const query = mode === "edit"
+    ? supabaseClient.from("videos").update(payload).eq("id", id).select().single()
+    : supabaseClient.from("videos").insert(payload).select().single();
+
+  const { data: row, error } = await query;
   if (error) throw error;
+
+  const action = mode === "edit" ? "動画を編集" : "動画を追加";
+  const details = existing && existing.status !== values.status
+    ? `${existing.status} → ${values.status}`
+    : "";
+  await addActivityLog("video", row.id, row.title, action, details);
+
+  if (mode === "edit" && existing?.status !== values.status) {
+    await addNotification("動画ステータス変更", `${row.title}\n${existing.status} → ${values.status}`, "video", row.id);
+  }
+  return row;
 }
 
 async function saveIdea(values, mode, id) {
+  const existing = mode === "edit" ? getEntity("idea", id) : null;
   const payload = {
     title: validateTitle(values.title, "企画名"),
     status: values.status,
-    note: String(values.note || "").trim() || null,
+    note: values.note || "",
     updated_at: new Date().toISOString()
   };
 
-  const query = mode === "edit"
-    ? supabaseClient.from("ideas").update(payload).eq("id", id)
-    : supabaseClient.from("ideas").insert(payload);
+  if (mode !== "edit") {
+    payload.sort_order = Math.max(0, ...data.ideas.map(v => Number(v.sortOrder) || 0)) + 1;
+  }
 
-  const { error } = await query;
+  const query = mode === "edit"
+    ? supabaseClient.from("ideas").update(payload).eq("id", id).select().single()
+    : supabaseClient.from("ideas").insert(payload).select().single();
+
+  const { data: row, error } = await query;
   if (error) throw error;
+
+  const details = existing && existing.status !== values.status
+    ? `${existing.status} → ${values.status}`
+    : "";
+  await addActivityLog("idea", row.id, row.title, mode === "edit" ? "企画を編集" : "企画を追加", details);
+  if (details) await addNotification("企画ステータス変更", `${row.title}\n${details}`, "idea", row.id);
+  return row;
 }
 
 async function saveGoal(values, mode, id) {
@@ -842,52 +1051,36 @@ async function saveGoal(values, mode, id) {
     updated_at: new Date().toISOString()
   };
 
-  if (mode !== "edit" && goalSortAvailable) {
-    const currentOrders = data.goals
-      .map(goal => goal.sortOrder)
-      .filter(Number.isFinite);
-
-    payload.sort_order = currentOrders.length
-      ? Math.max(...currentOrders) + 1
-      : 1;
+  if (mode !== "edit") {
+    payload.sort_order = Math.max(0, ...data.goals.map(v => Number(v.sortOrder) || 0)) + 1;
   }
 
   const query = mode === "edit"
-    ? supabaseClient.from("goals").update(payload).eq("id", id)
-    : supabaseClient.from("goals").insert({
-        ...payload,
-        achieved: false,
-        achieved_date: null
-      });
+    ? supabaseClient.from("goals").update(payload).eq("id", id).select().single()
+    : supabaseClient.from("goals").insert({ ...payload, achieved: false, achieved_date: null }).select().single();
 
-  const { error } = await query;
+  const { data: row, error } = await query;
   if (error) throw error;
+  await addActivityLog("goal", row.id, row.title, mode === "edit" ? "目標を編集" : "目標を追加");
+  return row;
 }
 
 async function handleSubmit(event) {
   event.preventDefault();
-
   const form = event.currentTarget;
   const submitButton = form.querySelector('[type="submit"]');
   const values = Object.fromEntries(new FormData(form).entries());
-  const type = form.dataset.type;
-  const mode = form.dataset.mode;
-  const id = form.dataset.id;
+  const { type, mode, id } = form.dataset;
 
   elements.formError.textContent = "";
   setLoading(submitButton, true, mode === "edit" ? "変更を保存中..." : "保存中...");
   setSyncStatus("変更を保存中...");
 
   try {
-    if (type === "video") {
-      await saveVideo(values, mode, id);
-    } else if (type === "idea") {
-      await saveIdea(values, mode, id);
-    } else if (type === "goal") {
-      await saveGoal(values, mode, id);
-    } else {
-      throw new Error("保存形式が不明です。");
-    }
+    if (type === "video") await saveVideo(values, mode, id);
+    else if (type === "idea") await saveIdea(values, mode, id);
+    else if (type === "goal") await saveGoal(values, mode, id);
+    else throw new Error("保存形式が不明です。");
 
     elements.formModal.close();
     await loadAllData({ silent: true });
@@ -904,46 +1097,72 @@ async function handleSubmit(event) {
 }
 
 async function deleteItem(type, id, triggerButton = null) {
-  const tableMap = { video: "videos", idea: "ideas", goal: "goals" };
-  const labelMap = { video: "動画", idea: "企画", goal: "目標" };
-  const table = tableMap[type];
+  const table = tableForType(type);
   const entity = getEntity(type, id);
-
   if (!table || !entity) {
     showToast("削除対象が見つかりませんでした。", "error");
     return;
   }
 
-  const confirmed = window.confirm(
-    `「${entity.title}」を削除しますか？\n\nこの操作は取り消せません。`
-  );
+  if (!window.confirm(`「${entity.title}」をゴミ箱へ移動しますか？`)) return;
 
-  if (!confirmed) {
-    return;
-  }
-
-  setLoading(triggerButton, true, "削除中...");
-  setSyncStatus("削除中...");
-
+  setLoading(triggerButton, true, "移動中...");
   try {
-    const { error } = await supabaseClient.from(table).delete().eq("id", id);
+    const { error } = await supabaseClient
+      .from(table)
+      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", id);
     if (error) throw error;
 
-    if (type === "video" && currentDetailVideoId === id) {
-      elements.videoDetailModal.close();
-      currentDetailVideoId = null;
-    }
+    await addActivityLog(type, id, entity.title, `${entityLabel(type)}をゴミ箱へ移動`);
+    await addNotification("ゴミ箱へ移動", `${entity.title}をゴミ箱へ移動しました`, type, id);
+
+    [elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal]
+      .forEach(modal => modal.open && modal.close());
 
     await loadAllData({ silent: true });
-    showToast(`${labelMap[type]}を削除しました`);
+    showToast("ゴミ箱へ移動しました");
   } catch (error) {
-    console.error(error);
-    const message = getErrorMessage(error);
-    showToast(`削除できませんでした：${message}`, "error");
-    setSyncStatus("削除エラー", "error");
+    showToast(`移動できませんでした：${getErrorMessage(error)}`, "error");
   } finally {
     setLoading(triggerButton, false);
   }
+}
+
+async function restoreItem(type, id, button) {
+  const table = tableForType(type);
+  const item = data.trash.find(entry => entry.entityType === type && String(entry.id) === String(id));
+  if (!table || !item) return;
+
+  setLoading(button, true, "復元中...");
+  const { error } = await supabaseClient.from(table)
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) showToast(`復元できませんでした：${getErrorMessage(error)}`, "error");
+  else {
+    await addActivityLog(type, id, item.title, `${entityLabel(type)}を復元`);
+    await loadAllData({ silent: true });
+    showToast("復元しました");
+  }
+  setLoading(button, false);
+}
+
+async function permanentDeleteItem(type, id, button) {
+  const table = tableForType(type);
+  const item = data.trash.find(entry => entry.entityType === type && String(entry.id) === String(id));
+  if (!table || !item) return;
+  if (!window.confirm(`「${item.title}」を完全に削除しますか？\nこの操作は取り消せません。`)) return;
+
+  setLoading(button, true, "削除中...");
+  const { error } = await supabaseClient.from(table).delete().eq("id", id);
+  if (error) showToast(`完全削除できませんでした：${getErrorMessage(error)}`, "error");
+  else {
+    await addActivityLog(type, id, item.title, `${entityLabel(type)}を完全削除`);
+    await loadAllData({ silent: true });
+    showToast("完全に削除しました");
+  }
+  setLoading(button, false);
 }
 
 async function updateVideoStatus(id, newStatus, selectElement) {
@@ -975,6 +1194,9 @@ async function updateVideoStatus(id, newStatus, selectElement) {
     const { error } = await supabaseClient.from("videos").update(payload).eq("id", id);
     if (error) throw error;
 
+    await addActivityLog("video", id, video.title, "動画ステータス変更", `${previousStatus} → ${newStatus}`);
+    await addNotification("動画ステータス変更", `${video.title}
+${previousStatus} → ${newStatus}`, "video", id);
     await loadAllData({ silent: true });
     showToast(`ステータスを「${newStatus}」に変更しました`);
   } catch (error) {
@@ -1100,6 +1322,62 @@ function clearGoalDragStyles() {
   });
 }
 
+
+async function persistEntityOrder(type, orderedIds, button = null) {
+  const table = tableForType(type);
+  const key = arrayForType(type);
+  if (!table || !key) return;
+
+  setLoading(button, true, "…");
+  try {
+    const results = await Promise.all(orderedIds.map((id, index) =>
+      supabaseClient.from(table).update({ sort_order: index + 1 }).eq("id", id)
+    ));
+    const failed = results.find(result => result.error);
+    if (failed?.error) throw failed.error;
+
+    const map = new Map(orderedIds.map((id, i) => [String(id), i + 1]));
+    data[key] = data[key].map(item => ({ ...item, sortOrder: map.get(String(item.id)) ?? item.sortOrder }));
+    await addActivityLog(type, orderedIds[0] || "", "", `${entityLabel(type)}の順番を変更`);
+    renderAll();
+    showToast("順番を変更しました");
+  } catch (error) {
+    showToast(`順番を保存できませんでした：${getErrorMessage(error)}`, "error");
+    await loadAllData({ silent: true });
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function moveEntity(type, id, direction, button) {
+  const key = arrayForType(type);
+  const items = [...data[key]].sort(compareBySortOrder);
+  const index = items.findIndex(item => String(item.id) === String(id));
+  const next = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || next < 0 || next >= items.length) return;
+  const ids = items.map(item => item.id);
+  [ids[index], ids[next]] = [ids[next], ids[index]];
+  await persistEntityOrder(type, ids, button);
+}
+
+async function completeIdea(id, button) {
+  const idea = data.ideas.find(item => String(item.id) === String(id));
+  if (!idea || idea.status === "実行済み") return;
+  setLoading(button, true, "保存中...");
+  const { error } = await supabaseClient.from("ideas")
+    .update({ status: "実行済み", updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) showToast(`更新できませんでした：${getErrorMessage(error)}`, "error");
+  else {
+    await addActivityLog("idea", id, idea.title, "企画を実行済みに変更", "アイデア → 実行済み");
+    await addNotification("企画を実行済みに変更", idea.title, "idea", id);
+    elements.ideaDetailModal.close();
+    await loadAllData({ silent: true });
+    showToast("実行済みに変更しました");
+  }
+  setLoading(button, false);
+}
+
 async function achieveGoal(id, triggerButton) {
   const goal = data.goals.find(item => item.id === id);
   if (!goal) return;
@@ -1119,6 +1397,8 @@ async function achieveGoal(id, triggerButton) {
       .eq("id", id);
 
     if (error) throw error;
+    await addActivityLog("goal", id, goal.title, "目標を達成");
+    await addNotification("目標達成", `${goal.title}を達成しました`, "goal", id);
     await loadAllData({ silent: true });
     showToast("目標を達成済みにしました");
   } catch (error) {
@@ -1147,8 +1427,8 @@ function renderVideoDetail(video) {
       <h4>メモ</h4>
       <p>${video.memo ? escapeHtml(video.memo) : "メモはありません"}</p>
     </section>
+    ${renderHistory("video", video.id)}
   `;
-
   elements.detailEditButton.dataset.editId = video.id;
   elements.detailDeleteButton.dataset.deleteId = video.id;
 }
@@ -1174,10 +1454,13 @@ function renderIdeaDetail(idea) {
       <div class="detail-field"><span>更新日</span><strong>${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</strong></div>
     </div>
     <section class="detail-section">
-      <h4>メモ</h4>
-      <p>${idea.note ? escapeHtml(idea.note) : "メモはありません"}</p>
+      <h4>企画内容・メモ</h4>
+      <p class="idea-content-block">${idea.note ? escapeHtml(idea.note) : "内容はまだありません"}</p>
     </section>
+    ${renderHistory("idea", idea.id)}
   `;
+  elements.ideaCompleteButton.classList.toggle("is-hidden", idea.status === "実行済み");
+  elements.ideaCompleteButton.dataset.completeId = idea.id;
   elements.ideaDetailEditButton.dataset.editId = idea.id;
   elements.ideaDetailDeleteButton.dataset.deleteId = idea.id;
 }
@@ -1215,6 +1498,7 @@ function renderGoalDetail(goal) {
         <button type="button" class="secondary-btn" data-achieve-goal="${goal.id}">達成済みにする</button>
       </section>
     ` : ""}
+    ${renderHistory("goal", goal.id)}
   `;
   elements.goalDetailEditButton.dataset.editId = goal.id;
   elements.goalDetailDeleteButton.dataset.deleteId = goal.id;
@@ -1246,6 +1530,8 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
     .subscribe(status => {
       if (status === "SUBSCRIBED") {
         setSyncStatus("リアルタイム同期中", "online");
@@ -1379,6 +1665,35 @@ function setupEventListeners() {
       return;
     }
 
+    const moveButton = event.target.closest("[data-move-type]");
+    if (moveButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveEntity(
+        moveButton.dataset.moveType,
+        moveButton.dataset.moveId,
+        moveButton.dataset.moveDirection,
+        moveButton
+      );
+      return;
+    }
+
+    const restoreButton = event.target.closest("[data-restore-type]");
+    if (restoreButton) {
+      restoreItem(restoreButton.dataset.restoreType, restoreButton.dataset.restoreId, restoreButton);
+      return;
+    }
+
+    const permanentButton = event.target.closest("[data-permanent-delete-type]");
+    if (permanentButton) {
+      permanentDeleteItem(
+        permanentButton.dataset.permanentDeleteType,
+        permanentButton.dataset.permanentDeleteId,
+        permanentButton
+      );
+      return;
+    }
+
     const ideaCard = event.target.closest("[data-idea-card-id]");
     if (ideaCard && !event.target.closest("button, a, select, input, textarea, label")) {
       event.preventDefault();
@@ -1439,6 +1754,54 @@ function setupEventListeners() {
       event.preventDefault();
       openGoalDetail(event.target.dataset.goalCardId);
     }
+  });
+
+  document.addEventListener("dragstart", event => {
+    const handle = event.target.closest("[data-drag-type]");
+    if (!handle) return;
+    draggedEntity = { type: handle.dataset.dragType, id: handle.dataset.dragId };
+    suppressCardClickUntil = Date.now() + 800;
+    handle.closest(".sortable-card")?.classList.add("is-dragging");
+    event.dataTransfer?.setData("text/plain", JSON.stringify(draggedEntity));
+  });
+
+  document.addEventListener("dragover", event => {
+    if (!draggedEntity) return;
+    const card = event.target.closest(".sortable-card");
+    if (!card) return;
+    const targetId = card.dataset.videoCardId || card.dataset.ideaCardId;
+    if (!targetId || String(targetId) === String(draggedEntity.id)) return;
+    event.preventDefault();
+    document.querySelectorAll(".sortable-card").forEach(item => item.classList.remove("is-drop-target"));
+    card.classList.add("is-drop-target");
+  });
+
+  document.addEventListener("drop", async event => {
+    if (!draggedEntity) return;
+    const card = event.target.closest(".sortable-card");
+    const targetId = card?.dataset.videoCardId || card?.dataset.ideaCardId;
+    if (!targetId) return;
+
+    event.preventDefault();
+    const key = arrayForType(draggedEntity.type);
+    const items = [...data[key]].sort(compareBySortOrder);
+    const ids = items.map(item => item.id);
+    const sourceIndex = ids.findIndex(id => String(id) === String(draggedEntity.id));
+    if (sourceIndex < 0) return;
+    ids.splice(sourceIndex, 1);
+    const targetIndex = ids.findIndex(id => String(id) === String(targetId));
+    const rect = card.getBoundingClientRect();
+    ids.splice(targetIndex + (event.clientY > rect.top + rect.height / 2 ? 1 : 0), 0, draggedEntity.id);
+
+    document.querySelectorAll(".sortable-card").forEach(item => item.classList.remove("is-dragging", "is-drop-target"));
+    const type = draggedEntity.type;
+    draggedEntity = null;
+    await persistEntityOrder(type, ids);
+  });
+
+  document.addEventListener("dragend", () => {
+    draggedEntity = null;
+    document.querySelectorAll(".sortable-card").forEach(item => item.classList.remove("is-dragging", "is-drop-target"));
   });
 
   document.addEventListener("dragstart", event => {
@@ -1569,6 +1932,27 @@ function setupEventListeners() {
     deleteItem("goal", elements.goalDetailDeleteButton.dataset.deleteId, elements.goalDetailDeleteButton);
   });
 
+  elements.ideaCompleteButton.addEventListener("click", () => {
+    completeIdea(elements.ideaCompleteButton.dataset.completeId, elements.ideaCompleteButton);
+  });
+
+  elements.notificationButton.addEventListener("click", () => {
+    elements.notificationModal.showModal();
+  });
+
+  elements.trashButton.addEventListener("click", () => {
+    renderTrash();
+    elements.trashModal.showModal();
+  });
+
+  elements.markAllNotificationsRead.addEventListener("click", async () => {
+    const unreadIds = data.notifications.filter(item => !item.isRead).map(item => item.id);
+    if (!unreadIds.length) return;
+    const { error } = await supabaseClient.from("notifications").update({ is_read: true }).in("id", unreadIds);
+    if (error) showToast(`既読にできませんでした：${getErrorMessage(error)}`, "error");
+    else await loadAllData({ silent: true });
+  });
+
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {
       document.querySelectorAll(".filter-btn").forEach(item => item.classList.remove("active"));
@@ -1578,7 +1962,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal].forEach(dialog => {
+  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
