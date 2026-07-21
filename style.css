@@ -908,4 +908,123 @@ textarea:disabled {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
-} 
+}
+
+
+/* Ver20: compact dashboard */
+.compact-dashboard-stats { margin-bottom: 16px; }
+
+.compact-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.compact-kpi-card {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 10px;
+  border: 1px solid rgba(0,0,0,.04);
+  border-radius: 20px;
+  background: var(--panel);
+  text-align: center;
+}
+
+.compact-kpi-card strong {
+  margin-bottom: 6px;
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.compact-kpi-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.compact-kpi-card.attention strong { color: #d96b00; }
+
+.compact-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.compact-summary-row span {
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.82);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compact-summary-row strong { color: var(--text); }
+
+.idea-card.is-tappable,
+.item-card.is-tappable { cursor: pointer; }
+
+.idea-card.is-tappable:active,
+.item-card.is-tappable:active { transform: scale(.992); }
+
+.idea-list-card {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.idea-list-main { min-width: 0; }
+
+.idea-list-main > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idea-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detail-chevron {
+  color: var(--muted);
+  font-size: 25px;
+  line-height: 1;
+}
+
+.detail-section p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .compact-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .compact-kpi-card {
+    min-height: 88px;
+    border-radius: 18px;
+  }
+
+  .compact-kpi-card strong { font-size: 34px; }
+
+  .compact-summary-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compact-summary-row span { text-align: center; }
+}
