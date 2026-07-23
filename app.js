@@ -324,7 +324,7 @@ function tableForType(type) {
 }
 
 function arrayForType(type) {
-  return ({ video: "videos", idea: "ideas", goal: "goals" })[type] || "";
+  return "";
 }
 
 function getCurrentUserEmail() {
@@ -440,7 +440,7 @@ async function loadAllData({ silent = false } = {}) {
 
   const [videosResult, ideasResult, goalsResult, logsResult, notificationsResult] = await Promise.all([
     supabaseClient.from("videos").select("*").order("sort_order", { ascending: true, nullsFirst: false }).order("created_at"),
-    supabaseClient.from("ideas").select("*").order("sort_order", { ascending: true, nullsFirst: false }).order("created_at"),
+    supabaseClient.from("ideas").select("*").order("created_at"),
     fetchGoals(),
     supabaseClient.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500),
     supabaseClient.from("notifications").select("*").order("created_at", { ascending: false }).limit(200)
@@ -462,7 +462,7 @@ async function loadAllData({ silent = false } = {}) {
 
   data = {
     videos: allVideos.filter(item => !item.deletedAt).sort(compareBySortOrder),
-    ideas: allIdeas.filter(item => !item.deletedAt).sort(compareBySortOrder),
+    ideas: allIdeas.filter(item => !item.deletedAt),
     goals: allGoals.filter(item => !item.deletedAt).sort(compareGoals),
     activityLogs: logsResult.data.map(mapActivityLog),
     notifications: notificationsResult.data.map(mapNotification),
@@ -687,9 +687,9 @@ function renderVideos() {
 
         <div class="item-actions">
           <div class="sort-controls">
-            <button type="button" class="sort-button" data-move-type="video" data-move-id="${video.id}" data-move-direction="up">↑</button>
-            <button type="button" class="sort-button" data-move-type="video" data-move-id="${video.id}" data-move-direction="down">↓</button>
-            <button type="button" class="sort-handle" draggable="true" data-drag-type="video" data-drag-id="${video.id}">≡</button>
+            <button type="button" class="sort-button" data-move-disabled="video" data-move-id="${video.id}" data-move-direction="up">↑</button>
+            <button type="button" class="sort-button" data-move-disabled="video" data-move-id="${video.id}" data-move-direction="down">↓</button>
+            <button type="button" class="sort-handle" draggable="true" data-drag-disabled="video" data-drag-id="${video.id}">≡</button>
           </div>
           <button type="button" class="small-action-btn" data-open-video-detail="${video.id}">詳細</button>
           <button type="button" class="small-action-btn" data-edit-type="video" data-edit-id="${video.id}">編集</button>
@@ -712,7 +712,7 @@ function renderIdeas() {
 
         ${items.map(idea => `
           <article
-            class="idea-card idea-list-card is-tappable sortable-card"
+            class="idea-card idea-list-card is-tappable"
             data-idea-card-id="${idea.id}"
             role="button"
             tabindex="0"
@@ -724,14 +724,7 @@ function renderIdeas() {
                 <span>更新 ${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</span>
               </div>
             </div>
-            <div class="card-sort-side">
-              <div class="sort-controls">
-                <button type="button" class="sort-button" data-move-type="idea" data-move-id="${idea.id}" data-move-direction="up">↑</button>
-                <button type="button" class="sort-button" data-move-type="idea" data-move-id="${idea.id}" data-move-direction="down">↓</button>
-                <button type="button" class="sort-handle" draggable="true" data-drag-type="idea" data-drag-id="${idea.id}">≡</button>
-              </div>
-              <span class="detail-chevron">›</span>
-            </div>
+            <span class="detail-chevron">›</span>
           </article>
         `).join("") || `<div class="empty-state">なし</div>`}
       </section>
@@ -1022,10 +1015,6 @@ async function saveIdea(values, mode, id) {
     note: values.note || "",
     updated_at: new Date().toISOString()
   };
-
-  if (mode !== "edit") {
-    payload.sort_order = Math.max(0, ...data.ideas.map(v => Number(v.sortOrder) || 0)) + 1;
-  }
 
   const query = mode === "edit"
     ? supabaseClient.from("ideas").update(payload).eq("id", id).select().single()
@@ -1757,9 +1746,9 @@ function setupEventListeners() {
   });
 
   document.addEventListener("dragstart", event => {
-    const handle = event.target.closest("[data-drag-type]");
+    const handle = event.target.closest('[data-drag-disabled="video"]');
     if (!handle) return;
-    draggedEntity = { type: handle.dataset.dragType, id: handle.dataset.dragId };
+    draggedEntity = { type: "video", id: handle.dataset.dragId };
     suppressCardClickUntil = Date.now() + 800;
     handle.closest(".sortable-card")?.classList.add("is-dragging");
     event.dataTransfer?.setData("text/plain", JSON.stringify(draggedEntity));
@@ -1767,9 +1756,9 @@ function setupEventListeners() {
 
   document.addEventListener("dragover", event => {
     if (!draggedEntity) return;
-    const card = event.target.closest(".sortable-card");
+    const card = event.target.closest("[data-video-card-id].sortable-card");
     if (!card) return;
-    const targetId = card.dataset.videoCardId || card.dataset.ideaCardId;
+    const targetId = card.dataset.videoCardId;
     if (!targetId || String(targetId) === String(draggedEntity.id)) return;
     event.preventDefault();
     document.querySelectorAll(".sortable-card").forEach(item => item.classList.remove("is-drop-target"));
@@ -1778,8 +1767,8 @@ function setupEventListeners() {
 
   document.addEventListener("drop", async event => {
     if (!draggedEntity) return;
-    const card = event.target.closest(".sortable-card");
-    const targetId = card?.dataset.videoCardId || card?.dataset.ideaCardId;
+    const card = event.target.closest("[data-video-card-id].sortable-card");
+    const targetId = card?.dataset.videoCardId;
     if (!targetId) return;
 
     event.preventDefault();
