@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Boat Manager" />
-  <link rel="stylesheet" href="style.css?v=23.3" />
+  <link rel="stylesheet" href="style.css?v=23.4" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -137,12 +137,11 @@
             <span class="dashboard-summary-chip">
               <span class="summary-icon summary-video-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
-                  <path d="M4 7h16v12H4z"></path>
-                  <path d="m9.5 10 5 3-5 3Z"></path>
-                  <path d="M7 3v4M17 3v4"></path>
+                  <rect x="3" y="4.5" width="18" height="15" rx="3"></rect>
+                  <path d="m10 9 5 3-5 3Z"></path>
                 </svg>
               </span>
-              <span>企画中 <strong id="planningCount">0</strong>件</span>
+              <span>登録動画 <strong id="videoCount">0</strong>件</span>
             </span>
 
             <span class="dashboard-summary-chip">
@@ -215,10 +214,7 @@
 
         <div class="filter-row" id="videoFilters">
           <button type="button" class="filter-btn active" data-filter="all">すべて <span class="filter-count" data-filter-count="all">0</span></button>
-          <button type="button" class="filter-btn" data-filter="企画中">企画中 <span class="filter-count" data-filter-count="企画中">0</span></button>
           <button type="button" class="filter-btn" data-filter="編集待ち">編集待ち <span class="filter-count" data-filter-count="編集待ち">0</span></button>
-          <button type="button" class="filter-btn" data-filter="編集中">編集中 <span class="filter-count" data-filter-count="編集中">0</span></button>
-          <button type="button" class="filter-btn" data-filter="確認待ち">確認待ち <span class="filter-count" data-filter-count="確認待ち">0</span></button>
           <button type="button" class="filter-btn" data-filter="投稿済み">投稿済み <span class="filter-count" data-filter-count="投稿済み">0</span></button>
         </div>
 
@@ -348,6 +344,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.3"></script>
+  <script src="app.js?v=23.4"></script>
 </body>
 </html>
