@@ -17,7 +17,7 @@ const supabaseClient = window.supabase.createClient(
   }
 );
 
-const VIDEO_STATUSES = ["企画中", "編集待ち", "編集中", "確認待ち", "投稿済み"];
+const VIDEO_STATUSES = ["編集待ち", "投稿済み"];
 const VIDEO_STATUS_ORDER = new Map(
   VIDEO_STATUSES.map((status, index) => [status, index])
 );
@@ -240,7 +240,7 @@ function mapVideo(row) {
     id: row.id,
     title: row.title,
     type: row.video_type || "Shorts",
-    status: row.status || "企画中",
+    status: row.status === "投稿済み" ? "投稿済み" : "編集待ち",
     owner: row.owner || "",
     postDate: row.post_date || "",
     views24: Number(row.views_24 || 0),
@@ -521,8 +521,8 @@ function renderDashboard() {
   document.getElementById("monthlyPosts").textContent = countMonthlyPosts();
   document.getElementById("monthlyShorts").textContent = countMonthlyPostsByType("Shorts");
   document.getElementById("monthlyLongVideos").textContent = countMonthlyPostsByType("横動画");
-  document.getElementById("planningCount").textContent =
-    data.videos.filter(video => video.status === "企画中").length;
+  document.getElementById("videoCount").textContent =
+    data.videos.length;
   document.getElementById("editingWaitingCount").textContent =
     data.videos.filter(video => video.status === "編集待ち").length;
   document.getElementById("ideaCount").textContent =
@@ -873,7 +873,7 @@ function openForm(type, id = "") {
     const video = entity || {
       title: "",
       type: "Shorts",
-      status: "企画中",
+      status: "編集待ち",
       owner: "",
       postDate: "",
       views24: 0,
