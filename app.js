@@ -26,6 +26,7 @@ const IDEA_STATUSES = ["アイデア", "実行済み"];
 let data = {
   videos: [],
   ideas: [],
+  ideaItems: [],
   goals: [],
   activityLogs: [],
   notifications: [],
@@ -277,6 +278,18 @@ function mapIdea(row) {
   };
 }
 
+function mapIdeaItem(row) {
+  return {
+    id: row.id,
+    parentIdeaId: String(row.parent_idea_id || ""),
+    title: row.title || "",
+    note: row.note || "",
+    status: row.status === "実行済み" ? "実行済み" : "アイデア",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
+  };
+}
+
 function mapGoal(row) {
   return {
     id: row.id,
@@ -408,16 +421,29 @@ async function fetchGoals() {
 async function loadAllData({ silent = false } = {}) {
   if (!silent) setSyncStatus("同期中");
 
-  const [videosResult, ideasResult, goalsResult, logsResult, notificationsResult] = await Promise.all([
+  const [
+    videosResult,
+    ideasResult,
+    ideaItemsResult,
+    goalsResult,
+    logsResult,
+    notificationsResult
+  ] = await Promise.all([
     supabaseClient.from("videos").select("*").order("created_at"),
     supabaseClient.from("ideas").select("*").order("created_at"),
+    supabaseClient.from("idea_items").select("*").order("created_at"),
     fetchGoals(),
     supabaseClient.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500),
     supabaseClient.from("notifications").select("*").order("created_at", { ascending: false }).limit(200)
   ]);
 
-  const firstError = videosResult.error || ideasResult.error || goalsResult.error ||
-    logsResult.error || notificationsResult.error;
+  const firstError =
+    videosResult.error ||
+    ideasResult.error ||
+    ideaItemsResult.error ||
+    goalsResult.error ||
+    logsResult.error ||
+    notificationsResult.error;
 
   if (firstError) {
     console.error(firstError);
@@ -428,11 +454,13 @@ async function loadAllData({ silent = false } = {}) {
 
   const allVideos = videosResult.data.map(mapVideo);
   const allIdeas = ideasResult.data.map(mapIdea);
+  const allIdeaItems = ideaItemsResult.data.map(mapIdeaItem);
   const allGoals = goalsResult.data.map(mapGoal);
 
   data = {
     videos: allVideos.filter(item => !item.deletedAt).sort(compareBySortOrder),
     ideas: allIdeas.filter(item => !item.deletedAt),
+    ideaItems: allIdeaItems,
     goals: allGoals.filter(item => !item.deletedAt),
     activityLogs: logsResult.data.map(mapActivityLog),
     notifications: notificationsResult.data.map(mapNotification),
@@ -633,14 +661,46 @@ function renderDashboard() {
         </tr>
       </thead>
       <tbody>
-        ${posted.slice(0, 5).map(video => `
-          <tr>
-            <td>${escapeHtml(video.title)}</td>
-            <td>${escapeHtml(video.type)}</td>
-            <td>${formatDate(video.postDate)}</td>
-            <td>${Number(video.views24).toLocaleString()}回</td>
-          </tr>
-        `).join("")}
+        ${posted.slice(0, 3).map(video => {
+          const youtubeUrl = safeExternalUrl(video.youtubeUrl);
+
+          return `
+            <tr>
+              <td>
+                <div class="recent-video-title-cell">
+                  ${youtubeUrl ? `
+                    <a
+                      class="recent-video-play-button"
+                      href="${escapeHtml(youtubeUrl)}"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="${escapeHtml(video.title)}をYouTubeで再生"
+                      title="YouTubeで再生"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M9 7.5 16 12l-7 4.5Z"></path>
+                      </svg>
+                    </a>
+                  ` : `
+                    <span
+                      class="recent-video-play-button is-disabled"
+                      aria-label="YouTube URL未設定"
+                      title="YouTube URL未設定"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M9 7.5 16 12l-7 4.5Z"></path>
+                      </svg>
+                    </span>
+                  `}
+                  <span class="recent-video-title">${escapeHtml(video.title)}</span>
+                </div>
+              </td>
+              <td>${escapeHtml(video.type)}</td>
+              <td>${formatDate(video.postDate)}</td>
+              <td>${Number(video.views24).toLocaleString()}回</td>
+            </tr>
+          `;
+        }).join("")}
       </tbody>
     </table>
   `;
@@ -1235,6 +1295,202 @@ async function moveIdea(id, status, selectElement) {
 
 
 
+async function addIdeaItem(parentIdeaId, values, submitButton) {
+  const parentIdea = data.ideas.find(
+    item => String(item.id) === String(parentIdeaId)
+  );
+
+  if (!parentIdea || parentIdea.status !== "実行済み") {
+    showToast("実行済みの企画内でのみ追加できます。", "error");
+    return;
+  }
+
+  setLoading(submitButton, true, "追加中...");
+
+  try {
+    const title = validateTitle(values.title, "アイデア名");
+
+    const { data: row, error } = await supabaseClient
+      .from("idea_items")
+      .insert({
+        parent_idea_id: String(parentIdeaId),
+        title,
+        note: values.note || "",
+        status: "アイデア",
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    await addActivityLog(
+      "idea",
+      parentIdea.id,
+      parentIdea.title,
+      "企画内アイデアを追加",
+      row.title
+    );
+
+    await loadAllData({ silent: true });
+    showToast("企画内アイデアを追加しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`追加できませんでした：${getErrorMessage(error)}`, "error");
+  } finally {
+    setLoading(submitButton, false);
+  }
+}
+
+async function updateIdeaItem(itemId, values, submitButton) {
+  const item = data.ideaItems.find(
+    entry => String(entry.id) === String(itemId)
+  );
+
+  if (!item) {
+    showToast("企画内アイデアが見つかりませんでした。", "error");
+    return;
+  }
+
+  const parentIdea = data.ideas.find(
+    idea => String(idea.id) === String(item.parentIdeaId)
+  );
+
+  setLoading(submitButton, true, "保存中...");
+
+  try {
+    const payload = {
+      title: validateTitle(values.title, "アイデア名"),
+      note: values.note || "",
+      status: IDEA_STATUSES.includes(values.status)
+        ? values.status
+        : "アイデア",
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabaseClient
+      .from("idea_items")
+      .update(payload)
+      .eq("id", itemId);
+
+    if (error) throw error;
+
+    if (parentIdea) {
+      await addActivityLog(
+        "idea",
+        parentIdea.id,
+        parentIdea.title,
+        "企画内アイデアを更新",
+        `${item.title} → ${payload.title}`
+      );
+    }
+
+    await loadAllData({ silent: true });
+    showToast("企画内アイデアを更新しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`更新できませんでした：${getErrorMessage(error)}`, "error");
+  } finally {
+    setLoading(submitButton, false);
+  }
+}
+
+async function updateIdeaItemStatus(itemId, status, selectElement) {
+  const item = data.ideaItems.find(
+    entry => String(entry.id) === String(itemId)
+  );
+
+  if (!item || !IDEA_STATUSES.includes(status)) {
+    return;
+  }
+
+  const previousStatus = item.status;
+  selectElement.disabled = true;
+
+  try {
+    const { error } = await supabaseClient
+      .from("idea_items")
+      .update({
+        status,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", itemId);
+
+    if (error) throw error;
+
+    const parentIdea = data.ideas.find(
+      idea => String(idea.id) === String(item.parentIdeaId)
+    );
+
+    if (parentIdea) {
+      await addActivityLog(
+        "idea",
+        parentIdea.id,
+        parentIdea.title,
+        "企画内アイデアのステータス変更",
+        `${item.title}：${previousStatus} → ${status}`
+      );
+    }
+
+    await loadAllData({ silent: true });
+    showToast(`「${status}」に変更しました`);
+  } catch (error) {
+    console.error(error);
+    selectElement.value = previousStatus;
+    showToast(`変更できませんでした：${getErrorMessage(error)}`, "error");
+  } finally {
+    selectElement.disabled = false;
+  }
+}
+
+async function deleteIdeaItem(itemId, button) {
+  const item = data.ideaItems.find(
+    entry => String(entry.id) === String(itemId)
+  );
+
+  if (!item) {
+    showToast("企画内アイデアが見つかりませんでした。", "error");
+    return;
+  }
+
+  if (!window.confirm(`「${item.title}」を削除しますか？`)) {
+    return;
+  }
+
+  setLoading(button, true, "削除中...");
+
+  try {
+    const { error } = await supabaseClient
+      .from("idea_items")
+      .delete()
+      .eq("id", itemId);
+
+    if (error) throw error;
+
+    const parentIdea = data.ideas.find(
+      idea => String(idea.id) === String(item.parentIdeaId)
+    );
+
+    if (parentIdea) {
+      await addActivityLog(
+        "idea",
+        parentIdea.id,
+        parentIdea.title,
+        "企画内アイデアを削除",
+        item.title
+      );
+    }
+
+    await loadAllData({ silent: true });
+    showToast("企画内アイデアを削除しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`削除できませんでした：${getErrorMessage(error)}`, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
 async function completeIdea(id, button) {
   const idea = data.ideas.find(item => String(item.id) === String(id));
   if (!idea || idea.status === "実行済み") return;
@@ -1392,6 +1648,145 @@ function openVideoDetail(id) {
   elements.videoDetailModal.showModal();
 }
 
+function getIdeaItems(parentIdeaId) {
+  return data.ideaItems
+    .filter(item => String(item.parentIdeaId) === String(parentIdeaId))
+    .sort((a, b) =>
+      String(b.updatedAt || b.createdAt).localeCompare(
+        String(a.updatedAt || a.createdAt)
+      )
+    );
+}
+
+function renderIdeaItemsSection(idea) {
+  if (idea.status !== "実行済み") {
+    return "";
+  }
+
+  const items = getIdeaItems(idea.id);
+
+  return `
+    <section class="nested-ideas-section">
+      <div class="nested-ideas-head">
+        <div>
+          <span>IDEAS IN PROJECT</span>
+          <h4>企画内アイデア</h4>
+        </div>
+        <strong>${items.length}件</strong>
+      </div>
+
+      <form class="nested-idea-add-form" data-idea-item-add-form="${idea.id}">
+        <label>
+          アイデア名
+          <input
+            type="text"
+            name="title"
+            maxlength="120"
+            placeholder="新しいアイデアを入力"
+            required
+          />
+        </label>
+
+        <label>
+          メモ
+          <textarea
+            name="note"
+            rows="3"
+            placeholder="必要な場合だけ入力"
+          ></textarea>
+        </label>
+
+        <button type="submit" class="primary-btn">＋ アイデアを追加</button>
+      </form>
+
+      <div class="nested-idea-list">
+        ${items.length ? items.map(item => `
+          <article class="nested-idea-card" data-idea-item-card="${item.id}">
+            <div class="nested-idea-display" data-idea-item-display="${item.id}">
+              <div class="nested-idea-card-head">
+                <strong>${escapeHtml(item.title)}</strong>
+
+                <select
+                  class="nested-idea-status-select"
+                  data-idea-item-status-id="${item.id}"
+                  aria-label="${escapeHtml(item.title)}のステータス"
+                >
+                  ${IDEA_STATUSES.map(status => `
+                    <option value="${status}" ${status === item.status ? "selected" : ""}>
+                      ${status}
+                    </option>
+                  `).join("")}
+                </select>
+              </div>
+
+              ${item.note ? `<p>${escapeHtml(item.note)}</p>` : ""}
+
+              <div class="nested-idea-actions">
+                <button
+                  type="button"
+                  class="small-action-btn"
+                  data-edit-idea-item="${item.id}"
+                >編集</button>
+
+                <button
+                  type="button"
+                  class="delete-btn"
+                  data-delete-idea-item="${item.id}"
+                >削除</button>
+              </div>
+            </div>
+
+            <form
+              class="nested-idea-edit-form is-hidden"
+              data-idea-item-edit-form="${item.id}"
+            >
+              <label>
+                アイデア名
+                <input
+                  type="text"
+                  name="title"
+                  maxlength="120"
+                  value="${formValue(item.title)}"
+                  required
+                />
+              </label>
+
+              <label>
+                メモ
+                <textarea name="note" rows="3">${formValue(item.note)}</textarea>
+              </label>
+
+              <label>
+                ステータス
+                <select name="status">
+                  ${IDEA_STATUSES.map(status => `
+                    <option value="${status}" ${status === item.status ? "selected" : ""}>
+                      ${status}
+                    </option>
+                  `).join("")}
+                </select>
+              </label>
+
+              <div class="nested-idea-edit-actions">
+                <button type="submit" class="primary-btn">保存</button>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  data-cancel-idea-item-edit="${item.id}"
+                >キャンセル</button>
+              </div>
+            </form>
+          </article>
+        `).join("") : `
+          <div class="empty-state nested-idea-empty">
+            企画内アイデアはまだありません
+          </div>
+        `}
+      </div>
+    </section>
+  `;
+}
+
 function renderIdeaDetail(idea) {
   elements.ideaDetailTitle.textContent = idea.title;
   elements.ideaDetailBody.innerHTML = `
@@ -1404,6 +1799,8 @@ function renderIdeaDetail(idea) {
       <h4>企画内容・メモ</h4>
       <p class="idea-content-block">${idea.note ? escapeHtml(idea.note) : "内容はまだありません"}</p>
     </section>
+
+    ${renderIdeaItemsSection(idea)}
     ${renderHistory("idea", idea.id)}
   `;
   elements.ideaCompleteButton.classList.toggle("is-hidden", idea.status === "実行済み");
@@ -1523,6 +1920,7 @@ function subscribeRealtime() {
     .channel("boat-manager-shared-data")
     .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
@@ -1559,6 +1957,7 @@ async function logout() {
   data = {
     videos: [],
     ideas: [],
+    ideaItems: [],
     goals: [],
     activityLogs: [],
     notifications: [],
@@ -1667,6 +2066,44 @@ function setupEventListeners() {
     }
 
 
+    const editIdeaItemButton = event.target.closest("[data-edit-idea-item]");
+    if (editIdeaItemButton) {
+      event.preventDefault();
+
+      const itemId = editIdeaItemButton.dataset.editIdeaItem;
+      document
+        .querySelector(`[data-idea-item-display="${itemId}"]`)
+        ?.classList.add("is-hidden");
+      document
+        .querySelector(`[data-idea-item-edit-form="${itemId}"]`)
+        ?.classList.remove("is-hidden");
+      return;
+    }
+
+    const cancelIdeaItemButton = event.target.closest("[data-cancel-idea-item-edit]");
+    if (cancelIdeaItemButton) {
+      event.preventDefault();
+
+      const itemId = cancelIdeaItemButton.dataset.cancelIdeaItemEdit;
+      document
+        .querySelector(`[data-idea-item-edit-form="${itemId}"]`)
+        ?.classList.add("is-hidden");
+      document
+        .querySelector(`[data-idea-item-display="${itemId}"]`)
+        ?.classList.remove("is-hidden");
+      return;
+    }
+
+    const deleteIdeaItemButton = event.target.closest("[data-delete-idea-item]");
+    if (deleteIdeaItemButton) {
+      event.preventDefault();
+      deleteIdeaItem(
+        deleteIdeaItemButton.dataset.deleteIdeaItem,
+        deleteIdeaItemButton
+      );
+      return;
+    }
+
     const postMonthButton = event.target.closest("[data-post-stats-month]");
     if (postMonthButton) {
       selectedPostStatsMonth = postMonthButton.dataset.postStatsMonth;
@@ -1771,11 +2208,47 @@ function setupEventListeners() {
       return;
     }
 
+    const ideaItemSelect = event.target.closest("[data-idea-item-status-id]");
+    if (ideaItemSelect) {
+      updateIdeaItemStatus(
+        ideaItemSelect.dataset.ideaItemStatusId,
+        ideaItemSelect.value,
+        ideaItemSelect
+      );
+      return;
+    }
+
     const ideaSelect = event.target.closest("[data-idea-status-id]");
     if (ideaSelect) {
       moveIdea(ideaSelect.dataset.ideaStatusId, ideaSelect.value, ideaSelect);
     }
   });
+
+  document.addEventListener("submit", event => {
+    const addForm = event.target.closest("[data-idea-item-add-form]");
+    if (addForm) {
+      event.preventDefault();
+      const values = Object.fromEntries(new FormData(addForm).entries());
+      addIdeaItem(
+        addForm.dataset.ideaItemAddForm,
+        values,
+        addForm.querySelector('[type="submit"]')
+      );
+      return;
+    }
+
+    const editForm = event.target.closest("[data-idea-item-edit-form]");
+    if (editForm) {
+      event.preventDefault();
+      const values = Object.fromEntries(new FormData(editForm).entries());
+      updateIdeaItem(
+        editForm.dataset.ideaItemEditForm,
+        values,
+        editForm.querySelector('[type="submit"]')
+      );
+    }
+  });
+
   elements.dynamicForm.addEventListener("submit", handleSubmit);
 
   elements.detailEditButton.addEventListener("click", () => {
