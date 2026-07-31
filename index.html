@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Boat Manager" />
-  <link rel="stylesheet" href="style.css?v=23.5" />
+  <link rel="stylesheet" href="style.css?v=23.6" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -312,10 +312,18 @@
     </div>
 
     <section class="post-stats-section">
-      <div class="post-stats-heading">
-        <span>THIS MONTH</span>
-        <h4>今月の投稿</h4>
+      <div class="post-stats-heading post-stats-month-head">
+        <div>
+          <span>MONTHLY RECORD</span>
+          <h4 id="postStatsSelectedMonthLabel">今月の投稿</h4>
+        </div>
+
+        <label class="post-month-select-wrap">
+          <span>表示する月</span>
+          <select id="postStatsMonthSelect" aria-label="表示する月"></select>
+        </label>
       </div>
+
       <div class="post-stats-grid">
         <article class="post-stat-card post-stat-total">
           <span>合計</span>
@@ -359,6 +367,14 @@
       </div>
     </section>
 
+    <section class="post-stats-section">
+      <div class="post-stats-heading">
+        <span>MONTHLY HISTORY</span>
+        <h4>月別一覧</h4>
+      </div>
+      <div id="postStatsMonthlyList" class="post-monthly-list"></div>
+    </section>
+
     <p class="post-stats-note">「投稿済み」で投稿日が設定されている動画を集計しています。</p>
   </dialog>
 
@@ -390,6 +406,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.5"></script>
+  <script src="app.js?v=23.6"></script>
 </body>
 </html>
