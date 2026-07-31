@@ -40,6 +40,7 @@ let refreshTimer = null;
 let selectedPostStatsMonth = "";
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
+let currentDetailIdeaItemId = null;
 let currentDetailGoalId = null;
 
 const elements = {
@@ -70,6 +71,12 @@ const elements = {
   ideaDetailBody: document.getElementById("ideaDetailBody"),
   ideaDetailEditButton: document.getElementById("ideaDetailEditButton"),
   ideaDetailDeleteButton: document.getElementById("ideaDetailDeleteButton"),
+  ideaItemDetailModal: document.getElementById("ideaItemDetailModal"),
+  ideaItemDetailTitle: document.getElementById("ideaItemDetailTitle"),
+  ideaItemDetailBody: document.getElementById("ideaItemDetailBody"),
+  ideaItemDetailActions: document.getElementById("ideaItemDetailActions"),
+  ideaItemDetailEditButton: document.getElementById("ideaItemDetailEditButton"),
+  ideaItemDetailDeleteButton: document.getElementById("ideaItemDetailDeleteButton"),
   goalDetailModal: document.getElementById("goalDetailModal"),
   goalDetailTitle: document.getElementById("goalDetailTitle"),
   goalDetailBody: document.getElementById("goalDetailBody"),
@@ -483,6 +490,10 @@ async function loadAllData({ silent = false } = {}) {
     const item = data.ideas.find(idea => idea.id === currentDetailIdeaId);
     item ? renderIdeaDetail(item) : elements.ideaDetailModal.close();
   }
+  if (elements.ideaItemDetailModal.open && currentDetailIdeaItemId) {
+    const item = getIdeaItemById(currentDetailIdeaItemId);
+    item ? renderIdeaItemDetail(item) : elements.ideaItemDetailModal.close();
+  }
   if (elements.goalDetailModal.open && currentDetailGoalId) {
     const item = data.goals.find(goal => goal.id === currentDetailGoalId);
     item ? renderGoalDetail(item) : elements.goalDetailModal.close();
@@ -812,7 +823,19 @@ function renderIdeas() {
   const board = document.getElementById("ideaBoard");
 
   board.innerHTML = IDEA_STATUSES.map(status => {
-    const items = data.ideas.filter(idea => idea.status === status);
+    const items = data.ideas
+      .filter(idea => idea.status === status)
+      .sort((a, b) => {
+        const createdCompare = String(a.createdAt || "").localeCompare(
+          String(b.createdAt || "")
+        );
+
+        if (createdCompare !== 0) {
+          return createdCompare;
+        }
+
+        return String(a.id).localeCompare(String(b.id));
+      });
 
     return `
       <section class="kanban-column">
@@ -1386,6 +1409,13 @@ async function updateIdeaItem(itemId, values, submitButton) {
     }
 
     await loadAllData({ silent: true });
+
+    const updatedItem = getIdeaItemById(itemId);
+    if (updatedItem && elements.ideaItemDetailModal.open) {
+      currentDetailIdeaItemId = updatedItem.id;
+      renderIdeaItemDetail(updatedItem);
+    }
+
     showToast("企画内アイデアを更新しました");
   } catch (error) {
     console.error(error);
@@ -1480,6 +1510,11 @@ async function deleteIdeaItem(itemId, button) {
         item.title
       );
     }
+
+    if (elements.ideaItemDetailModal.open) {
+      elements.ideaItemDetailModal.close();
+    }
+    currentDetailIdeaItemId = null;
 
     await loadAllData({ silent: true });
     showToast("企画内アイデアを削除しました");
@@ -1630,7 +1665,6 @@ function renderVideoDetail(video) {
       <h4>メモ</h4>
       <p>${video.memo ? escapeHtml(video.memo) : "メモはありません"}</p>
     </section>
-    ${renderHistory("video", video.id)}
   `;
   elements.detailEditButton.dataset.editId = video.id;
   elements.detailDeleteButton.dataset.deleteId = video.id;
@@ -1701,81 +1735,24 @@ function renderIdeaItemsSection(idea) {
 
       <div class="nested-idea-list">
         ${items.length ? items.map(item => `
-          <article class="nested-idea-card" data-idea-item-card="${item.id}">
-            <div class="nested-idea-display" data-idea-item-display="${item.id}">
-              <div class="nested-idea-card-head">
-                <strong>${escapeHtml(item.title)}</strong>
-
-                <select
-                  class="nested-idea-status-select"
-                  data-idea-item-status-id="${item.id}"
-                  aria-label="${escapeHtml(item.title)}のステータス"
-                >
-                  ${IDEA_STATUSES.map(status => `
-                    <option value="${status}" ${status === item.status ? "selected" : ""}>
-                      ${status}
-                    </option>
-                  `).join("")}
-                </select>
+          <article
+            class="nested-idea-card nested-idea-list-card is-tappable"
+            data-open-idea-item-detail="${item.id}"
+            role="button"
+            tabindex="0"
+            aria-label="${escapeHtml(item.title)}の詳細を開く"
+          >
+            <div class="nested-idea-list-main">
+              <strong>${escapeHtml(item.title)}</strong>
+              <div class="nested-idea-list-meta">
+                <span class="status">${escapeHtml(item.status)}</span>
+                <span>追加 ${formatDate(item.createdAt?.slice(0, 10))}</span>
               </div>
-
-              ${item.note ? `<p>${escapeHtml(item.note)}</p>` : ""}
-
-              <div class="nested-idea-actions">
-                <button
-                  type="button"
-                  class="small-action-btn"
-                  data-edit-idea-item="${item.id}"
-                >編集</button>
-
-                <button
-                  type="button"
-                  class="delete-btn"
-                  data-delete-idea-item="${item.id}"
-                >削除</button>
-              </div>
+              ${item.note ? `
+                <p class="nested-idea-note-preview">${escapeHtml(item.note)}</p>
+              ` : ""}
             </div>
-
-            <form
-              class="nested-idea-edit-form is-hidden"
-              data-idea-item-edit-form="${item.id}"
-            >
-              <label>
-                アイデア名
-                <input
-                  type="text"
-                  name="title"
-                  maxlength="120"
-                  value="${formValue(item.title)}"
-                  required
-                />
-              </label>
-
-              <label>
-                メモ
-                <textarea name="note" rows="3">${formValue(item.note)}</textarea>
-              </label>
-
-              <label>
-                ステータス
-                <select name="status">
-                  ${IDEA_STATUSES.map(status => `
-                    <option value="${status}" ${status === item.status ? "selected" : ""}>
-                      ${status}
-                    </option>
-                  `).join("")}
-                </select>
-              </label>
-
-              <div class="nested-idea-edit-actions">
-                <button type="submit" class="primary-btn">保存</button>
-                <button
-                  type="button"
-                  class="secondary-btn"
-                  data-cancel-idea-item-edit="${item.id}"
-                >キャンセル</button>
-              </div>
-            </form>
+            <span class="detail-chevron" aria-hidden="true">›</span>
           </article>
         `).join("") : `
           <div class="empty-state nested-idea-empty">
@@ -1785,6 +1762,108 @@ function renderIdeaItemsSection(idea) {
       </div>
     </section>
   `;
+}
+
+function getIdeaItemById(id) {
+  return data.ideaItems.find(item => String(item.id) === String(id));
+}
+
+function renderIdeaItemDetail(item) {
+  const parentIdea = data.ideas.find(
+    idea => String(idea.id) === String(item.parentIdeaId)
+  );
+
+  elements.ideaItemDetailTitle.textContent = item.title;
+  elements.ideaItemDetailBody.innerHTML = `
+    <div class="detail-summary">
+      <div class="detail-field">
+        <span>ステータス</span>
+        <strong>${escapeHtml(item.status)}</strong>
+      </div>
+      <div class="detail-field">
+        <span>所属企画</span>
+        <strong>${escapeHtml(parentIdea?.title || "不明")}</strong>
+      </div>
+      <div class="detail-field">
+        <span>作成日</span>
+        <strong>${formatDate(item.createdAt?.slice(0, 10))}</strong>
+      </div>
+      <div class="detail-field">
+        <span>更新日</span>
+        <strong>${formatDate((item.updatedAt || item.createdAt)?.slice(0, 10))}</strong>
+      </div>
+    </div>
+
+    <section class="detail-section">
+      <h4>メモ</h4>
+      <p>${item.note ? escapeHtml(item.note) : "メモはありません"}</p>
+    </section>
+  `;
+
+  elements.ideaItemDetailActions.classList.remove("is-hidden");
+  elements.ideaItemDetailEditButton.dataset.ideaItemDetailEdit = item.id;
+  elements.ideaItemDetailDeleteButton.dataset.ideaItemDetailDelete = item.id;
+}
+
+function renderIdeaItemDetailEdit(item) {
+  elements.ideaItemDetailTitle.textContent = "企画内アイデアを編集";
+  elements.ideaItemDetailActions.classList.add("is-hidden");
+
+  elements.ideaItemDetailBody.innerHTML = `
+    <form
+      class="idea-item-detail-edit-form"
+      data-idea-item-detail-edit-form="${item.id}"
+    >
+      <label>
+        アイデア名
+        <input
+          type="text"
+          name="title"
+          maxlength="120"
+          value="${formValue(item.title)}"
+          required
+        />
+      </label>
+
+      <label>
+        メモ
+        <textarea name="note" rows="7">${formValue(item.note)}</textarea>
+      </label>
+
+      <label>
+        ステータス
+        <select name="status">
+          ${IDEA_STATUSES.map(status => `
+            <option value="${status}" ${status === item.status ? "selected" : ""}>
+              ${status}
+            </option>
+          `).join("")}
+        </select>
+      </label>
+
+      <div class="idea-item-detail-edit-actions">
+        <button type="submit" class="primary-btn">保存</button>
+        <button
+          type="button"
+          class="secondary-btn"
+          data-cancel-idea-item-detail-edit="${item.id}"
+        >キャンセル</button>
+      </div>
+    </form>
+  `;
+}
+
+function openIdeaItemDetail(id) {
+  const item = getIdeaItemById(id);
+
+  if (!item) {
+    showToast("企画内アイデアが見つかりませんでした。", "error");
+    return;
+  }
+
+  currentDetailIdeaItemId = item.id;
+  renderIdeaItemDetail(item);
+  elements.ideaItemDetailModal.showModal();
 }
 
 function renderIdeaDetail(idea) {
@@ -1801,7 +1880,6 @@ function renderIdeaDetail(idea) {
     </section>
 
     ${renderIdeaItemsSection(idea)}
-    ${renderHistory("idea", idea.id)}
   `;
   elements.ideaCompleteButton.classList.toggle("is-hidden", idea.status === "実行済み");
   elements.ideaCompleteButton.dataset.completeId = idea.id;
@@ -1888,7 +1966,6 @@ function renderGoalDetail(goal) {
       </section>
     ` : ""}
 
-    ${renderHistory("goal", goal.id)}
   `;
 
   elements.goalDetailEditButton.dataset.editId = goal.id;
@@ -2066,40 +2143,52 @@ function setupEventListeners() {
     }
 
 
-    const editIdeaItemButton = event.target.closest("[data-edit-idea-item]");
-    if (editIdeaItemButton) {
+    const ideaItemDetailCard = event.target.closest("[data-open-idea-item-detail]");
+    if (ideaItemDetailCard) {
       event.preventDefault();
-
-      const itemId = editIdeaItemButton.dataset.editIdeaItem;
-      document
-        .querySelector(`[data-idea-item-display="${itemId}"]`)
-        ?.classList.add("is-hidden");
-      document
-        .querySelector(`[data-idea-item-edit-form="${itemId}"]`)
-        ?.classList.remove("is-hidden");
+      event.stopPropagation();
+      openIdeaItemDetail(ideaItemDetailCard.dataset.openIdeaItemDetail);
       return;
     }
 
-    const cancelIdeaItemButton = event.target.closest("[data-cancel-idea-item-edit]");
-    if (cancelIdeaItemButton) {
+    const editIdeaItemDetailButton = event.target.closest("[data-idea-item-detail-edit]");
+    if (editIdeaItemDetailButton) {
       event.preventDefault();
 
-      const itemId = cancelIdeaItemButton.dataset.cancelIdeaItemEdit;
-      document
-        .querySelector(`[data-idea-item-edit-form="${itemId}"]`)
-        ?.classList.add("is-hidden");
-      document
-        .querySelector(`[data-idea-item-display="${itemId}"]`)
-        ?.classList.remove("is-hidden");
+      const item = getIdeaItemById(
+        editIdeaItemDetailButton.dataset.ideaItemDetailEdit
+      );
+
+      if (item) {
+        renderIdeaItemDetailEdit(item);
+      }
       return;
     }
 
-    const deleteIdeaItemButton = event.target.closest("[data-delete-idea-item]");
-    if (deleteIdeaItemButton) {
+    const cancelIdeaItemDetailEditButton = event.target.closest(
+      "[data-cancel-idea-item-detail-edit]"
+    );
+    if (cancelIdeaItemDetailEditButton) {
+      event.preventDefault();
+
+      const item = getIdeaItemById(
+        cancelIdeaItemDetailEditButton.dataset.cancelIdeaItemDetailEdit
+      );
+
+      if (item) {
+        renderIdeaItemDetail(item);
+      }
+      return;
+    }
+
+    const deleteIdeaItemDetailButton = event.target.closest(
+      "[data-idea-item-detail-delete]"
+    );
+    if (deleteIdeaItemDetailButton) {
       event.preventDefault();
       deleteIdeaItem(
-        deleteIdeaItemButton.dataset.deleteIdeaItem,
-        deleteIdeaItemButton
+        deleteIdeaItemDetailButton.dataset.ideaItemDetailDelete,
+        deleteIdeaItemDetailButton
       );
       return;
     }
@@ -2237,14 +2326,20 @@ function setupEventListeners() {
       return;
     }
 
-    const editForm = event.target.closest("[data-idea-item-edit-form]");
-    if (editForm) {
+    const detailEditForm = event.target.closest(
+      "[data-idea-item-detail-edit-form]"
+    );
+    if (detailEditForm) {
       event.preventDefault();
-      const values = Object.fromEntries(new FormData(editForm).entries());
+
+      const values = Object.fromEntries(
+        new FormData(detailEditForm).entries()
+      );
+
       updateIdeaItem(
-        editForm.dataset.ideaItemEditForm,
+        detailEditForm.dataset.ideaItemDetailEditForm,
         values,
-        editForm.querySelector('[type="submit"]')
+        detailEditForm.querySelector('[type="submit"]')
       );
     }
   });
@@ -2283,6 +2378,23 @@ function setupEventListeners() {
 
   elements.ideaCompleteButton.addEventListener("click", () => {
     completeIdea(elements.ideaCompleteButton.dataset.completeId, elements.ideaCompleteButton);
+  });
+
+  elements.ideaItemDetailEditButton.addEventListener("click", () => {
+    const item = getIdeaItemById(
+      elements.ideaItemDetailEditButton.dataset.ideaItemDetailEdit
+    );
+
+    if (item) {
+      renderIdeaItemDetailEdit(item);
+    }
+  });
+
+  elements.ideaItemDetailDeleteButton.addEventListener("click", () => {
+    deleteIdeaItem(
+      elements.ideaItemDetailDeleteButton.dataset.ideaItemDetailDelete,
+      elements.ideaItemDetailDeleteButton
+    );
   });
 
   elements.notificationButton.addEventListener("click", async () => {
@@ -2347,7 +2459,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
+  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.ideaItemDetailModal, elements.goalDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
