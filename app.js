@@ -39,9 +39,6 @@ let refreshTimer = null;
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailGoalId = null;
-let goalSortAvailable = true;
-let draggedGoalId = null;
-let suppressGoalCardClickUntil = 0;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -84,7 +81,15 @@ const elements = {
   markAllNotificationsRead: document.getElementById("markAllNotificationsRead"),
   trashButton: document.getElementById("trashButton"),
   trashModal: document.getElementById("trashModal"),
-  trashList: document.getElementById("trashList")
+  trashList: document.getElementById("trashList"),
+  postStatsButton: document.getElementById("postStatsButton"),
+  postStatsModal: document.getElementById("postStatsModal"),
+  postStatsMonthTotal: document.getElementById("postStatsMonthTotal"),
+  postStatsMonthShorts: document.getElementById("postStatsMonthShorts"),
+  postStatsMonthLong: document.getElementById("postStatsMonthLong"),
+  postStatsAllTotal: document.getElementById("postStatsAllTotal"),
+  postStatsAllShorts: document.getElementById("postStatsAllShorts"),
+  postStatsAllLong: document.getElementById("postStatsAllLong")
 };
 
 function getErrorMessage(error) {
@@ -390,44 +395,10 @@ function compareBySortOrder(a, b) {
 }
 
 async function fetchGoals() {
-  const orderedResult = await supabaseClient
-    .from("goals")
-    .select("*")
-    .order("sort_order", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: true });
-
-  if (!orderedResult.error) {
-    goalSortAvailable = true;
-    return orderedResult;
-  }
-
-  const errorText = getErrorMessage(orderedResult.error);
-
-  if (!errorText.includes("sort_order")) {
-    return orderedResult;
-  }
-
-  goalSortAvailable = false;
-
   return supabaseClient
     .from("goals")
     .select("*")
     .order("created_at", { ascending: true });
-}
-
-function compareGoals(a, b) {
-  const aOrder = Number.isFinite(a.sortOrder) ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-  const bOrder = Number.isFinite(b.sortOrder) ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-
-  if (aOrder !== bOrder) {
-    return aOrder - bOrder;
-  }
-
-  return String(a.createdAt).localeCompare(String(b.createdAt));
-}
-
-function getOrderedGoals() {
-  return [...data.goals].sort(compareGoals);
 }
 
 async function loadAllData({ silent = false } = {}) {
@@ -458,7 +429,7 @@ async function loadAllData({ silent = false } = {}) {
   data = {
     videos: allVideos.filter(item => !item.deletedAt).sort(compareBySortOrder),
     ideas: allIdeas.filter(item => !item.deletedAt),
-    goals: allGoals.filter(item => !item.deletedAt).sort(compareGoals),
+    goals: allGoals.filter(item => !item.deletedAt),
     activityLogs: logsResult.data.map(mapActivityLog),
     notifications: notificationsResult.data.map(mapNotification),
     trash: [
@@ -503,18 +474,36 @@ function isCurrentMonth(dateValue) {
   );
 }
 
-function countMonthlyPosts() {
+function getPostedVideos() {
   return data.videos.filter(video =>
-    video.status === "投稿済み" && isCurrentMonth(video.postDate)
-  ).length;
+    video.status === "投稿済み" && Boolean(video.postDate)
+  );
+}
+
+function countMonthlyPosts() {
+  return getPostedVideos().filter(video => isCurrentMonth(video.postDate)).length;
 }
 
 function countMonthlyPostsByType(videoType) {
-  return data.videos.filter(video =>
-    video.status === "投稿済み" &&
-    video.type === videoType &&
-    isCurrentMonth(video.postDate)
+  return getPostedVideos().filter(video =>
+    video.type === videoType && isCurrentMonth(video.postDate)
   ).length;
+}
+
+function countAllPostsByType(videoType) {
+  return getPostedVideos().filter(video => video.type === videoType).length;
+}
+
+function renderPostStats() {
+  const posted = getPostedVideos();
+
+  elements.postStatsMonthTotal.textContent = countMonthlyPosts();
+  elements.postStatsMonthShorts.textContent = countMonthlyPostsByType("Shorts");
+  elements.postStatsMonthLong.textContent = countMonthlyPostsByType("横動画");
+
+  elements.postStatsAllTotal.textContent = posted.length;
+  elements.postStatsAllShorts.textContent = countAllPostsByType("Shorts");
+  elements.postStatsAllLong.textContent = countAllPostsByType("横動画");
 }
 
 function renderDashboard() {
@@ -527,29 +516,6 @@ function renderDashboard() {
     data.videos.filter(video => video.status === "編集待ち").length;
   document.getElementById("ideaCount").textContent =
     data.ideas.filter(idea => idea.status !== "実行済み").length;
-
-  const activeGoal = data.goals.find(goal => !goal.achieved);
-  const titleElement = document.getElementById("currentGoalTitle");
-  const metaElement = document.getElementById("currentGoalMeta");
-  const percentElement = document.getElementById("goalPercent");
-  const progressElement = document.getElementById("goalProgress");
-
-  if (!activeGoal) {
-    titleElement.textContent = "目標はまだありません";
-    metaElement.textContent = "目標ページから追加してください";
-    percentElement.textContent = "0%";
-    progressElement.style.width = "0%";
-  } else {
-    const denominator = Math.max(Number(activeGoal.target), 1);
-    const percent = Math.min(100, Math.max(0,
-      Math.round((Number(activeGoal.current) / denominator) * 100)
-    ));
-
-    titleElement.textContent = activeGoal.title;
-    metaElement.textContent = `現在 ${activeGoal.current} / 目標 ${activeGoal.target}`;
-    percentElement.textContent = `${percent}%`;
-    progressElement.style.width = `${percent}%`;
-  }
 
   const posted = data.videos
     .filter(video => video.status === "投稿済み")
@@ -724,62 +690,26 @@ function renderIdeas() {
 
 function renderGoals() {
   const list = document.getElementById("goalList");
-  const goals = getOrderedGoals();
+  const goals = data.goals;
 
   if (!goals.length) {
     list.innerHTML = `<div class="card empty-state">目標はまだありません</div>`;
     return;
   }
 
-  const unavailableMessage = goalSortAvailable
-    ? ""
-    : `<p class="goal-order-unavailable">Supabaseで並び替え用SQLを実行すると、順番を保存できるようになります。</p>`;
-
-  list.innerHTML = unavailableMessage + goals.map((goal, index) => {
+  list.innerHTML = goals.map(goal => {
     const denominator = Math.max(Number(goal.target), 1);
     const percent = Math.min(100, Math.max(0,
       Math.round((Number(goal.current) / denominator) * 100)
     ));
 
-    const controls = goalSortAvailable
-      ? `
-        <div class="goal-order-controls" aria-label="目標の順番変更">
-          <button
-            type="button"
-            class="goal-order-button"
-            data-goal-move="up"
-            data-goal-move-id="${goal.id}"
-            aria-label="${escapeHtml(goal.title)}を上へ移動"
-            ${index === 0 ? "disabled" : ""}
-          >↑</button>
-
-          <button
-            type="button"
-            class="goal-order-button"
-            data-goal-move="down"
-            data-goal-move-id="${goal.id}"
-            aria-label="${escapeHtml(goal.title)}を下へ移動"
-            ${index === goals.length - 1 ? "disabled" : ""}
-          >↓</button>
-
-          <button
-            type="button"
-            class="goal-drag-handle"
-            draggable="true"
-            data-goal-drag-id="${goal.id}"
-            aria-label="${escapeHtml(goal.title)}をドラッグして並び替え"
-            title="ドラッグして並び替え"
-          >≡</button>
-        </div>
-      `
-      : "";
-
     return `
       <article
-        class="item-card is-tappable goal-sort-card"
+        class="item-card is-tappable goal-progress-card"
         data-goal-card-id="${goal.id}"
         role="button"
         tabindex="0"
+        aria-label="${escapeHtml(goal.title)}の達成度を変更"
       >
         <div>
           <span class="status">${goal.achieved ? "達成済み" : "進行中"}</span>
@@ -792,8 +722,8 @@ function renderGoals() {
           <div class="progress"><span style="width:${percent}%"></span></div>
         </div>
 
-        <div class="goal-card-side">
-          ${controls}
+        <div class="goal-progress-card-side">
+          <span class="goal-progress-percent">${percent}%</span>
           <span class="detail-chevron" aria-hidden="true">›</span>
         </div>
       </article>
@@ -1026,10 +956,6 @@ async function saveGoal(values, mode, id) {
     updated_at: new Date().toISOString()
   };
 
-  if (mode !== "edit") {
-    payload.sort_order = Math.max(0, ...data.goals.map(v => Number(v.sortOrder) || 0)) + 1;
-  }
-
   const query = mode === "edit"
     ? supabaseClient.from("goals").update(payload).eq("id", id).select().single()
     : supabaseClient.from("goals").insert({ ...payload, achieved: false, achieved_date: null }).select().single();
@@ -1214,88 +1140,6 @@ async function moveIdea(id, status, selectElement) {
   }
 }
 
-async function persistGoalOrder(orderedIds, triggerButton = null) {
-  if (!goalSortAvailable) {
-    showToast("先にSupabaseで並び替え用SQLを実行してください。", "error");
-    return;
-  }
-
-  const previousGoals = getOrderedGoals();
-  const orderMap = new Map(orderedIds.map((id, index) => [id, index + 1]));
-
-  data.goals = data.goals
-    .map(goal => ({
-      ...goal,
-      sortOrder: orderMap.get(goal.id) ?? goal.sortOrder
-    }))
-    .sort(compareGoals);
-
-  renderDashboard();
-  renderGoals();
-
-  setLoading(triggerButton, true, "…");
-  setSyncStatus("順番を保存中...");
-
-  try {
-    const results = await Promise.all(
-      orderedIds.map((id, index) =>
-        supabaseClient
-          .from("goals")
-          .update({ sort_order: index + 1 })
-          .eq("id", id)
-      )
-    );
-
-    const failed = results.find(result => result.error);
-    if (failed?.error) {
-      throw failed.error;
-    }
-
-    setSyncStatus("同期済み", "online");
-    showToast("目標の順番を変更しました");
-  } catch (error) {
-    console.error(error);
-    data.goals = previousGoals;
-    renderDashboard();
-    renderGoals();
-
-    const message = getErrorMessage(error);
-    showToast(`順番を保存できませんでした：${message}`, "error");
-    setSyncStatus("保存エラー", "error");
-    await loadAllData({ silent: true });
-  } finally {
-    setLoading(triggerButton, false);
-  }
-}
-
-async function moveGoalByDirection(id, direction, triggerButton) {
-  const goals = getOrderedGoals();
-  const currentIndex = goals.findIndex(goal => goal.id === id);
-
-  if (currentIndex < 0) {
-    return;
-  }
-
-  const nextIndex = direction === "up"
-    ? currentIndex - 1
-    : currentIndex + 1;
-
-  if (nextIndex < 0 || nextIndex >= goals.length) {
-    return;
-  }
-
-  const orderedIds = goals.map(goal => goal.id);
-  [orderedIds[currentIndex], orderedIds[nextIndex]] =
-    [orderedIds[nextIndex], orderedIds[currentIndex]];
-
-  await persistGoalOrder(orderedIds, triggerButton);
-}
-
-function clearGoalDragStyles() {
-  document.querySelectorAll(".goal-sort-card").forEach(card => {
-    card.classList.remove("is-dragging", "is-drop-target");
-  });
-}
 
 
 
@@ -1315,6 +1159,78 @@ async function completeIdea(id, button) {
     showToast("実行済みに変更しました");
   }
   setLoading(button, false);
+}
+
+async function updateGoalProgress(id, rawValue, triggerButton) {
+  const goal = data.goals.find(item => String(item.id) === String(id));
+  if (!goal) {
+    showToast("目標が見つかりませんでした。", "error");
+    return;
+  }
+
+  const parsedValue = Number(rawValue);
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    showToast("現在値は0以上の数字で入力してください。", "error");
+    return;
+  }
+
+  const nextValue = Math.floor(parsedValue);
+  const previousValue = Number(goal.current || 0);
+  const target = Number(goal.target || 0);
+  const nextAchieved = target > 0 && nextValue >= target;
+  const newlyAchieved = !goal.achieved && nextAchieved;
+
+  setLoading(triggerButton, true, "保存中...");
+  setSyncStatus("達成度を保存中...");
+
+  try {
+    const { error } = await supabaseClient
+      .from("goals")
+      .update({
+        current_value: nextValue,
+        achieved: nextAchieved,
+        achieved_date: nextAchieved
+          ? (goal.achievedDate || todayString())
+          : null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", id);
+
+    if (error) throw error;
+
+    await addActivityLog(
+      "goal",
+      id,
+      goal.title,
+      "目標の達成度を更新",
+      `${previousValue} → ${nextValue}`
+    );
+
+    if (newlyAchieved) {
+      await addNotification(
+        "目標達成",
+        `${goal.title}を達成しました`,
+        "goal",
+        id
+      );
+    } else {
+      await addNotification(
+        "目標の達成度を更新",
+        `${goal.title}\n${previousValue} → ${nextValue}`,
+        "goal",
+        id
+      );
+    }
+
+    await loadAllData({ silent: true });
+    showToast(newlyAchieved ? "目標を達成しました" : "達成度を更新しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`達成度を保存できませんでした：${getErrorMessage(error)}`, "error");
+    setSyncStatus("保存エラー", "error");
+  } finally {
+    setLoading(triggerButton, false);
+  }
 }
 
 async function achieveGoal(id, triggerButton) {
@@ -1431,14 +1347,61 @@ function renderGoalDetail(goal) {
       <div class="detail-field"><span>期限</span><strong>${formatDate(goal.deadline)}</strong></div>
       <div class="detail-field"><span>達成日</span><strong>${formatDate(goal.achievedDate)}</strong></div>
     </div>
+
     <div class="progress"><span style="width:${percent}%"></span></div>
+
+    <section class="goal-progress-editor">
+      <div class="goal-progress-editor-head">
+        <div>
+          <span>PROGRESS</span>
+          <h4>達成度を変更</h4>
+        </div>
+        <strong>${percent}%</strong>
+      </div>
+
+      <label class="goal-progress-label" for="goalProgressInput">現在の数値</label>
+
+      <div class="goal-progress-control">
+        <button
+          type="button"
+          class="goal-step-button"
+          data-goal-progress-step="-1"
+          aria-label="現在値を1減らす"
+        >−1</button>
+
+        <input
+          type="number"
+          id="goalProgressInput"
+          min="0"
+          step="1"
+          inputmode="numeric"
+          value="${Number(goal.current)}"
+        />
+
+        <button
+          type="button"
+          class="goal-step-button"
+          data-goal-progress-step="1"
+          aria-label="現在値を1増やす"
+        >＋1</button>
+      </div>
+
+      <button
+        type="button"
+        class="primary-btn goal-progress-save"
+        data-save-goal-progress="${goal.id}"
+      >達成度を保存</button>
+    </section>
+
     ${!goal.achieved ? `
       <section class="detail-section">
-        <button type="button" class="secondary-btn" data-achieve-goal="${goal.id}">達成済みにする</button>
+        <button type="button" class="secondary-btn" data-achieve-goal="${goal.id}">目標値まで達成済みにする</button>
       </section>
     ` : ""}
+
     ${renderHistory("goal", goal.id)}
   `;
+
   elements.goalDetailEditButton.dataset.editId = goal.id;
   elements.goalDetailDeleteButton.dataset.deleteId = goal.id;
 }
@@ -1501,7 +1464,14 @@ async function logout() {
     realtimeChannel = null;
   }
 
-  data = { videos: [], ideas: [], goals: [] };
+  data = {
+    videos: [],
+    ideas: [],
+    goals: [],
+    activityLogs: [],
+    notifications: [],
+    trash: []
+  };
   showAuthScreen();
 }
 
@@ -1628,26 +1598,37 @@ function setupEventListeners() {
       return;
     }
 
-    const goalMoveButton = event.target.closest("[data-goal-move]");
-    if (goalMoveButton) {
-      event.preventDefault();
-      event.stopPropagation();
-      moveGoalByDirection(
-        goalMoveButton.dataset.goalMoveId,
-        goalMoveButton.dataset.goalMove,
-        goalMoveButton
-      );
-      return;
-    }
-
     const goalCard = event.target.closest("[data-goal-card-id]");
     if (
       goalCard &&
-      Date.now() >= suppressGoalCardClickUntil &&
       !event.target.closest("button, a, select, input, textarea, label")
     ) {
       event.preventDefault();
       openGoalDetail(goalCard.dataset.goalCardId);
+      return;
+    }
+
+    const goalStepButton = event.target.closest("[data-goal-progress-step]");
+    if (goalStepButton) {
+      event.preventDefault();
+      const input = document.getElementById("goalProgressInput");
+      if (!input) return;
+
+      const currentValue = Number(input.value || 0);
+      const step = Number(goalStepButton.dataset.goalProgressStep || 0);
+      input.value = String(Math.max(0, Math.floor(currentValue + step)));
+      return;
+    }
+
+    const saveGoalProgressButton = event.target.closest("[data-save-goal-progress]");
+    if (saveGoalProgressButton) {
+      event.preventDefault();
+      const input = document.getElementById("goalProgressInput");
+      updateGoalProgress(
+        saveGoalProgressButton.dataset.saveGoalProgress,
+        input?.value,
+        saveGoalProgressButton
+      );
       return;
     }
 
@@ -1683,90 +1664,6 @@ function setupEventListeners() {
     }
   });
 
-
-  document.addEventListener("dragstart", event => {
-    const handle = event.target.closest("[data-goal-drag-id]");
-    if (!handle || !goalSortAvailable) {
-      return;
-    }
-
-    draggedGoalId = handle.dataset.goalDragId;
-    suppressGoalCardClickUntil = Date.now() + 800;
-
-    const card = handle.closest("[data-goal-card-id]");
-    card?.classList.add("is-dragging");
-
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", draggedGoalId);
-    }
-  });
-
-  document.addEventListener("dragover", event => {
-    if (!draggedGoalId) {
-      return;
-    }
-
-    const card = event.target.closest("[data-goal-card-id]");
-    if (!card || card.dataset.goalCardId === draggedGoalId) {
-      return;
-    }
-
-    event.preventDefault();
-    clearGoalDragStyles();
-    document
-      .querySelector(`[data-goal-card-id="${draggedGoalId}"]`)
-      ?.classList.add("is-dragging");
-    card.classList.add("is-drop-target");
-  });
-
-  document.addEventListener("drop", async event => {
-    if (!draggedGoalId) {
-      return;
-    }
-
-    const targetCard = event.target.closest("[data-goal-card-id]");
-    if (!targetCard) {
-      clearGoalDragStyles();
-      draggedGoalId = null;
-      return;
-    }
-
-    event.preventDefault();
-
-    const targetId = targetCard.dataset.goalCardId;
-    const sourceId = draggedGoalId;
-    const goals = getOrderedGoals();
-    const orderedIds = goals.map(goal => goal.id);
-    const sourceIndex = orderedIds.indexOf(sourceId);
-
-    if (sourceIndex < 0 || sourceId === targetId) {
-      clearGoalDragStyles();
-      draggedGoalId = null;
-      return;
-    }
-
-    orderedIds.splice(sourceIndex, 1);
-
-    const targetIndex = orderedIds.indexOf(targetId);
-    const rect = targetCard.getBoundingClientRect();
-    const placeAfter = event.clientY > rect.top + rect.height / 2;
-    const insertIndex = targetIndex + (placeAfter ? 1 : 0);
-
-    orderedIds.splice(insertIndex, 0, sourceId);
-
-    clearGoalDragStyles();
-    draggedGoalId = null;
-    suppressGoalCardClickUntil = Date.now() + 800;
-
-    await persistGoalOrder(orderedIds);
-  });
-
-  document.addEventListener("dragend", () => {
-    clearGoalDragStyles();
-    draggedGoalId = null;
-    suppressGoalCardClickUntil = Date.now() + 500;
-  });
 
   document.addEventListener("change", event => {
     const videoSelect = event.target.closest("[data-video-status-id]");
@@ -1820,6 +1717,11 @@ function setupEventListeners() {
     elements.notificationModal.showModal();
   });
 
+  elements.postStatsButton.addEventListener("click", () => {
+    renderPostStats();
+    elements.postStatsModal.showModal();
+  });
+
   elements.trashButton.addEventListener("click", () => {
     renderTrash();
     elements.trashModal.showModal();
@@ -1842,7 +1744,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
+  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
