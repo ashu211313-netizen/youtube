@@ -1807,3 +1807,50 @@ textarea {
     font-size: 14px;
   }
 }
+
+
+/* =========================================================
+   Ver23.7
+   - 動画フィルターを3列・横一列に固定
+   - 通知ベルを開いた時点ですべて既読にする
+   ========================================================= */
+
+#videoFilters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+#videoFilters .filter-btn {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  white-space: nowrap;
+}
+
+#videoFilters .filter-count {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 430px) {
+  #videoFilters {
+    gap: 6px;
+  }
+
+  #videoFilters .filter-btn {
+    gap: 4px;
+    padding: 9px 5px;
+    font-size: 14px;
+  }
+
+  #videoFilters .filter-count {
+    min-width: 21px;
+    height: 21px;
+    padding: 0 5px;
+    font-size: 12px;
+  }
+}
