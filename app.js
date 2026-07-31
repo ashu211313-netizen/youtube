@@ -36,6 +36,7 @@ let activeVideoFilter = "all";
 let realtimeChannel = null;
 let toastTimer = null;
 let refreshTimer = null;
+let selectedPostStatsMonth = "";
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailGoalId = null;
@@ -84,6 +85,9 @@ const elements = {
   trashList: document.getElementById("trashList"),
   postStatsButton: document.getElementById("postStatsButton"),
   postStatsModal: document.getElementById("postStatsModal"),
+  postStatsMonthSelect: document.getElementById("postStatsMonthSelect"),
+  postStatsSelectedMonthLabel: document.getElementById("postStatsSelectedMonthLabel"),
+  postStatsMonthlyList: document.getElementById("postStatsMonthlyList"),
   postStatsMonthTotal: document.getElementById("postStatsMonthTotal"),
   postStatsMonthShorts: document.getElementById("postStatsMonthShorts"),
   postStatsMonthLong: document.getElementById("postStatsMonthLong"),
@@ -494,16 +498,104 @@ function countAllPostsByType(videoType) {
   return getPostedVideos().filter(video => video.type === videoType).length;
 }
 
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getPostMonthKey(dateValue) {
+  if (!dateValue || !/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+    return "";
+  }
+  return dateValue.slice(0, 7);
+}
+
+function formatMonthLabel(monthKey) {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey || "");
+  if (!match) return "月を選択";
+  return `${Number(match[1])}年${Number(match[2])}月`;
+}
+
+function getMonthlyPostStats(monthKey) {
+  const videos = getPostedVideos().filter(video =>
+    getPostMonthKey(video.postDate) === monthKey
+  );
+
+  return {
+    monthKey,
+    total: videos.length,
+    shorts: videos.filter(video => video.type === "Shorts").length,
+    long: videos.filter(video => video.type === "横動画").length
+  };
+}
+
+function getAvailablePostMonths() {
+  const months = new Set([currentMonthKey()]);
+
+  getPostedVideos().forEach(video => {
+    const monthKey = getPostMonthKey(video.postDate);
+    if (monthKey) months.add(monthKey);
+  });
+
+  return [...months].sort((a, b) => b.localeCompare(a));
+}
+
+function renderPostStatsMonthOptions(months) {
+  if (!selectedPostStatsMonth || !months.includes(selectedPostStatsMonth)) {
+    selectedPostStatsMonth = months.includes(currentMonthKey())
+      ? currentMonthKey()
+      : months[0];
+  }
+
+  elements.postStatsMonthSelect.innerHTML = months.map(monthKey => `
+    <option value="${monthKey}" ${monthKey === selectedPostStatsMonth ? "selected" : ""}>
+      ${formatMonthLabel(monthKey)}
+    </option>
+  `).join("");
+}
+
+function renderPostStatsMonthlyList(months) {
+  elements.postStatsMonthlyList.innerHTML = months.length
+    ? months.map(monthKey => {
+        const stats = getMonthlyPostStats(monthKey);
+        const selectedClass = monthKey === selectedPostStatsMonth ? " is-selected" : "";
+
+        return `
+          <button
+            type="button"
+            class="post-monthly-row${selectedClass}"
+            data-post-stats-month="${monthKey}"
+          >
+            <strong>${formatMonthLabel(monthKey)}</strong>
+            <span>合計 <b>${stats.total}</b></span>
+            <span>Shorts <b>${stats.shorts}</b></span>
+            <span>横動画 <b>${stats.long}</b></span>
+            <i aria-hidden="true">›</i>
+          </button>
+        `;
+      }).join("")
+    : `<div class="empty-state">投稿実績はまだありません</div>`;
+}
+
 function renderPostStats() {
   const posted = getPostedVideos();
+  const months = getAvailablePostMonths();
 
-  elements.postStatsMonthTotal.textContent = countMonthlyPosts();
-  elements.postStatsMonthShorts.textContent = countMonthlyPostsByType("Shorts");
-  elements.postStatsMonthLong.textContent = countMonthlyPostsByType("横動画");
+  renderPostStatsMonthOptions(months);
+
+  const selectedStats = getMonthlyPostStats(selectedPostStatsMonth);
+  elements.postStatsSelectedMonthLabel.textContent =
+    `${formatMonthLabel(selectedPostStatsMonth)}の投稿`;
+
+  elements.postStatsMonthTotal.textContent = selectedStats.total;
+  elements.postStatsMonthShorts.textContent = selectedStats.shorts;
+  elements.postStatsMonthLong.textContent = selectedStats.long;
 
   elements.postStatsAllTotal.textContent = posted.length;
   elements.postStatsAllShorts.textContent = countAllPostsByType("Shorts");
   elements.postStatsAllLong.textContent = countAllPostsByType("横動画");
+
+  renderPostStatsMonthlyList(months);
 }
 
 function renderDashboard() {
@@ -1575,6 +1667,13 @@ function setupEventListeners() {
     }
 
 
+    const postMonthButton = event.target.closest("[data-post-stats-month]");
+    if (postMonthButton) {
+      selectedPostStatsMonth = postMonthButton.dataset.postStatsMonth;
+      renderPostStats();
+      return;
+    }
+
     const restoreButton = event.target.closest("[data-restore-type]");
     if (restoreButton) {
       restoreItem(restoreButton.dataset.restoreType, restoreButton.dataset.restoreId, restoreButton);
@@ -1718,8 +1817,14 @@ function setupEventListeners() {
   });
 
   elements.postStatsButton.addEventListener("click", () => {
+    selectedPostStatsMonth = currentMonthKey();
     renderPostStats();
     elements.postStatsModal.showModal();
+  });
+
+  elements.postStatsMonthSelect.addEventListener("change", event => {
+    selectedPostStatsMonth = event.currentTarget.value;
+    renderPostStats();
   });
 
   elements.trashButton.addEventListener("click", () => {
