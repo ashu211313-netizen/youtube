@@ -1812,8 +1812,33 @@ function setupEventListeners() {
     completeIdea(elements.ideaCompleteButton.dataset.completeId, elements.ideaCompleteButton);
   });
 
-  elements.notificationButton.addEventListener("click", () => {
+  elements.notificationButton.addEventListener("click", async () => {
     elements.notificationModal.showModal();
+
+    const unreadIds = data.notifications
+      .filter(item => !item.isRead)
+      .map(item => item.id);
+
+    if (!unreadIds.length) return;
+
+    // ベルを開いた瞬間に、画面上ではすぐ既読として反映
+    data.notifications = data.notifications.map(item =>
+      unreadIds.includes(item.id)
+        ? { ...item, isRead: true }
+        : item
+    );
+    renderNotifications();
+
+    const { error } = await supabaseClient
+      .from("notifications")
+      .update({ is_read: true })
+      .in("id", unreadIds);
+
+    if (error) {
+      console.error(error);
+      showToast(`通知を既読にできませんでした：${getErrorMessage(error)}`, "error");
+      await loadAllData({ silent: true });
+    }
   });
 
   elements.postStatsButton.addEventListener("click", () => {
