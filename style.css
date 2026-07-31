@@ -1043,81 +1043,15 @@ textarea {
   font-size: 16px;
 }
 
-.goal-sort-card {
-  grid-template-columns: minmax(0, 1fr) auto;
-  transition:
-    transform 0.16s ease,
-    box-shadow 0.16s ease,
-    opacity 0.16s ease,
-    border-color 0.16s ease;
-  border: 1px solid transparent;
-}
 
-.goal-sort-card.is-dragging {
-  opacity: 0.48;
-  transform: scale(0.99);
-}
 
-.goal-sort-card.is-drop-target {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(255, 212, 0, 0.18);
-}
 
-.goal-card-side {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 
-.goal-order-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 
-.goal-order-button,
-.goal-drag-handle {
-  display: inline-grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: white;
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-  touch-action: manipulation;
-}
 
-.goal-order-button:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
 
-.goal-drag-handle {
-  cursor: grab;
-  color: var(--muted);
-  user-select: none;
-  -webkit-user-select: none;
-}
 
-.goal-drag-handle:active {
-  cursor: grabbing;
-}
 
-.goal-order-unavailable {
-  margin: 0 0 12px;
-  padding: 11px 14px;
-  border-radius: 14px;
-  background: rgba(255, 59, 48, 0.08);
-  color: var(--danger);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.5;
-}
 
 @media (max-width: 980px) {
   .main {
@@ -1138,30 +1072,12 @@ textarea {
     font-size: 16px !important;
   }
 
-  .goal-drag-handle {
-    display: none;
-  }
 
-  .goal-order-button {
-    width: 40px;
-    height: 40px;
-  }
 }
 
 @media (max-width: 620px) {
-  .goal-sort-card {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
 
-  .goal-card-side {
-    align-self: stretch;
-    flex-direction: column-reverse;
-    justify-content: space-between;
-  }
 
-  .goal-order-controls {
-    flex-direction: column;
-  }
 }
 
 
@@ -1534,5 +1450,241 @@ textarea {
 
   .compact-summary-row .dashboard-summary-chip strong {
     font-size: 15px;
+  }
+}
+
+
+/* =========================================================
+   Ver23.5
+   - 「今月の投稿」タップで今月・累計の投稿実績を表示
+   - ダッシュボードの「次の目標」を削除
+   - 目標の順番変更を削除
+   - 目標詳細で達成度を直接変更
+   ========================================================= */
+
+.dashboard-kpi-button {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  color: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.dashboard-kpi-button:active {
+  transform: scale(0.985);
+}
+
+.dashboard-kpi-button:focus-visible {
+  outline: 3px solid rgba(10, 132, 255, 0.35);
+  outline-offset: 3px;
+}
+
+.dashboard-kpi-button .kpi-label {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kpi-tap-hint {
+  color: #9a9aa0 !important;
+  font-size: 23px !important;
+  font-weight: 500 !important;
+  line-height: 1;
+}
+
+.post-stats-modal {
+  width: min(620px, calc(100vw - 28px));
+}
+
+.post-stats-section + .post-stats-section {
+  margin-top: 24px;
+}
+
+.post-stats-heading {
+  margin-bottom: 12px;
+}
+
+.post-stats-heading > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.post-stats-heading h4 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.post-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.post-stat-card {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 17px 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fff;
+}
+
+.post-stat-card > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.post-stat-card strong {
+  margin-top: 10px;
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.post-stat-card small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.post-stat-total {
+  background: rgba(255, 212, 0, 0.09);
+}
+
+.post-stat-shorts {
+  background: rgba(10, 132, 255, 0.07);
+}
+
+.post-stat-long {
+  background: rgba(126, 87, 194, 0.08);
+}
+
+.post-stats-note {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.goal-progress-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.goal-progress-card-side {
+  min-width: 55px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.goal-progress-percent {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.goal-progress-editor {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fafafa;
+}
+
+.goal-progress-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 17px;
+}
+
+.goal-progress-editor-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.15em;
+}
+
+.goal-progress-editor-head h4 {
+  margin: 3px 0 0;
+  font-size: 21px;
+}
+
+.goal-progress-editor-head > strong {
+  font-size: 25px;
+}
+
+.goal-progress-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.goal-progress-control {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 80px;
+  gap: 9px;
+}
+
+.goal-progress-control input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  text-align: center;
+  font-size: 20px !important;
+  font-weight: 850;
+}
+
+.goal-step-button {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 850;
+}
+
+.goal-progress-save {
+  width: 100%;
+  margin-top: 11px;
+}
+
+@media (max-width: 620px) {
+  .post-stats-grid {
+    gap: 8px;
+  }
+
+  .post-stat-card {
+    min-height: 116px;
+    padding: 14px 10px;
+    border-radius: 17px;
+  }
+
+  .post-stat-card strong {
+    font-size: 34px;
+  }
+
+  .goal-progress-control {
+    grid-template-columns: 68px minmax(0, 1fr) 68px;
+  }
+
+  .goal-progress-card-side {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
   }
 }
