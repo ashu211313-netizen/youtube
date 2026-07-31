@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Boat Manager" />
-  <link rel="stylesheet" href="style.css?v=23.4" />
+  <link rel="stylesheet" href="style.css?v=23.5" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -78,7 +78,12 @@
       <section id="dashboard" class="page active">
         <div class="compact-dashboard-stats">
           <div class="compact-kpi-grid">
-            <article class="compact-kpi-card kpi-posts">
+            <button
+              type="button"
+              id="postStatsButton"
+              class="compact-kpi-card kpi-posts dashboard-kpi-button"
+              aria-label="投稿実績を表示"
+            >
               <div class="kpi-card-top">
                 <span class="dashboard-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24">
@@ -89,8 +94,11 @@
                 </span>
                 <strong id="monthlyPosts">0</strong>
               </div>
-              <span class="kpi-label">今月の投稿</span>
-            </article>
+              <span class="kpi-label">
+                今月の投稿
+                <span class="kpi-tap-hint" aria-hidden="true">›</span>
+              </span>
+            </button>
 
             <article class="compact-kpi-card kpi-shorts">
               <div class="kpi-card-top">
@@ -157,29 +165,6 @@
           </div>
         </div>
 
-        <article class="card goal-card dashboard-goal">
-          <div class="section-head">
-            <div class="dashboard-section-title">
-              <span class="section-icon section-goal-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="8.5"></circle>
-                  <circle cx="12" cy="12" r="4.5"></circle>
-                  <circle cx="12" cy="12" r="1"></circle>
-                  <path d="M18.5 5.5 22 2M18 2h4v4"></path>
-                </svg>
-              </span>
-              <div>
-                <p class="eyebrow">NEXT GOAL</p>
-                <h3>次の目標</h3>
-              </div>
-            </div>
-            <span id="goalPercent">0%</span>
-          </div>
-
-          <h4 id="currentGoalTitle">目標はまだありません</h4>
-          <p id="currentGoalMeta">目標ページから追加してください</p>
-          <div class="progress"><span id="goalProgress"></span></div>
-        </article>
 
         <article class="card">
           <div class="section-head">
@@ -316,6 +301,67 @@
   </dialog>
 
 
+
+  <dialog id="postStatsModal" class="modal detail-modal post-stats-modal">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">POSTING RECORDS</p>
+        <h3>投稿実績</h3>
+      </div>
+      <button type="button" class="icon-btn" data-close>×</button>
+    </div>
+
+    <section class="post-stats-section">
+      <div class="post-stats-heading">
+        <span>THIS MONTH</span>
+        <h4>今月の投稿</h4>
+      </div>
+      <div class="post-stats-grid">
+        <article class="post-stat-card post-stat-total">
+          <span>合計</span>
+          <strong id="postStatsMonthTotal">0</strong>
+          <small>本</small>
+        </article>
+        <article class="post-stat-card post-stat-shorts">
+          <span>Shorts</span>
+          <strong id="postStatsMonthShorts">0</strong>
+          <small>本</small>
+        </article>
+        <article class="post-stat-card post-stat-long">
+          <span>横動画</span>
+          <strong id="postStatsMonthLong">0</strong>
+          <small>本</small>
+        </article>
+      </div>
+    </section>
+
+    <section class="post-stats-section">
+      <div class="post-stats-heading">
+        <span>ALL TIME</span>
+        <h4>今までの投稿</h4>
+      </div>
+      <div class="post-stats-grid">
+        <article class="post-stat-card post-stat-total">
+          <span>累計</span>
+          <strong id="postStatsAllTotal">0</strong>
+          <small>本</small>
+        </article>
+        <article class="post-stat-card post-stat-shorts">
+          <span>Shorts</span>
+          <strong id="postStatsAllShorts">0</strong>
+          <small>本</small>
+        </article>
+        <article class="post-stat-card post-stat-long">
+          <span>横動画</span>
+          <strong id="postStatsAllLong">0</strong>
+          <small>本</small>
+        </article>
+      </div>
+    </section>
+
+    <p class="post-stats-note">「投稿済み」で投稿日が設定されている動画を集計しています。</p>
+  </dialog>
+
   <dialog id="notificationModal" class="modal detail-modal">
     <div class="modal-head">
       <div>
@@ -344,6 +390,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.4"></script>
+  <script src="app.js?v=23.5"></script>
 </body>
 </html>
