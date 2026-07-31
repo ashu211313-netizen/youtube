@@ -2054,3 +2054,104 @@ textarea {
     width: 100%;
   }
 }
+
+
+/* =========================================================
+   Ver23.9
+   - 企画内アイデアを独立した詳細画面で表示
+   - 全詳細画面から更新履歴を削除
+   - 企画一覧を追加順に固定
+   ========================================================= */
+
+.nested-idea-list-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+}
+
+.nested-idea-list-card:active {
+  transform: scale(0.992);
+}
+
+.nested-idea-list-main {
+  min-width: 0;
+}
+
+.nested-idea-list-main > strong {
+  display: block;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.nested-idea-list-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nested-idea-note-preview {
+  display: -webkit-box;
+  margin: 10px 0 0 !important;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--muted);
+  line-height: 1.55 !important;
+}
+
+.idea-item-detail-edit-form {
+  display: grid;
+  gap: 15px;
+}
+
+.idea-item-detail-edit-form label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.idea-item-detail-edit-form input,
+.idea-item-detail-edit-form textarea,
+.idea-item-detail-edit-form select {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.idea-item-detail-edit-form textarea {
+  min-height: 180px;
+  resize: vertical;
+}
+
+.idea-item-detail-edit-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+@media (max-width: 620px) {
+  .idea-item-detail-modal {
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 24px 20px;
+    border-radius: 28px;
+  }
+
+  .idea-item-detail-edit-actions {
+    grid-template-columns: 1fr;
+  }
+}
