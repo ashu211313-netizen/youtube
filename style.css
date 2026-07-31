@@ -1854,3 +1854,203 @@ textarea {
     font-size: 12px;
   }
 }
+
+
+/* =========================================================
+   Ver23.8
+   - 最近投稿した動画は3本まで
+   - タイトル左にYouTube再生ボタン
+   - 実行済み企画内にアイデア管理を追加
+   ========================================================= */
+
+.recent-video-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.recent-video-play-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(10, 132, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(10, 132, 255, 0.1);
+  color: #0878df;
+  text-decoration: none;
+}
+
+.recent-video-play-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.recent-video-play-button.is-disabled {
+  border-color: var(--line);
+  background: #f3f3f5;
+  color: #b6b6bb;
+}
+
+.recent-video-title {
+  min-width: 0;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.nested-ideas-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.nested-ideas-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 15px;
+}
+
+.nested-ideas-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.nested-ideas-head h4 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+
+.nested-ideas-head > strong {
+  min-width: 42px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #f2f2f4;
+  font-size: 13px;
+}
+
+.nested-idea-add-form,
+.nested-idea-edit-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fafafa;
+}
+
+.nested-idea-add-form label,
+.nested-idea-edit-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.nested-idea-add-form input,
+.nested-idea-add-form textarea,
+.nested-idea-edit-form input,
+.nested-idea-edit-form textarea,
+.nested-idea-edit-form select {
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.nested-idea-list {
+  display: grid;
+  gap: 11px;
+  margin-top: 14px;
+}
+
+.nested-idea-card {
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: #fff;
+}
+
+.nested-idea-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nested-idea-card-head > strong {
+  padding-top: 7px;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.nested-idea-status-select {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 32px 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7f7f8;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.nested-idea-card p {
+  margin: 11px 0 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+
+.nested-idea-actions,
+.nested-idea-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.nested-idea-edit-actions .primary-btn,
+.nested-idea-edit-actions .secondary-btn {
+  flex: 1 1 120px;
+}
+
+.nested-idea-empty {
+  margin: 0;
+}
+
+@media (max-width: 620px) {
+  .recent-video-title-cell {
+    min-width: 190px;
+  }
+
+  .recent-video-play-button {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+
+  .nested-idea-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .nested-idea-status-select {
+    width: 100%;
+  }
+}
