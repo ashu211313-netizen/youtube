@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Boat Manager" />
-  <link rel="stylesheet" href="style.css?v=23.8" />
+  <link rel="stylesheet" href="style.css?v=23.9" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -285,6 +285,24 @@
     </div>
   </dialog>
 
+
+  <dialog id="ideaItemDetailModal" class="modal detail-modal idea-item-detail-modal">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">PROJECT IDEA DETAILS</p>
+        <h3 id="ideaItemDetailTitle">企画内アイデア詳細</h3>
+      </div>
+      <button type="button" class="icon-btn" data-close>×</button>
+    </div>
+
+    <div id="ideaItemDetailBody" class="detail-body"></div>
+
+    <div class="detail-actions" id="ideaItemDetailActions">
+      <button type="button" id="ideaItemDetailEditButton" class="secondary-btn">編集</button>
+      <button type="button" id="ideaItemDetailDeleteButton" class="danger-outline-btn">削除</button>
+    </div>
+  </dialog>
+
   <dialog id="goalDetailModal" class="modal detail-modal">
     <div class="modal-head">
       <div>
@@ -406,6 +424,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.8"></script>
+  <script src="app.js?v=23.9"></script>
 </body>
 </html>
