@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Boat Manager" />
-  <link rel="stylesheet" href="style.css?v=23.9" />
+  <link rel="stylesheet" href="style.css?v=23.10" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -269,7 +269,7 @@
     </div>
   </dialog>
 
-  <dialog id="ideaDetailModal" class="modal detail-modal">
+  <dialog id="ideaDetailModal" class="modal detail-modal fullscreen-detail-modal">
     <div class="modal-head">
       <div>
         <p class="eyebrow">IDEA DETAILS</p>
@@ -286,7 +286,7 @@
   </dialog>
 
 
-  <dialog id="ideaItemDetailModal" class="modal detail-modal idea-item-detail-modal">
+  <dialog id="ideaItemDetailModal" class="modal detail-modal idea-item-detail-modal fullscreen-detail-modal">
     <div class="modal-head">
       <div>
         <p class="eyebrow">PROJECT IDEA DETAILS</p>
@@ -329,6 +329,15 @@
       <button type="button" class="icon-btn" data-close>×</button>
     </div>
 
+    <section class="payment-balance-card">
+      <div>
+        <span>OUTSTANDING BALANCE</span>
+        <h4>残金</h4>
+        <small id="postStatsUnpaidMonthCount">未払い 0か月</small>
+      </div>
+      <strong id="postStatsOutstandingBalance">¥0</strong>
+    </section>
+
     <section class="post-stats-section">
       <div class="post-stats-heading post-stats-month-head">
         <div>
@@ -358,6 +367,60 @@
           <strong id="postStatsMonthLong">0</strong>
           <small>本</small>
         </article>
+      </div>
+    </section>
+
+    <section class="post-payment-section">
+      <div class="post-stats-heading">
+        <span>MONTHLY REWARD</span>
+        <h4>選択月の報酬</h4>
+      </div>
+
+      <div class="reward-breakdown">
+        <article>
+          <div>
+            <span>Shorts</span>
+            <small id="postStatsRewardShortsFormula">0本 × 100円</small>
+          </div>
+          <strong id="postStatsRewardShortsAmount">¥0</strong>
+        </article>
+
+        <article>
+          <div>
+            <span>横動画</span>
+            <small id="postStatsRewardLongFormula">0本 × 1,000円</small>
+          </div>
+          <strong id="postStatsRewardLongAmount">¥0</strong>
+        </article>
+
+        <article class="reward-total-row">
+          <div>
+            <span>合計</span>
+            <small>この月の支払い金額</small>
+          </div>
+          <strong id="postStatsRewardTotal">¥0</strong>
+        </article>
+      </div>
+
+      <div class="payment-status-panel">
+        <div>
+          <span>支払い状況</span>
+          <strong id="postStatsPaymentStatusLabel">未払い</strong>
+        </div>
+
+        <div class="payment-status-actions">
+          <button
+            type="button"
+            class="payment-status-button"
+            data-set-payment-status="unpaid"
+          >未払い</button>
+
+          <button
+            type="button"
+            class="payment-status-button"
+            data-set-payment-status="paid"
+          >支払済み</button>
+        </div>
       </div>
     </section>
 
@@ -424,6 +487,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.9"></script>
+  <script src="app.js?v=23.10"></script>
 </body>
 </html>
