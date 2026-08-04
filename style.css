@@ -2155,3 +2155,365 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* =========================================================
+   Ver23.10
+   - 企画詳細・企画内アイデア詳細を完全フルスクリーン化
+   - iPhone/PWA復帰時の背景スクロールバグ対策
+   - 企画詳細から作成日・更新日を削除
+   - 月別報酬・支払い状況・残金管理
+   ========================================================= */
+
+html.modal-scroll-locked,
+body.modal-scroll-locked {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+body.modal-scroll-locked {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+
+body.modal-scroll-locked .app-shell,
+body.modal-scroll-locked .mobile-nav {
+  pointer-events: none !important;
+}
+
+body.modal-scroll-locked dialog[open] {
+  pointer-events: auto !important;
+}
+
+#ideaDetailModal.fullscreen-detail-modal,
+#ideaItemDetailModal.fullscreen-detail-modal {
+  position: fixed;
+  inset: 0;
+  width: 100vw !important;
+  max-width: none !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(24px, env(safe-area-inset-right))
+    max(30px, env(safe-area-inset-bottom))
+    max(24px, env(safe-area-inset-left)) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border-radius: 0 !important;
+  background: #fff;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+#ideaDetailModal.fullscreen-detail-modal::backdrop,
+#ideaItemDetailModal.fullscreen-detail-modal::backdrop {
+  background: #fff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.fullscreen-detail-modal .modal-head,
+.fullscreen-detail-modal .detail-body,
+.fullscreen-detail-modal .detail-actions {
+  width: min(760px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.fullscreen-detail-modal .modal-head {
+  position: sticky;
+  top: calc(-1 * max(24px, env(safe-area-inset-top)));
+  z-index: 20;
+  padding-top: max(24px, env(safe-area-inset-top));
+  padding-bottom: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.fullscreen-detail-modal .detail-actions {
+  position: sticky;
+  bottom: calc(-1 * max(30px, env(safe-area-inset-bottom)));
+  z-index: 20;
+  padding-top: 16px;
+  padding-bottom: max(30px, env(safe-area-inset-bottom));
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0),
+    rgba(255,255,255,.96) 24%,
+    #fff 50%
+  );
+}
+
+.payment-balance-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+  padding: 22px;
+  border-radius: 22px;
+  background: #1d1d1f;
+  color: #fff;
+}
+
+.payment-balance-card span {
+  display: block;
+  color: rgba(255,255,255,.64);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .14em;
+}
+
+.payment-balance-card h4 {
+  margin: 5px 0 4px;
+  font-size: 22px;
+}
+
+.payment-balance-card small {
+  color: rgba(255,255,255,.7);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.payment-balance-card > strong {
+  font-size: clamp(30px, 7vw, 46px);
+  letter-spacing: -.05em;
+  white-space: nowrap;
+}
+
+.post-payment-section {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: #fff;
+}
+
+.reward-breakdown {
+  display: grid;
+  gap: 10px;
+}
+
+.reward-breakdown article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 14px 15px;
+  border-radius: 16px;
+  background: var(--bg);
+}
+
+.reward-breakdown article span {
+  display: block;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.reward-breakdown article small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reward-breakdown article > strong {
+  font-size: 20px;
+  white-space: nowrap;
+}
+
+.reward-breakdown .reward-total-row {
+  background: rgba(255, 212, 0, .15);
+}
+
+.reward-breakdown .reward-total-row > strong {
+  font-size: 26px;
+}
+
+.payment-status-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.payment-status-panel > div:first-child > span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.payment-status-panel > div:first-child > strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.payment-status-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.payment-status-button {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.payment-status-button.active {
+  border-color: var(--text);
+  background: var(--text);
+  color: #fff;
+}
+
+.post-monthly-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center;
+  gap: 10px;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.post-monthly-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(110px, 1.35fr) repeat(2, minmax(62px, .65fr)) minmax(80px, .8fr);
+  align-items: center;
+  gap: 9px;
+  padding: 14px 15px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.post-monthly-main > strong {
+  font-size: 14px;
+}
+
+.post-monthly-main > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.post-monthly-main b {
+  margin-left: 3px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.post-monthly-main .post-monthly-amount {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.monthly-payment-toggle {
+  margin-right: 12px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.monthly-payment-toggle.is-unpaid {
+  border-color: rgba(255, 149, 0, .22);
+  background: rgba(255, 149, 0, .12);
+  color: #b96500;
+}
+
+.monthly-payment-toggle.is-paid {
+  border-color: rgba(52, 199, 89, .22);
+  background: rgba(52, 199, 89, .12);
+  color: #22863a;
+}
+
+@media (max-width: 620px) {
+  #ideaDetailModal.fullscreen-detail-modal,
+  #ideaItemDetailModal.fullscreen-detail-modal {
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    padding:
+      max(18px, env(safe-area-inset-top))
+      18px
+      max(24px, env(safe-area-inset-bottom))
+      18px !important;
+    border-radius: 0 !important;
+  }
+
+  .fullscreen-detail-modal .modal-head {
+    top: calc(-1 * max(18px, env(safe-area-inset-top)));
+    padding-top: max(18px, env(safe-area-inset-top));
+  }
+
+  .fullscreen-detail-modal .detail-actions {
+    bottom: calc(-1 * max(24px, env(safe-area-inset-bottom)));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  .payment-balance-card {
+    padding: 18px;
+  }
+
+  .payment-status-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .payment-status-actions {
+    width: 100%;
+  }
+
+  .post-monthly-main {
+    grid-template-columns: minmax(100px, 1.2fr) repeat(2, minmax(48px, .55fr)) minmax(68px, .7fr);
+    gap: 5px;
+    padding: 12px 10px;
+  }
+
+  .post-monthly-main > strong {
+    font-size: 12px;
+  }
+
+  .post-monthly-main > span {
+    display: grid;
+    gap: 1px;
+    font-size: 9px;
+  }
+
+  .post-monthly-main b {
+    margin-left: 0;
+    font-size: 13px;
+  }
+
+  .post-monthly-main .post-monthly-amount {
+    font-size: 13px;
+  }
+
+  .monthly-payment-toggle {
+    margin-right: 8px;
+    padding: 8px 9px;
+    font-size: 10px;
+  }
+}
