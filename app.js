@@ -28,6 +28,7 @@ let data = {
   ideas: [],
   ideaItems: [],
   goals: [],
+  monthlyPayments: [],
   activityLogs: [],
   notifications: [],
   trash: []
@@ -42,6 +43,8 @@ let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailIdeaItemId = null;
 let currentDetailGoalId = null;
+let lockedPageScrollY = 0;
+let isRestoringDialogState = false;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -101,7 +104,15 @@ const elements = {
   postStatsMonthLong: document.getElementById("postStatsMonthLong"),
   postStatsAllTotal: document.getElementById("postStatsAllTotal"),
   postStatsAllShorts: document.getElementById("postStatsAllShorts"),
-  postStatsAllLong: document.getElementById("postStatsAllLong")
+  postStatsAllLong: document.getElementById("postStatsAllLong"),
+  postStatsOutstandingBalance: document.getElementById("postStatsOutstandingBalance"),
+  postStatsUnpaidMonthCount: document.getElementById("postStatsUnpaidMonthCount"),
+  postStatsRewardShortsFormula: document.getElementById("postStatsRewardShortsFormula"),
+  postStatsRewardShortsAmount: document.getElementById("postStatsRewardShortsAmount"),
+  postStatsRewardLongFormula: document.getElementById("postStatsRewardLongFormula"),
+  postStatsRewardLongAmount: document.getElementById("postStatsRewardLongAmount"),
+  postStatsRewardTotal: document.getElementById("postStatsRewardTotal"),
+  postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel")
 };
 
 function getErrorMessage(error) {
@@ -203,6 +214,98 @@ function safeExternalUrl(value) {
   } catch {
     return "";
   }
+}
+
+function getOpenDialogs() {
+  return [...document.querySelectorAll("dialog[open]")];
+}
+
+function syncDialogScrollLock() {
+  const openDialogs = getOpenDialogs();
+  const shouldLock = openDialogs.length > 0;
+
+  if (shouldLock) {
+    if (!document.body.classList.contains("modal-scroll-locked")) {
+      lockedPageScrollY = window.scrollY || 0;
+      document.body.dataset.lockedScrollY = String(lockedPageScrollY);
+    } else {
+      lockedPageScrollY = Number(
+        document.body.dataset.lockedScrollY || lockedPageScrollY || 0
+      );
+    }
+
+    document.documentElement.classList.add("modal-scroll-locked");
+    document.body.classList.add("modal-scroll-locked");
+    document.body.style.top = `-${lockedPageScrollY}px`;
+
+    elements.appRoot?.setAttribute("aria-hidden", "true");
+    elements.mobileNav?.setAttribute("aria-hidden", "true");
+
+    openDialogs.forEach(dialog => {
+      dialog.style.pointerEvents = "auto";
+    });
+
+    return;
+  }
+
+  if (!document.body.classList.contains("modal-scroll-locked")) {
+    return;
+  }
+
+  const restoreY = Number(
+    document.body.dataset.lockedScrollY || lockedPageScrollY || 0
+  );
+
+  document.documentElement.classList.remove("modal-scroll-locked");
+  document.body.classList.remove("modal-scroll-locked");
+  document.body.style.top = "";
+  delete document.body.dataset.lockedScrollY;
+
+  elements.appRoot?.removeAttribute("aria-hidden");
+  elements.mobileNav?.removeAttribute("aria-hidden");
+
+  window.scrollTo(0, restoreY);
+}
+
+function openManagedDialog(dialog) {
+  if (!dialog || dialog.open) {
+    syncDialogScrollLock();
+    return;
+  }
+
+  dialog.showModal();
+
+  requestAnimationFrame(() => {
+    syncDialogScrollLock();
+    dialog.focus({ preventScroll: true });
+  });
+}
+
+function restoreDialogStateAfterResume() {
+  const openDialogs = getOpenDialogs();
+
+  if (!openDialogs.length) {
+    syncDialogScrollLock();
+    return;
+  }
+
+  if (isRestoringDialogState) {
+    return;
+  }
+
+  isRestoringDialogState = true;
+
+  requestAnimationFrame(() => {
+    syncDialogScrollLock();
+
+    const topDialog = openDialogs[openDialogs.length - 1];
+    if (topDialog) {
+      topDialog.style.pointerEvents = "auto";
+      topDialog.focus({ preventScroll: true });
+    }
+
+    isRestoringDialogState = false;
+  });
 }
 
 function showAuthScreen() {
@@ -330,6 +433,15 @@ function mapActivityLog(row) {
   };
 }
 
+function mapMonthlyPayment(row) {
+  return {
+    monthKey: row.month_key || "",
+    isPaid: Boolean(row.is_paid),
+    paidAt: row.paid_at || "",
+    updatedAt: row.updated_at || ""
+  };
+}
+
 function mapNotification(row) {
   return {
     id: row.id,
@@ -433,6 +545,7 @@ async function loadAllData({ silent = false } = {}) {
     ideasResult,
     ideaItemsResult,
     goalsResult,
+    monthlyPaymentsResult,
     logsResult,
     notificationsResult
   ] = await Promise.all([
@@ -440,6 +553,7 @@ async function loadAllData({ silent = false } = {}) {
     supabaseClient.from("ideas").select("*").order("created_at"),
     supabaseClient.from("idea_items").select("*").order("created_at"),
     fetchGoals(),
+    supabaseClient.from("monthly_payments").select("*").order("month_key", { ascending: false }),
     supabaseClient.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500),
     supabaseClient.from("notifications").select("*").order("created_at", { ascending: false }).limit(200)
   ]);
@@ -449,6 +563,7 @@ async function loadAllData({ silent = false } = {}) {
     ideasResult.error ||
     ideaItemsResult.error ||
     goalsResult.error ||
+    monthlyPaymentsResult.error ||
     logsResult.error ||
     notificationsResult.error;
 
@@ -463,12 +578,14 @@ async function loadAllData({ silent = false } = {}) {
   const allIdeas = ideasResult.data.map(mapIdea);
   const allIdeaItems = ideaItemsResult.data.map(mapIdeaItem);
   const allGoals = goalsResult.data.map(mapGoal);
+  const allMonthlyPayments = monthlyPaymentsResult.data.map(mapMonthlyPayment);
 
   data = {
     videos: allVideos.filter(item => !item.deletedAt).sort(compareBySortOrder),
     ideas: allIdeas.filter(item => !item.deletedAt),
     ideaItems: allIdeaItems,
     goals: allGoals.filter(item => !item.deletedAt),
+    monthlyPayments: allMonthlyPayments,
     activityLogs: logsResult.data.map(mapActivityLog),
     notifications: notificationsResult.data.map(mapNotification),
     trash: [
@@ -497,6 +614,9 @@ async function loadAllData({ silent = false } = {}) {
   if (elements.goalDetailModal.open && currentDetailGoalId) {
     const item = data.goals.find(goal => goal.id === currentDetailGoalId);
     item ? renderGoalDetail(item) : elements.goalDetailModal.close();
+  }
+  if (elements.postStatsModal.open) {
+    renderPostStats();
   }
 
   setSyncStatus("同期済み", "online");
@@ -576,6 +696,10 @@ function getAvailablePostMonths() {
     if (monthKey) months.add(monthKey);
   });
 
+  data.monthlyPayments.forEach(payment => {
+    if (payment.monthKey) months.add(payment.monthKey);
+  });
+
   return [...months].sort((a, b) => b.localeCompare(a));
 }
 
@@ -593,24 +717,79 @@ function renderPostStatsMonthOptions(months) {
   `).join("");
 }
 
+function formatYen(value) {
+  return `¥${Math.max(0, Number(value || 0)).toLocaleString("ja-JP")}`;
+}
+
+function calculateMonthlyReward(stats) {
+  const shortsAmount = Number(stats.shorts || 0) * 100;
+  const longAmount = Number(stats.long || 0) * 1000;
+
+  return {
+    shortsAmount,
+    longAmount,
+    totalAmount: shortsAmount + longAmount
+  };
+}
+
+function getMonthlyPayment(monthKey) {
+  return data.monthlyPayments.find(
+    payment => payment.monthKey === monthKey
+  ) || {
+    monthKey,
+    isPaid: false,
+    paidAt: "",
+    updatedAt: ""
+  };
+}
+
+function calculateOutstandingBalance(months) {
+  return months.reduce((summary, monthKey) => {
+    const stats = getMonthlyPostStats(monthKey);
+    const reward = calculateMonthlyReward(stats);
+    const payment = getMonthlyPayment(monthKey);
+
+    if (!payment.isPaid && reward.totalAmount > 0) {
+      summary.amount += reward.totalAmount;
+      summary.monthCount += 1;
+    }
+
+    return summary;
+  }, { amount: 0, monthCount: 0 });
+}
+
 function renderPostStatsMonthlyList(months) {
   elements.postStatsMonthlyList.innerHTML = months.length
     ? months.map(monthKey => {
         const stats = getMonthlyPostStats(monthKey);
-        const selectedClass = monthKey === selectedPostStatsMonth ? " is-selected" : "";
+        const reward = calculateMonthlyReward(stats);
+        const payment = getMonthlyPayment(monthKey);
+        const selectedClass =
+          monthKey === selectedPostStatsMonth ? " is-selected" : "";
+        const paymentClass = payment.isPaid ? " is-paid" : " is-unpaid";
 
         return `
-          <button
-            type="button"
-            class="post-monthly-row${selectedClass}"
-            data-post-stats-month="${monthKey}"
-          >
-            <strong>${formatMonthLabel(monthKey)}</strong>
-            <span>合計 <b>${stats.total}</b></span>
-            <span>Shorts <b>${stats.shorts}</b></span>
-            <span>横動画 <b>${stats.long}</b></span>
-            <i aria-hidden="true">›</i>
-          </button>
+          <article class="post-monthly-row${selectedClass}">
+            <button
+              type="button"
+              class="post-monthly-main"
+              data-post-stats-month="${monthKey}"
+            >
+              <strong>${formatMonthLabel(monthKey)}</strong>
+              <span>Shorts <b>${stats.shorts}</b></span>
+              <span>横動画 <b>${stats.long}</b></span>
+              <span class="post-monthly-amount">${formatYen(reward.totalAmount)}</span>
+            </button>
+
+            <button
+              type="button"
+              class="monthly-payment-toggle${paymentClass}"
+              data-toggle-payment-month="${monthKey}"
+              aria-label="${formatMonthLabel(monthKey)}を${payment.isPaid ? "未払い" : "支払済み"}に変更"
+            >
+              ${payment.isPaid ? "支払済み" : "未払い"}
+            </button>
+          </article>
         `;
       }).join("")
     : `<div class="empty-state">投稿実績はまだありません</div>`;
@@ -623,6 +802,10 @@ function renderPostStats() {
   renderPostStatsMonthOptions(months);
 
   const selectedStats = getMonthlyPostStats(selectedPostStatsMonth);
+  const selectedReward = calculateMonthlyReward(selectedStats);
+  const selectedPayment = getMonthlyPayment(selectedPostStatsMonth);
+  const outstanding = calculateOutstandingBalance(months);
+
   elements.postStatsSelectedMonthLabel.textContent =
     `${formatMonthLabel(selectedPostStatsMonth)}の投稿`;
 
@@ -634,7 +817,80 @@ function renderPostStats() {
   elements.postStatsAllShorts.textContent = countAllPostsByType("Shorts");
   elements.postStatsAllLong.textContent = countAllPostsByType("横動画");
 
+  elements.postStatsRewardShortsFormula.textContent =
+    `${selectedStats.shorts}本 × 100円`;
+  elements.postStatsRewardShortsAmount.textContent =
+    formatYen(selectedReward.shortsAmount);
+
+  elements.postStatsRewardLongFormula.textContent =
+    `${selectedStats.long}本 × 1,000円`;
+  elements.postStatsRewardLongAmount.textContent =
+    formatYen(selectedReward.longAmount);
+
+  elements.postStatsRewardTotal.textContent =
+    formatYen(selectedReward.totalAmount);
+
+  elements.postStatsPaymentStatusLabel.textContent =
+    selectedPayment.isPaid ? "支払済み" : "未払い";
+
+  elements.postStatsOutstandingBalance.textContent =
+    formatYen(outstanding.amount);
+  elements.postStatsUnpaidMonthCount.textContent =
+    `未払い ${outstanding.monthCount}か月`;
+
+  document.querySelectorAll("[data-set-payment-status]").forEach(button => {
+    const buttonIsPaid = button.dataset.setPaymentStatus === "paid";
+    button.classList.toggle("active", buttonIsPaid === selectedPayment.isPaid);
+  });
+
   renderPostStatsMonthlyList(months);
+}
+
+async function setMonthlyPaymentStatus(monthKey, isPaid, triggerButton) {
+  if (!/^\d{4}-\d{2}$/.test(monthKey || "")) {
+    showToast("対象月が正しくありません。", "error");
+    return;
+  }
+
+  setLoading(triggerButton, true, "保存中...");
+
+  try {
+    const now = new Date().toISOString();
+
+    const { data: row, error } = await supabaseClient
+      .from("monthly_payments")
+      .upsert({
+        month_key: monthKey,
+        is_paid: Boolean(isPaid),
+        paid_at: isPaid ? now : null,
+        updated_at: now
+      }, {
+        onConflict: "month_key"
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const mapped = mapMonthlyPayment(row);
+    const existingIndex = data.monthlyPayments.findIndex(
+      payment => payment.monthKey === monthKey
+    );
+
+    if (existingIndex >= 0) {
+      data.monthlyPayments[existingIndex] = mapped;
+    } else {
+      data.monthlyPayments.push(mapped);
+    }
+
+    renderPostStats();
+    showToast(isPaid ? "支払済みに変更しました" : "未払いに変更しました");
+  } catch (error) {
+    console.error(error);
+    showToast(`支払い状況を保存できませんでした：${getErrorMessage(error)}`, "error");
+  } finally {
+    setLoading(triggerButton, false);
+  }
 }
 
 function renderDashboard() {
@@ -1042,7 +1298,7 @@ function openForm(type, id = "") {
     return;
   }
 
-  elements.formModal.showModal();
+  openManagedDialog(elements.formModal);
 }
 
 function validateTitle(value, label) {
@@ -1679,7 +1935,7 @@ function openVideoDetail(id) {
 
   currentDetailVideoId = id;
   renderVideoDetail(video);
-  elements.videoDetailModal.showModal();
+  openManagedDialog(elements.videoDetailModal);
 }
 
 function getIdeaItems(parentIdeaId) {
@@ -1863,17 +2119,26 @@ function openIdeaItemDetail(id) {
 
   currentDetailIdeaItemId = item.id;
   renderIdeaItemDetail(item);
-  elements.ideaItemDetailModal.showModal();
+  openManagedDialog(elements.ideaItemDetailModal);
 }
 
 function renderIdeaDetail(idea) {
   elements.ideaDetailTitle.textContent = idea.title;
+
+  const statusSection = idea.status === "実行済み"
+    ? ""
+    : `
+      <div class="detail-summary">
+        <div class="detail-field">
+          <span>ステータス</span>
+          <strong>${escapeHtml(idea.status)}</strong>
+        </div>
+      </div>
+    `;
+
   elements.ideaDetailBody.innerHTML = `
-    <div class="detail-summary">
-      <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(idea.status)}</strong></div>
-      <div class="detail-field"><span>作成日</span><strong>${formatDate(idea.createdAt?.slice(0,10))}</strong></div>
-      <div class="detail-field"><span>更新日</span><strong>${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</strong></div>
-    </div>
+    ${statusSection}
+
     <section class="detail-section">
       <h4>企画内容・メモ</h4>
       <p class="idea-content-block">${idea.note ? escapeHtml(idea.note) : "内容はまだありません"}</p>
@@ -1881,7 +2146,11 @@ function renderIdeaDetail(idea) {
 
     ${renderIdeaItemsSection(idea)}
   `;
-  elements.ideaCompleteButton.classList.toggle("is-hidden", idea.status === "実行済み");
+
+  elements.ideaCompleteButton.classList.toggle(
+    "is-hidden",
+    idea.status === "実行済み"
+  );
   elements.ideaCompleteButton.dataset.completeId = idea.id;
   elements.ideaDetailEditButton.dataset.editId = idea.id;
   elements.ideaDetailDeleteButton.dataset.deleteId = idea.id;
@@ -1895,7 +2164,7 @@ function openIdeaDetail(id) {
   }
   currentDetailIdeaId = id;
   renderIdeaDetail(idea);
-  elements.ideaDetailModal.showModal();
+  openManagedDialog(elements.ideaDetailModal);
 }
 
 function renderGoalDetail(goal) {
@@ -1980,7 +2249,7 @@ function openGoalDetail(id) {
   }
   currentDetailGoalId = id;
   renderGoalDetail(goal);
-  elements.goalDetailModal.showModal();
+  openManagedDialog(elements.goalDetailModal);
 }
 
 function scheduleRealtimeRefresh() {
@@ -1999,6 +2268,7 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
     .subscribe(status => {
@@ -2036,6 +2306,7 @@ async function logout() {
     ideas: [],
     ideaItems: [],
     goals: [],
+    monthlyPayments: [],
     activityLogs: [],
     notifications: [],
     trash: []
@@ -2189,6 +2460,36 @@ function setupEventListeners() {
       deleteIdeaItem(
         deleteIdeaItemDetailButton.dataset.ideaItemDetailDelete,
         deleteIdeaItemDetailButton
+      );
+      return;
+    }
+
+    const selectedPaymentButton = event.target.closest(
+      "[data-set-payment-status]"
+    );
+    if (selectedPaymentButton) {
+      const isPaid =
+        selectedPaymentButton.dataset.setPaymentStatus === "paid";
+
+      setMonthlyPaymentStatus(
+        selectedPostStatsMonth,
+        isPaid,
+        selectedPaymentButton
+      );
+      return;
+    }
+
+    const monthlyPaymentButton = event.target.closest(
+      "[data-toggle-payment-month]"
+    );
+    if (monthlyPaymentButton) {
+      const monthKey = monthlyPaymentButton.dataset.togglePaymentMonth;
+      const payment = getMonthlyPayment(monthKey);
+
+      setMonthlyPaymentStatus(
+        monthKey,
+        !payment.isPaid,
+        monthlyPaymentButton
       );
       return;
     }
@@ -2398,7 +2699,7 @@ function setupEventListeners() {
   });
 
   elements.notificationButton.addEventListener("click", async () => {
-    elements.notificationModal.showModal();
+    openManagedDialog(elements.notificationModal);
 
     const unreadIds = data.notifications
       .filter(item => !item.isRead)
@@ -2429,7 +2730,7 @@ function setupEventListeners() {
   elements.postStatsButton.addEventListener("click", () => {
     selectedPostStatsMonth = currentMonthKey();
     renderPostStats();
-    elements.postStatsModal.showModal();
+    openManagedDialog(elements.postStatsModal);
   });
 
   elements.postStatsMonthSelect.addEventListener("change", event => {
@@ -2439,7 +2740,7 @@ function setupEventListeners() {
 
   elements.trashButton.addEventListener("click", () => {
     renderTrash();
-    elements.trashModal.showModal();
+    openManagedDialog(elements.trashModal);
   });
 
   elements.markAllNotificationsRead.addEventListener("click", async () => {
@@ -2465,6 +2766,14 @@ function setupEventListeners() {
         dialog.close();
       }
     });
+
+    dialog.addEventListener("close", () => {
+      requestAnimationFrame(syncDialogScrollLock);
+    });
+
+    dialog.addEventListener("cancel", () => {
+      requestAnimationFrame(syncDialogScrollLock);
+    });
   });
 
   elements.videoDetailModal.addEventListener("close", () => {
@@ -2475,9 +2784,22 @@ function setupEventListeners() {
     currentDetailIdeaId = null;
   });
 
+  elements.ideaItemDetailModal.addEventListener("close", () => {
+    currentDetailIdeaItemId = null;
+  });
+
   elements.goalDetailModal.addEventListener("close", () => {
     currentDetailGoalId = null;
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      restoreDialogStateAfterResume();
+    }
+  });
+
+  window.addEventListener("pageshow", restoreDialogStateAfterResume);
+  window.addEventListener("focus", restoreDialogStateAfterResume);
 }
 
 initialize().catch(error => {
