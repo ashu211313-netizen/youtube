@@ -4,21 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#f5f5f7" />
-  <title>Boat Channel Manager</title>
+  <title>競艇チャンネル管理</title>
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=6" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=6" />
-  <link rel="manifest" href="manifest.json?v=6" />
+  <link rel="manifest" href="manifest.json?v=23.11" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="Boat Manager" />
-  <link rel="stylesheet" href="style.css?v=23.10" />
+  <meta name="apple-mobile-web-app-title" content="競艇管理" />
+  <link rel="stylesheet" href="style.css?v=23.11" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
     <div class="auth-card">
-      <p class="eyebrow">BOAT RACE</p>
-      <h1>Channel Manager</h1>
+      <h1>チャンネル管理</h1>
       <p class="auth-description">登録したメールアドレスとパスワードでログインしてください。</p>
 
       <form id="loginForm" class="login-form">
@@ -41,8 +40,7 @@
   <div id="appRoot" class="app-shell is-hidden">
     <aside class="sidebar">
       <div>
-        <p class="eyebrow">BOAT RACE</p>
-        <h1>Channel Manager</h1>
+        <h1>チャンネル管理</h1>
       </div>
 
       <nav class="nav">
@@ -176,8 +174,7 @@
                 </svg>
               </span>
               <div>
-                <p class="eyebrow">RECENT VIDEOS</p>
-                <h3>最近投稿した動画</h3>
+                        <h3>最近投稿した動画</h3>
               </div>
             </div>
           </div>
@@ -191,8 +188,7 @@
       <section id="videos" class="page">
         <div class="section-head page-section-head">
           <div>
-            <p class="eyebrow">VIDEO PIPELINE</p>
-            <h3>動画管理</h3>
+                <h3>動画管理</h3>
           </div>
           <button type="button" class="secondary-btn" data-open-form="video">＋ 動画を追加</button>
         </div>
@@ -209,8 +205,7 @@
       <section id="ideas" class="page">
         <div class="section-head page-section-head">
           <div>
-            <p class="eyebrow">IDEA STOCK</p>
-            <h3>企画管理</h3>
+                <h3>企画管理</h3>
           </div>
           <button type="button" class="secondary-btn" data-open-form="idea">＋ 企画を追加</button>
         </div>
@@ -221,8 +216,7 @@
       <section id="goals" class="page">
         <div class="section-head page-section-head">
           <div>
-            <p class="eyebrow">GOALS & ACHIEVEMENTS</p>
-            <h3>目標・実績</h3>
+                <h3>目標・実績</h3>
           </div>
           <button type="button" class="secondary-btn" data-open-form="goal">＋ 目標を追加</button>
         </div>
@@ -239,10 +233,10 @@
     <button type="button" class="mobile-nav-item" data-page="goals">目標</button>
   </div>
 
-  <dialog id="formModal" class="modal form-modal">
+  <dialog id="formModal" class="modal form-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow" id="formEyebrow">ADD DATA</p>
+        <p class="eyebrow is-hidden" id="formEyebrow"></p>
         <h3 id="formTitle">追加</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -252,10 +246,9 @@
     <p id="formError" class="form-error" aria-live="polite"></p>
   </dialog>
 
-  <dialog id="videoDetailModal" class="modal detail-modal">
+  <dialog id="videoDetailModal" class="modal detail-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">VIDEO DETAILS</p>
         <h3 id="videoDetailTitle">動画詳細</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -269,10 +262,9 @@
     </div>
   </dialog>
 
-  <dialog id="ideaDetailModal" class="modal detail-modal fullscreen-detail-modal">
+  <dialog id="ideaDetailModal" class="modal detail-modal fullscreen-detail-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">IDEA DETAILS</p>
         <h3 id="ideaDetailTitle">企画詳細</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -286,10 +278,9 @@
   </dialog>
 
 
-  <dialog id="ideaItemDetailModal" class="modal detail-modal idea-item-detail-modal fullscreen-detail-modal">
+  <dialog id="ideaItemDetailModal" class="modal detail-modal idea-item-detail-modal fullscreen-detail-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">PROJECT IDEA DETAILS</p>
         <h3 id="ideaItemDetailTitle">企画内アイデア詳細</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -303,10 +294,9 @@
     </div>
   </dialog>
 
-  <dialog id="goalDetailModal" class="modal detail-modal">
+  <dialog id="goalDetailModal" class="modal detail-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">GOAL DETAILS</p>
         <h3 id="goalDetailTitle">目標詳細</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -320,10 +310,9 @@
 
 
 
-  <dialog id="postStatsModal" class="modal detail-modal post-stats-modal">
+  <dialog id="postStatsModal" class="modal detail-modal post-stats-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">POSTING RECORDS</p>
         <h3>投稿実績</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -331,7 +320,6 @@
 
     <section class="payment-balance-card">
       <div>
-        <span>OUTSTANDING BALANCE</span>
         <h4>残金</h4>
         <small id="postStatsUnpaidMonthCount">未払い 0か月</small>
       </div>
@@ -341,7 +329,6 @@
     <section class="post-stats-section">
       <div class="post-stats-heading post-stats-month-head">
         <div>
-          <span>MONTHLY RECORD</span>
           <h4 id="postStatsSelectedMonthLabel">今月の投稿</h4>
         </div>
 
@@ -372,7 +359,6 @@
 
     <section class="post-payment-section">
       <div class="post-stats-heading">
-        <span>MONTHLY REWARD</span>
         <h4>選択月の報酬</h4>
       </div>
 
@@ -426,7 +412,6 @@
 
     <section class="post-stats-section">
       <div class="post-stats-heading">
-        <span>ALL TIME</span>
         <h4>今までの投稿</h4>
       </div>
       <div class="post-stats-grid">
@@ -450,7 +435,6 @@
 
     <section class="post-stats-section">
       <div class="post-stats-heading">
-        <span>MONTHLY HISTORY</span>
         <h4>月別一覧</h4>
       </div>
       <div id="postStatsMonthlyList" class="post-monthly-list"></div>
@@ -459,10 +443,9 @@
     <p class="post-stats-note">「投稿済み」で投稿日が設定されている動画を集計しています。</p>
   </dialog>
 
-  <dialog id="notificationModal" class="modal detail-modal">
+  <dialog id="notificationModal" class="modal detail-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">NOTIFICATIONS</p>
         <h3>通知</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -473,10 +456,9 @@
     <div id="notificationList" class="notification-list"></div>
   </dialog>
 
-  <dialog id="trashModal" class="modal detail-modal">
+  <dialog id="trashModal" class="modal detail-modal fullscreen-modal">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">TRASH</p>
         <h3>ゴミ箱</h3>
       </div>
       <button type="button" class="icon-btn" data-close>×</button>
@@ -487,6 +469,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.10"></script>
+  <script src="app.js?v=23.11"></script>
 </body>
 </html>
