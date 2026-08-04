@@ -2922,3 +2922,64 @@ body.modal-scroll-locked dialog[open] {
     animation-duration: 1ms !important;
   }
 }
+
+
+/* =========================================================
+   Ver23.13
+   - 企画内アイデアは新しい追加順
+   - 親企画カードに企画内アイデアの進捗を表示
+   - 他端末にも目標達成演出をリアルタイム表示
+   ========================================================= */
+
+.idea-item-progress-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 13px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.idea-item-progress-summary > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.idea-item-progress-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.idea-item-progress-summary strong {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.idea-item-progress-bar {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.idea-item-progress-bar > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+@media (max-width: 620px) {
+  .idea-item-progress-summary > div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}
