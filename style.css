@@ -2734,3 +2734,191 @@ body.modal-scroll-locked dialog[open] {
     min-height: 40px;
   }
 }
+
+
+/* =========================================================
+   Ver23.12
+   - 企画内アイデアを作成日時の追加順で固定
+   - 目標を初めて達成した時に花火・紙吹雪を表示
+   ========================================================= */
+
+.goal-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 50000;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.goal-celebration::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.12);
+  animation: goal-celebration-flash 620ms ease-out both;
+}
+
+.goal-celebration-message {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  width: min(420px, calc(100% - 40px));
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 25px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 26px;
+  background: rgba(29, 29, 31, 0.94);
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  transform: translate(-50%, -50%);
+  animation: goal-celebration-message-in 520ms cubic-bezier(.2,.85,.25,1.25) both;
+}
+
+.goal-celebration-mark {
+  font-size: 42px;
+  line-height: 1;
+}
+
+.goal-celebration-message strong {
+  font-size: clamp(28px, 8vw, 42px);
+  line-height: 1.1;
+  letter-spacing: -.04em;
+}
+
+.goal-celebration-message > span:last-child {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.goal-firework {
+  position: absolute;
+  left: var(--firework-x);
+  top: var(--firework-y);
+  z-index: 2;
+  width: 1px;
+  height: 1px;
+  animation: goal-firework-core 900ms ease-out var(--firework-delay) both;
+}
+
+.goal-firework-spark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--spark-color);
+  box-shadow: 0 0 9px var(--spark-color);
+  opacity: 0;
+  transform-origin: 0 50%;
+  animation:
+    goal-firework-spark 950ms cubic-bezier(.08,.75,.22,1)
+    var(--firework-delay) both;
+}
+
+.goal-confetti {
+  position: absolute;
+  left: var(--confetti-left);
+  top: -24px;
+  z-index: 3;
+  width: 9px;
+  height: 15px;
+  border-radius: 3px;
+  background: var(--confetti-color);
+  opacity: 0;
+  animation:
+    goal-confetti-fall var(--confetti-duration) ease-in
+    var(--confetti-delay) both;
+}
+
+.goal-celebration.is-leaving {
+  animation: goal-celebration-out 650ms ease both;
+}
+
+.goal-celebration.reduce-motion .goal-celebration-message {
+  animation: goal-celebration-message-in 260ms ease-out both;
+}
+
+@keyframes goal-celebration-flash {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes goal-celebration-message-in {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(.72);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes goal-firework-core {
+  0% { opacity: 0; transform: scale(.2); }
+  15% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+
+@keyframes goal-firework-spark {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--spark-angle)) translateX(0) scaleX(.35);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      rotate(var(--spark-angle))
+      translateX(var(--spark-distance))
+      scaleX(1);
+  }
+}
+
+@keyframes goal-confetti-fall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -20px, 0) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: .92;
+    transform:
+      translate3d(var(--confetti-drift), calc(100dvh + 60px), 0)
+      rotate(var(--confetti-rotate));
+  }
+}
+
+@keyframes goal-celebration-out {
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goal-firework,
+  .goal-confetti,
+  .goal-celebration::before {
+    display: none;
+  }
+
+  .goal-celebration,
+  .goal-celebration-message {
+    animation-duration: 1ms !important;
+  }
+}
