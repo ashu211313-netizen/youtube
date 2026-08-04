@@ -138,6 +138,120 @@ function showToast(message, type = "success") {
   }, type === "error" ? 5200 : 2800);
 }
 
+function showGoalCelebration(goalTitle = "") {
+  document.querySelector(".goal-celebration")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.className = "goal-celebration";
+  overlay.setAttribute("role", "status");
+  overlay.setAttribute("aria-live", "assertive");
+
+  const message = document.createElement("div");
+  message.className = "goal-celebration-message";
+
+  const mark = document.createElement("span");
+  mark.className = "goal-celebration-mark";
+  mark.textContent = "🎉";
+
+  const title = document.createElement("strong");
+  title.textContent = "目標達成！";
+
+  const detail = document.createElement("span");
+  detail.textContent = goalTitle || "目標を達成しました";
+
+  message.append(mark, title, detail);
+  overlay.appendChild(message);
+
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)"
+  ).matches;
+
+  if (!reduceMotion) {
+    const colors = [
+      "#ffd400",
+      "#ff3b30",
+      "#34c759",
+      "#007aff",
+      "#af52de",
+      "#ff9500"
+    ];
+
+    const bursts = [
+      { x: 18, y: 28, delay: 0 },
+      { x: 78, y: 23, delay: 180 },
+      { x: 27, y: 72, delay: 360 },
+      { x: 75, y: 69, delay: 520 }
+    ];
+
+    bursts.forEach((burst, burstIndex) => {
+      const firework = document.createElement("div");
+      firework.className = "goal-firework";
+      firework.style.setProperty("--firework-x", `${burst.x}%`);
+      firework.style.setProperty("--firework-y", `${burst.y}%`);
+      firework.style.setProperty("--firework-delay", `${burst.delay}ms`);
+
+      for (let index = 0; index < 14; index += 1) {
+        const spark = document.createElement("i");
+        spark.className = "goal-firework-spark";
+        spark.style.setProperty("--spark-angle", `${index * (360 / 14)}deg`);
+        spark.style.setProperty(
+          "--spark-distance",
+          `${52 + ((index + burstIndex) % 5) * 8}px`
+        );
+        spark.style.setProperty(
+          "--spark-color",
+          colors[(index + burstIndex) % colors.length]
+        );
+        firework.appendChild(spark);
+      }
+
+      overlay.appendChild(firework);
+    });
+
+    for (let index = 0; index < 44; index += 1) {
+      const confetti = document.createElement("i");
+      confetti.className = "goal-confetti";
+      confetti.style.setProperty(
+        "--confetti-left",
+        `${4 + Math.random() * 92}%`
+      );
+      confetti.style.setProperty(
+        "--confetti-delay",
+        `${Math.random() * 620}ms`
+      );
+      confetti.style.setProperty(
+        "--confetti-duration",
+        `${1600 + Math.random() * 950}ms`
+      );
+      confetti.style.setProperty(
+        "--confetti-rotate",
+        `${Math.round(Math.random() * 720 - 360)}deg`
+      );
+      confetti.style.setProperty(
+        "--confetti-drift",
+        `${Math.round(Math.random() * 160 - 80)}px`
+      );
+      confetti.style.setProperty(
+        "--confetti-color",
+        colors[index % colors.length]
+      );
+      overlay.appendChild(confetti);
+    }
+  } else {
+    overlay.classList.add("reduce-motion");
+  }
+
+  document.body.appendChild(overlay);
+
+  window.setTimeout(() => {
+    overlay.classList.add("is-leaving");
+  }, reduceMotion ? 1700 : 2600);
+
+  window.setTimeout(() => {
+    overlay.remove();
+  }, reduceMotion ? 2200 : 3300);
+}
+
 function setSyncStatus(text, status = "") {
   elements.syncStatus.textContent = text;
   elements.syncStatus.className = `sync-status${status ? ` ${status}` : ""}`;
@@ -1379,22 +1493,60 @@ async function saveIdea(values, mode, id) {
 }
 
 async function saveGoal(values, mode, id) {
+  const existing = mode === "edit" ? getEntity("goal", id) : null;
+  const currentValue = Math.max(0, Math.floor(Number(values.current || 0)));
+  const targetValue = Math.max(0, Math.floor(Number(values.target || 0)));
+  const nextAchieved = targetValue > 0 && currentValue >= targetValue;
+  const newlyAchieved = !Boolean(existing?.achieved) && nextAchieved;
+
   const payload = {
     title: validateTitle(values.title, "目標名"),
-    current_value: Number(values.current || 0),
-    target_value: Number(values.target || 0),
+    current_value: currentValue,
+    target_value: targetValue,
     deadline: values.deadline || null,
+    achieved: nextAchieved,
+    achieved_date: nextAchieved
+      ? (existing?.achievedDate || todayString())
+      : null,
     updated_at: new Date().toISOString()
   };
 
   const query = mode === "edit"
-    ? supabaseClient.from("goals").update(payload).eq("id", id).select().single()
-    : supabaseClient.from("goals").insert({ ...payload, achieved: false, achieved_date: null }).select().single();
+    ? supabaseClient
+        .from("goals")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single()
+    : supabaseClient
+        .from("goals")
+        .insert(payload)
+        .select()
+        .single();
 
   const { data: row, error } = await query;
   if (error) throw error;
-  await addActivityLog("goal", row.id, row.title, mode === "edit" ? "目標を編集" : "目標を追加");
-  return row;
+
+  await addActivityLog(
+    "goal",
+    row.id,
+    row.title,
+    mode === "edit" ? "目標を編集" : "目標を追加"
+  );
+
+  if (newlyAchieved) {
+    await addNotification(
+      "目標達成",
+      `${row.title}を達成しました`,
+      "goal",
+      row.id
+    );
+  }
+
+  return {
+    row,
+    newlyAchieved
+  };
 }
 
 async function handleSubmit(event) {
@@ -1409,14 +1561,25 @@ async function handleSubmit(event) {
   setSyncStatus("変更を保存中...");
 
   try {
+    let goalResult = null;
+
     if (type === "video") await saveVideo(values, mode, id);
     else if (type === "idea") await saveIdea(values, mode, id);
-    else if (type === "goal") await saveGoal(values, mode, id);
+    else if (type === "goal") goalResult = await saveGoal(values, mode, id);
     else throw new Error("保存形式が不明です。");
 
     elements.formModal.close();
     await loadAllData({ silent: true });
-    showToast(mode === "edit" ? "変更を保存しました" : "追加しました");
+
+    if (goalResult?.newlyAchieved) {
+      showGoalCelebration(goalResult.row.title);
+    }
+
+    showToast(
+      goalResult?.newlyAchieved
+        ? "目標を達成しました"
+        : (mode === "edit" ? "変更を保存しました" : "追加しました")
+    );
   } catch (error) {
     console.error(error);
     const message = getErrorMessage(error);
@@ -1874,6 +2037,11 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
     }
 
     await loadAllData({ silent: true });
+
+    if (newlyAchieved) {
+      showGoalCelebration(goal.title);
+    }
+
     showToast(newlyAchieved ? "目標を達成しました" : "達成度を更新しました");
   } catch (error) {
     console.error(error);
@@ -1885,8 +2053,10 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
 }
 
 async function achieveGoal(id, triggerButton) {
-  const goal = data.goals.find(item => item.id === id);
-  if (!goal) return;
+  const goal = data.goals.find(
+    item => String(item.id) === String(id)
+  );
+  if (!goal || goal.achieved) return;
 
   setLoading(triggerButton, true, "保存中...");
   setSyncStatus("変更を保存中...");
@@ -1906,6 +2076,7 @@ async function achieveGoal(id, triggerButton) {
     await addActivityLog("goal", id, goal.title, "目標を達成");
     await addNotification("目標達成", `${goal.title}を達成しました`, "goal", id);
     await loadAllData({ silent: true });
+    showGoalCelebration(goal.title);
     showToast("目標を達成済みにしました");
   } catch (error) {
     console.error(error);
@@ -1953,11 +2124,19 @@ function openVideoDetail(id) {
 function getIdeaItems(parentIdeaId) {
   return data.ideaItems
     .filter(item => String(item.parentIdeaId) === String(parentIdeaId))
-    .sort((a, b) =>
-      String(b.updatedAt || b.createdAt).localeCompare(
-        String(a.updatedAt || a.createdAt)
-      )
-    );
+    .sort((a, b) => {
+      const createdCompare = String(a.createdAt || "").localeCompare(
+        String(b.createdAt || "")
+      );
+
+      if (createdCompare !== 0) {
+        return createdCompare;
+      }
+
+      return String(a.id).localeCompare(String(b.id), "ja", {
+        numeric: true
+      });
+    });
 }
 
 function renderIdeaItemsSection(idea) {
