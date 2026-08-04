@@ -350,7 +350,7 @@ function switchPage(pageId) {
   };
 
   document.getElementById("pageTitle").textContent =
-    titles[pageId] || "Channel Manager";
+    titles[pageId] || "チャンネル管理";
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1225,7 +1225,7 @@ function openForm(type, id = "") {
   const isEdit = Boolean(entity);
 
   elements.formError.textContent = "";
-  elements.formEyebrow.textContent = isEdit ? "EDIT DATA" : "ADD DATA";
+  elements.formEyebrow.textContent = "";
   elements.dynamicForm.dataset.type = type;
   elements.dynamicForm.dataset.mode = isEdit ? "edit" : "create";
   elements.dynamicForm.dataset.id = entity?.id || "";
@@ -1681,7 +1681,7 @@ async function updateIdeaItem(itemId, values, submitButton) {
   }
 }
 
-async function updateIdeaItemStatus(itemId, status, selectElement) {
+async function updateIdeaItemStatus(itemId, status, triggerElement) {
   const item = data.ideaItems.find(
     entry => String(entry.id) === String(itemId)
   );
@@ -1690,8 +1690,14 @@ async function updateIdeaItemStatus(itemId, status, selectElement) {
     return;
   }
 
+  if (item.status === status) {
+    return;
+  }
+
   const previousStatus = item.status;
-  selectElement.disabled = true;
+  if (triggerElement) {
+    triggerElement.disabled = true;
+  }
 
   try {
     const { error } = await supabaseClient
@@ -1722,10 +1728,16 @@ async function updateIdeaItemStatus(itemId, status, selectElement) {
     showToast(`「${status}」に変更しました`);
   } catch (error) {
     console.error(error);
-    selectElement.value = previousStatus;
+
+    if (triggerElement && "value" in triggerElement) {
+      triggerElement.value = previousStatus;
+    }
+
     showToast(`変更できませんでした：${getErrorMessage(error)}`, "error");
   } finally {
-    selectElement.disabled = false;
+    if (triggerElement?.isConnected) {
+      triggerElement.disabled = false;
+    }
   }
 }
 
@@ -1959,7 +1971,6 @@ function renderIdeaItemsSection(idea) {
     <section class="nested-ideas-section">
       <div class="nested-ideas-head">
         <div>
-          <span>IDEAS IN PROJECT</span>
           <h4>企画内アイデア</h4>
         </div>
         <strong>${items.length}件</strong>
@@ -2001,8 +2012,24 @@ function renderIdeaItemsSection(idea) {
             <div class="nested-idea-list-main">
               <strong>${escapeHtml(item.title)}</strong>
               <div class="nested-idea-list-meta">
-                <span class="status">${escapeHtml(item.status)}</span>
-                <span>追加 ${formatDate(item.createdAt?.slice(0, 10))}</span>
+                <div
+                  class="idea-item-status-toggle"
+                  role="group"
+                  aria-label="${escapeHtml(item.title)}のステータス"
+                >
+                  ${IDEA_STATUSES.map(status => `
+                    <button
+                      type="button"
+                      class="idea-item-status-choice${status === item.status ? " active" : ""}"
+                      data-idea-item-status-choice="${status}"
+                      data-idea-item-id="${item.id}"
+                      aria-pressed="${status === item.status ? "true" : "false"}"
+                    >${status}</button>
+                  `).join("")}
+                </div>
+                <span class="nested-idea-created-date">
+                  追加 ${formatDate(item.createdAt?.slice(0, 10))}
+                </span>
               </div>
               ${item.note ? `
                 <p class="nested-idea-note-preview">${escapeHtml(item.note)}</p>
@@ -2189,7 +2216,6 @@ function renderGoalDetail(goal) {
     <section class="goal-progress-editor">
       <div class="goal-progress-editor-head">
         <div>
-          <span>PROGRESS</span>
           <h4>達成度を変更</h4>
         </div>
         <strong>${percent}%</strong>
@@ -2414,6 +2440,21 @@ function setupEventListeners() {
     }
 
 
+    const ideaItemStatusButton = event.target.closest(
+      "[data-idea-item-status-choice]"
+    );
+    if (ideaItemStatusButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      updateIdeaItemStatus(
+        ideaItemStatusButton.dataset.ideaItemId,
+        ideaItemStatusButton.dataset.ideaItemStatusChoice,
+        ideaItemStatusButton
+      );
+      return;
+    }
+
     const ideaItemDetailCard = event.target.closest("[data-open-idea-item-detail]");
     if (ideaItemDetailCard) {
       event.preventDefault();
@@ -2573,6 +2614,17 @@ function setupEventListeners() {
 
   document.addEventListener("keydown", event => {
     if (event.key !== "Enter" && event.key !== " ") return;
+
+    if (event.target.matches("[data-idea-item-status-choice]")) {
+      event.preventDefault();
+
+      updateIdeaItemStatus(
+        event.target.dataset.ideaItemId,
+        event.target.dataset.ideaItemStatusChoice,
+        event.target
+      );
+      return;
+    }
 
     if (event.target.matches("[data-video-card-id]")) {
       event.preventDefault();
