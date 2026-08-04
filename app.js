@@ -43,6 +43,8 @@ let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailIdeaItemId = null;
 let currentDetailGoalId = null;
+const localGoalCelebrationSuppressions = new Map();
+const shownGoalCelebrationEvents = new Map();
 let lockedPageScrollY = 0;
 let isRestoringDialogState = false;
 
@@ -136,6 +138,80 @@ function showToast(message, type = "success") {
   toastTimer = setTimeout(() => {
     elements.toast.className = "toast";
   }, type === "error" ? 5200 : 2800);
+}
+
+function cleanupGoalCelebrationMaps() {
+  const now = Date.now();
+
+  for (const [key, expiresAt] of localGoalCelebrationSuppressions) {
+    if (expiresAt <= now) {
+      localGoalCelebrationSuppressions.delete(key);
+    }
+  }
+
+  for (const [key, expiresAt] of shownGoalCelebrationEvents) {
+    if (expiresAt <= now) {
+      shownGoalCelebrationEvents.delete(key);
+    }
+  }
+}
+
+function goalCelebrationSuppressionKey(goalId, updatedAt) {
+  return `${String(goalId || "new")}:${String(updatedAt || "")}`;
+}
+
+function suppressLocalGoalRealtimeCelebration(goalId, updatedAt) {
+  cleanupGoalCelebrationMaps();
+
+  localGoalCelebrationSuppressions.set(
+    goalCelebrationSuppressionKey(goalId, updatedAt),
+    Date.now() + 15000
+  );
+}
+
+function consumeLocalGoalRealtimeCelebration(goalRow) {
+  cleanupGoalCelebrationMaps();
+
+  const updatedAt = goalRow?.updated_at || "";
+  const exactKey = goalCelebrationSuppressionKey(goalRow?.id, updatedAt);
+  const newGoalKey = goalCelebrationSuppressionKey("new", updatedAt);
+
+  if (localGoalCelebrationSuppressions.has(exactKey)) {
+    localGoalCelebrationSuppressions.delete(exactKey);
+    return true;
+  }
+
+  if (localGoalCelebrationSuppressions.has(newGoalKey)) {
+    localGoalCelebrationSuppressions.delete(newGoalKey);
+    return true;
+  }
+
+  return false;
+}
+
+function goalCelebrationEventKey(goalRow) {
+  return [
+    goalRow?.id || "",
+    goalRow?.updated_at || "",
+    goalRow?.achieved_date || "",
+    goalRow?.achieved ? "1" : "0"
+  ].join(":");
+}
+
+function hasShownGoalCelebration(goalRow) {
+  cleanupGoalCelebrationMaps();
+  return shownGoalCelebrationEvents.has(
+    goalCelebrationEventKey(goalRow)
+  );
+}
+
+function markGoalCelebrationShown(goalRow) {
+  cleanupGoalCelebrationMaps();
+
+  shownGoalCelebrationEvents.set(
+    goalCelebrationEventKey(goalRow),
+    Date.now() + 60000
+  );
 }
 
 function showGoalCelebration(goalTitle = "") {
@@ -1189,6 +1265,17 @@ function renderVideos() {
   }).join("");
 }
 
+function getIdeaItemProgress(parentIdeaId) {
+  const items = data.ideaItems.filter(
+    item => String(item.parentIdeaId) === String(parentIdeaId)
+  );
+
+  return {
+    total: items.length,
+    completed: items.filter(item => item.status === "実行済み").length
+  };
+}
+
 function renderIdeas() {
   const board = document.getElementById("ideaBoard");
 
@@ -1211,23 +1298,45 @@ function renderIdeas() {
       <section class="kanban-column">
         <h4>${status} <span>(${items.length})</span></h4>
 
-        ${items.map(idea => `
-          <article
-            class="idea-card idea-list-card is-tappable"
-            data-idea-card-id="${idea.id}"
-            role="button"
-            tabindex="0"
-          >
-            <div class="idea-list-main">
-              <strong>${escapeHtml(idea.title)}</strong>
-              <div class="idea-list-meta">
-                <span class="status">${escapeHtml(idea.status)}</span>
-                <span>更新 ${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</span>
+        ${items.map(idea => {
+          const progress = getIdeaItemProgress(idea.id);
+          const progressPercent = progress.total
+            ? Math.round((progress.completed / progress.total) * 100)
+            : 0;
+
+          return `
+            <article
+              class="idea-card idea-list-card is-tappable"
+              data-idea-card-id="${idea.id}"
+              role="button"
+              tabindex="0"
+            >
+              <div class="idea-list-main">
+                <strong>${escapeHtml(idea.title)}</strong>
+                <div class="idea-list-meta">
+                  <span class="status">${escapeHtml(idea.status)}</span>
+                  <span>更新 ${formatDate((idea.updatedAt || idea.createdAt)?.slice(0,10))}</span>
+                </div>
+
+                ${progress.total ? `
+                  <div class="idea-item-progress-summary">
+                    <div>
+                      <span>企画内アイデア</span>
+                      <strong>${progress.completed} / ${progress.total} 実行済み</strong>
+                    </div>
+                    <div
+                      class="idea-item-progress-bar"
+                      aria-label="企画内アイデア ${progress.completed}件実行済み、全${progress.total}件"
+                    >
+                      <span style="width:${progressPercent}%"></span>
+                    </div>
+                  </div>
+                ` : ""}
               </div>
-            </div>
-            <span class="detail-chevron">›</span>
-          </article>
-        `).join("") || `<div class="empty-state">なし</div>`}
+              <span class="detail-chevron">›</span>
+            </article>
+          `;
+        }).join("") || `<div class="empty-state">なし</div>`}
       </section>
     `;
   }).join("");
@@ -1498,6 +1607,14 @@ async function saveGoal(values, mode, id) {
   const targetValue = Math.max(0, Math.floor(Number(values.target || 0)));
   const nextAchieved = targetValue > 0 && currentValue >= targetValue;
   const newlyAchieved = !Boolean(existing?.achieved) && nextAchieved;
+  const updatedAt = new Date().toISOString();
+
+  if (newlyAchieved) {
+    suppressLocalGoalRealtimeCelebration(
+      mode === "edit" ? id : "new",
+      updatedAt
+    );
+  }
 
   const payload = {
     title: validateTitle(values.title, "目標名"),
@@ -1508,7 +1625,7 @@ async function saveGoal(values, mode, id) {
     achieved_date: nextAchieved
       ? (existing?.achievedDate || todayString())
       : null,
-    updated_at: new Date().toISOString()
+    updated_at: updatedAt
   };
 
   const query = mode === "edit"
@@ -1993,6 +2110,11 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
   const target = Number(goal.target || 0);
   const nextAchieved = target > 0 && nextValue >= target;
   const newlyAchieved = !goal.achieved && nextAchieved;
+  const updatedAt = new Date().toISOString();
+
+  if (newlyAchieved) {
+    suppressLocalGoalRealtimeCelebration(id, updatedAt);
+  }
 
   setLoading(triggerButton, true, "保存中...");
   setSyncStatus("達成度を保存中...");
@@ -2006,7 +2128,7 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
         achieved_date: nextAchieved
           ? (goal.achievedDate || todayString())
           : null,
-        updated_at: new Date().toISOString()
+        updated_at: updatedAt
       })
       .eq("id", id);
 
@@ -2058,6 +2180,9 @@ async function achieveGoal(id, triggerButton) {
   );
   if (!goal || goal.achieved) return;
 
+  const updatedAt = new Date().toISOString();
+  suppressLocalGoalRealtimeCelebration(id, updatedAt);
+
   setLoading(triggerButton, true, "保存中...");
   setSyncStatus("変更を保存中...");
 
@@ -2068,7 +2193,7 @@ async function achieveGoal(id, triggerButton) {
         achieved: true,
         achieved_date: todayString(),
         current_value: goal.target,
-        updated_at: new Date().toISOString()
+        updated_at: updatedAt
       })
       .eq("id", id);
 
@@ -2125,15 +2250,15 @@ function getIdeaItems(parentIdeaId) {
   return data.ideaItems
     .filter(item => String(item.parentIdeaId) === String(parentIdeaId))
     .sort((a, b) => {
-      const createdCompare = String(a.createdAt || "").localeCompare(
-        String(b.createdAt || "")
+      const createdCompare = String(b.createdAt || "").localeCompare(
+        String(a.createdAt || "")
       );
 
       if (createdCompare !== 0) {
         return createdCompare;
       }
 
-      return String(a.id).localeCompare(String(b.id), "ja", {
+      return String(b.id).localeCompare(String(a.id), "ja", {
         numeric: true
       });
     });
@@ -2462,6 +2587,49 @@ function scheduleRealtimeRefresh() {
   refreshTimer = setTimeout(() => loadAllData({ silent: true }), 200);
 }
 
+function handleGoalRealtime(payload) {
+  const nextGoal = payload?.new || {};
+  const goalId = String(nextGoal.id || "");
+
+  if (!goalId) {
+    scheduleRealtimeRefresh();
+    return;
+  }
+
+  const currentGoal = data.goals.find(
+    goal => String(goal.id) === goalId
+  );
+
+  const nextAchieved = Boolean(nextGoal.achieved);
+  const wasAchieved = Boolean(currentGoal?.achieved);
+  const becameAchieved =
+    nextAchieved &&
+    (
+      payload.eventType === "INSERT" ||
+      !wasAchieved
+    );
+
+  if (
+    becameAchieved &&
+    !hasShownGoalCelebration(nextGoal)
+  ) {
+    markGoalCelebrationShown(nextGoal);
+
+    const isLocalAction =
+      consumeLocalGoalRealtimeCelebration(nextGoal);
+
+    if (!isLocalAction) {
+      showGoalCelebration(
+        nextGoal.title ||
+        currentGoal?.title ||
+        "目標を達成しました"
+      );
+    }
+  }
+
+  scheduleRealtimeRefresh();
+}
+
 function subscribeRealtime() {
   if (realtimeChannel) {
     supabaseClient.removeChannel(realtimeChannel);
@@ -2472,7 +2640,11 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "goals" },
+      handleGoalRealtime
+    )
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
