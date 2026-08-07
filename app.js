@@ -76,6 +76,7 @@ const elements = {
   ideaDetailBody: document.getElementById("ideaDetailBody"),
   ideaDetailEditButton: document.getElementById("ideaDetailEditButton"),
   ideaDetailDeleteButton: document.getElementById("ideaDetailDeleteButton"),
+  ideaMoveToItemButton: document.getElementById("ideaMoveToItemButton"),
   ideaItemDetailModal: document.getElementById("ideaItemDetailModal"),
   ideaItemDetailTitle: document.getElementById("ideaItemDetailTitle"),
   ideaItemDetailBody: document.getElementById("ideaItemDetailBody"),
@@ -669,15 +670,10 @@ async function addActivityLog(type, entityId, title, action, details = "") {
   if (error) console.error("履歴保存:", error);
 }
 
-async function addNotification(title, message, type = "", entityId = "") {
-  const { error } = await supabaseClient.from("notifications").insert({
-    title,
-    message,
-    entity_type: type,
-    entity_id: entityId,
-    is_read: false
-  });
-  if (error) console.error("通知保存:", error);
+async function addNotification() {
+  // Ver23.15以降、通知はSupabaseのDBトリガーで
+  // 操作した本人以外のユーザーにだけ作成します。
+  return null;
 }
 
 function logsFor(type, id) {
@@ -1393,13 +1389,70 @@ function renderNotifications() {
 
   elements.notificationList.innerHTML = data.notifications.length
     ? data.notifications.map(item => `
-      <article class="notification-item ${item.isRead ? "" : "unread"}" data-notification-id="${item.id}">
-        <strong>${escapeHtml(item.title)}</strong>
-        <p>${escapeHtml(item.message)}</p>
-        <span class="notification-time">${formatDateTime(item.createdAt)}</span>
+      <article
+        class="notification-item notification-target-item ${item.isRead ? "" : "unread"}"
+        data-notification-id="${item.id}"
+        data-open-notification-target="${item.id}"
+        role="button"
+        tabindex="0"
+        aria-label="${escapeHtml(item.title)}の対象を開く"
+      >
+        <div class="notification-target-main">
+          <strong>${escapeHtml(item.title)}</strong>
+          <p>${escapeHtml(item.message)}</p>
+          <span class="notification-time">${formatDateTime(item.createdAt)}</span>
+        </div>
+        <span class="detail-chevron" aria-hidden="true">›</span>
       </article>
     `).join("")
     : `<div class="empty-state">通知はありません</div>`;
+}
+
+function openNotificationTarget(notificationId) {
+  const notification = data.notifications.find(
+    item => String(item.id) === String(notificationId)
+  );
+
+  if (!notification) {
+    showToast("通知が見つかりませんでした。", "error");
+    return;
+  }
+
+  const openTarget = () => {
+    if (notification.entityType === "video") {
+      openVideoDetail(notification.entityId);
+      return;
+    }
+
+    if (notification.entityType === "idea") {
+      openIdeaDetail(notification.entityId);
+      return;
+    }
+
+    if (notification.entityType === "goal") {
+      openGoalDetail(notification.entityId);
+      return;
+    }
+
+    if (notification.entityType === "idea_item") {
+      openIdeaItemDetail(notification.entityId);
+      return;
+    }
+
+    showToast("この通知には開ける対象がありません。", "error");
+  };
+
+  if (elements.notificationModal.open) {
+    elements.notificationModal.addEventListener(
+      "close",
+      () => requestAnimationFrame(openTarget),
+      { once: true }
+    );
+    elements.notificationModal.close();
+    return;
+  }
+
+  openTarget();
 }
 
 function renderTrash() {
@@ -1522,6 +1575,128 @@ function openForm(type, id = "") {
   }
 
   openManagedDialog(elements.formModal);
+}
+
+function getCompletedIdeaTargets(sourceIdeaId) {
+  return data.ideas
+    .filter(idea =>
+      idea.status === "実行済み" &&
+      String(idea.id) !== String(sourceIdeaId)
+    )
+    .sort((a, b) =>
+      String(b.createdAt || "").localeCompare(
+        String(a.createdAt || "")
+      )
+    );
+}
+
+function openMoveIdeaToItemForm(sourceIdeaId) {
+  const sourceIdea = data.ideas.find(
+    idea => String(idea.id) === String(sourceIdeaId)
+  );
+
+  if (!sourceIdea || sourceIdea.status !== "アイデア") {
+    showToast("移動できる企画が見つかりませんでした。", "error");
+    return;
+  }
+
+  const targets = getCompletedIdeaTargets(sourceIdea.id);
+
+  if (!targets.length) {
+    showToast(
+      "移動先にできる実行済み企画がありません。",
+      "error"
+    );
+    return;
+  }
+
+  elements.formError.textContent = "";
+  elements.formEyebrow.textContent = "";
+  elements.formTitle.textContent = "企画内アイデアへ移動";
+  elements.dynamicForm.dataset.type = "moveIdeaToItem";
+  elements.dynamicForm.dataset.mode = "move";
+  elements.dynamicForm.dataset.id = sourceIdea.id;
+
+  elements.dynamicForm.innerHTML = `
+    <div class="form-grid">
+      <section class="move-idea-source">
+        <span>移動する企画</span>
+        <strong>${escapeHtml(sourceIdea.title)}</strong>
+        ${sourceIdea.note ? `
+          <p>${escapeHtml(sourceIdea.note)}</p>
+        ` : ""}
+      </section>
+
+      <label>
+        移動先の実行済み企画
+        <select name="targetIdeaId" required>
+          ${targets.map(target => `
+            <option value="${target.id}">
+              ${escapeHtml(target.title)}
+            </option>
+          `).join("")}
+        </select>
+      </label>
+
+      <p class="move-idea-note">
+        移動すると、左側の元企画は削除され、
+        選択した企画の「企画内アイデア」に追加されます。
+      </p>
+    </div>
+
+    <button class="form-submit" type="submit">
+      移動する
+    </button>
+  `;
+
+  openManagedDialog(elements.formModal);
+}
+
+async function moveIdeaToItem(sourceIdeaId, targetIdeaId) {
+  const sourceIdea = data.ideas.find(
+    idea => String(idea.id) === String(sourceIdeaId)
+  );
+  const targetIdea = data.ideas.find(
+    idea => String(idea.id) === String(targetIdeaId)
+  );
+
+  if (!sourceIdea || !targetIdea) {
+    throw new Error("移動元または移動先が見つかりません。");
+  }
+
+  const confirmed = window.confirm(
+    `「${sourceIdea.title}」を\n` +
+    `「${targetIdea.title}」の企画内アイデアへ移動しますか？\n\n` +
+    "移動後、左側の元企画は削除されます。"
+  );
+
+  if (!confirmed) {
+    return null;
+  }
+
+  const { data: result, error } = await supabaseClient.rpc(
+    "move_idea_to_completed_parent",
+    {
+      p_source_idea_id: String(sourceIdea.id),
+      p_target_idea_id: String(targetIdea.id)
+    }
+  );
+
+  if (error) throw error;
+
+  await addActivityLog(
+    "idea",
+    targetIdea.id,
+    targetIdea.title,
+    "企画を企画内アイデアへ移動",
+    sourceIdea.title
+  );
+
+  return {
+    sourceIdea,
+    targetIdea,
+    result
+  };
 }
 
 function validateTitle(value, label) {
@@ -1680,10 +1855,21 @@ async function handleSubmit(event) {
   try {
     let goalResult = null;
 
+    let moveResult = null;
+
     if (type === "video") await saveVideo(values, mode, id);
     else if (type === "idea") await saveIdea(values, mode, id);
     else if (type === "goal") goalResult = await saveGoal(values, mode, id);
-    else throw new Error("保存形式が不明です。");
+    else if (type === "moveIdeaToItem") {
+      moveResult = await moveIdeaToItem(id, values.targetIdeaId);
+
+      if (!moveResult) {
+        setSyncStatus("同期済み", "online");
+        return;
+      }
+    } else {
+      throw new Error("保存形式が不明です。");
+    }
 
     elements.formModal.close();
     await loadAllData({ silent: true });
@@ -1693,9 +1879,11 @@ async function handleSubmit(event) {
     }
 
     showToast(
-      goalResult?.newlyAchieved
-        ? "目標を達成しました"
-        : (mode === "edit" ? "変更を保存しました" : "追加しました")
+      moveResult
+        ? `「${moveResult.targetIdea.title}」へ移動しました`
+        : goalResult?.newlyAchieved
+          ? "目標を達成しました"
+          : (mode === "edit" ? "変更を保存しました" : "追加しました")
     );
   } catch (error) {
     console.error(error);
@@ -2235,13 +2423,15 @@ function renderVideoDetail(video) {
 }
 
 function openVideoDetail(id) {
-  const video = data.videos.find(item => item.id === id);
+  const video = data.videos.find(
+    item => String(item.id) === String(id)
+  );
   if (!video) {
     showToast("動画が見つかりませんでした。", "error");
     return;
   }
 
-  currentDetailVideoId = id;
+  currentDetailVideoId = video.id;
   renderVideoDetail(video);
   openManagedDialog(elements.videoDetailModal);
 }
@@ -2478,6 +2668,16 @@ function renderIdeaDetail(idea) {
     ${renderIdeaItemsSection(idea)}
   `;
 
+  const canMoveToCompletedIdea =
+    idea.status === "アイデア" &&
+    getCompletedIdeaTargets(idea.id).length > 0;
+
+  elements.ideaMoveToItemButton.classList.toggle(
+    "is-hidden",
+    !canMoveToCompletedIdea
+  );
+  elements.ideaMoveToItemButton.dataset.moveIdeaId = idea.id;
+
   elements.ideaCompleteButton.classList.toggle(
     "is-hidden",
     idea.status === "実行済み"
@@ -2488,12 +2688,14 @@ function renderIdeaDetail(idea) {
 }
 
 function openIdeaDetail(id) {
-  const idea = data.ideas.find(item => item.id === id);
+  const idea = data.ideas.find(
+    item => String(item.id) === String(id)
+  );
   if (!idea) {
     showToast("企画が見つかりませんでした。", "error");
     return;
   }
-  currentDetailIdeaId = id;
+  currentDetailIdeaId = idea.id;
   renderIdeaDetail(idea);
   openManagedDialog(elements.ideaDetailModal);
 }
@@ -2572,12 +2774,14 @@ function renderGoalDetail(goal) {
 }
 
 function openGoalDetail(id) {
-  const goal = data.goals.find(item => item.id === id);
+  const goal = data.goals.find(
+    item => String(item.id) === String(id)
+  );
   if (!goal) {
     showToast("目標が見つかりませんでした。", "error");
     return;
   }
-  currentDetailGoalId = id;
+  currentDetailGoalId = goal.id;
   renderGoalDetail(goal);
   openManagedDialog(elements.goalDetailModal);
 }
@@ -2791,6 +2995,17 @@ function setupEventListeners() {
     }
 
 
+    const notificationTarget = event.target.closest(
+      "[data-open-notification-target]"
+    );
+    if (notificationTarget) {
+      event.preventDefault();
+      openNotificationTarget(
+        notificationTarget.dataset.openNotificationTarget
+      );
+      return;
+    }
+
     const ideaItemStatusButton = event.target.closest(
       "[data-idea-item-status-choice]"
     );
@@ -2966,6 +3181,14 @@ function setupEventListeners() {
   document.addEventListener("keydown", event => {
     if (event.key !== "Enter" && event.key !== " ") return;
 
+    if (event.target.matches("[data-open-notification-target]")) {
+      event.preventDefault();
+      openNotificationTarget(
+        event.target.dataset.openNotificationTarget
+      );
+      return;
+    }
+
     if (event.target.matches("[data-idea-item-status-choice]")) {
       event.preventDefault();
 
@@ -3058,6 +3281,20 @@ function setupEventListeners() {
 
   elements.detailDeleteButton.addEventListener("click", () => {
     deleteItem("video", elements.detailDeleteButton.dataset.deleteId, elements.detailDeleteButton);
+  });
+
+  elements.ideaMoveToItemButton.addEventListener("click", () => {
+    const id = elements.ideaMoveToItemButton.dataset.moveIdeaId;
+
+    elements.ideaDetailModal.addEventListener(
+      "close",
+      () => requestAnimationFrame(
+        () => openMoveIdeaToItemForm(id)
+      ),
+      { once: true }
+    );
+
+    elements.ideaDetailModal.close();
   });
 
   elements.ideaDetailEditButton.addEventListener("click", () => {
