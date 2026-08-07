@@ -1,7 +1,7 @@
 {
   "name": "競艇チャンネル管理",
   "short_name": "競艇管理",
-  "description": "競艇YouTubeチャンネルの動画・企画・目標・投稿報酬を共有管理するアプリ",
+  "description": "競艇YouTubeチャンネルの動画・企画・目標・投稿報酬・YouTube情報を共有管理するアプリ",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
