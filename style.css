@@ -3059,3 +3059,186 @@ body.modal-scroll-locked dialog[open] {
     grid-column: 1 / -1;
   }
 }
+
+
+/* =========================================================
+   Ver23.16
+   - YouTube情報の個別更新・一括更新
+   - 再生数、高評価、コメント、公開日時、サムネイル表示
+   ========================================================= */
+
+.page-section-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.youtube-current-views {
+  width: fit-content;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 2px 0 11px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 212, 0, 0.18);
+}
+
+.youtube-current-views span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.youtube-current-views strong {
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+
+.youtube-thumbnail-card {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border-radius: 22px;
+  background: #111;
+  color: #fff;
+  text-decoration: none;
+  aspect-ratio: 16 / 9;
+}
+
+.youtube-thumbnail-card img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.youtube-thumbnail-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 42%;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0),
+    rgba(0, 0, 0, 0.72)
+  );
+  pointer-events: none;
+}
+
+.youtube-thumbnail-card > span {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.66);
+  font-size: 12px;
+  font-weight: 850;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.youtube-detail-section {
+  display: grid;
+  gap: 14px;
+}
+
+.youtube-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.youtube-detail-heading h4 {
+  margin-bottom: 0;
+}
+
+.youtube-detail-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-align: right;
+}
+
+.youtube-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.youtube-metrics-grid article {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 15px;
+  background: #fff;
+}
+
+.youtube-metrics-grid article > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.youtube-metrics-grid article > strong {
+  display: block;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.video-detail-actions #youtubeSyncButton {
+  margin-right: auto;
+}
+
+@media (max-width: 620px) {
+  #videos .page-section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #videos .page-section-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  #videos .page-section-actions > button {
+    width: 100%;
+  }
+
+  .youtube-detail-heading {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .youtube-detail-heading > span {
+    text-align: left;
+  }
+
+  .youtube-metrics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .video-detail-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .video-detail-actions #youtubeSyncButton {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-right: 0;
+  }
+}
+
+@media (max-width: 390px) {
+  .youtube-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
