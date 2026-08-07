@@ -22,6 +22,7 @@ const VIDEO_STATUS_ORDER = new Map(
   VIDEO_STATUSES.map((status, index) => [status, index])
 );
 const IDEA_STATUSES = ["アイデア", "実行済み"];
+const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
 
 let data = {
   videos: [],
@@ -69,6 +70,8 @@ const elements = {
   videoDetailModal: document.getElementById("videoDetailModal"),
   videoDetailTitle: document.getElementById("videoDetailTitle"),
   videoDetailBody: document.getElementById("videoDetailBody"),
+  youtubeSyncButton: document.getElementById("youtubeSyncButton"),
+  syncAllYoutubeButton: document.getElementById("syncAllYoutubeButton"),
   detailEditButton: document.getElementById("detailEditButton"),
   detailDeleteButton: document.getElementById("detailDeleteButton"),
   ideaDetailModal: document.getElementById("ideaDetailModal"),
@@ -407,6 +410,134 @@ function safeExternalUrl(value) {
   }
 }
 
+function formatYouTubeMetric(value, suffix = "") {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "未取得";
+  }
+
+  return `${Number(value).toLocaleString("ja-JP")}${suffix}`;
+}
+
+function getYouTubeSyncCandidates() {
+  return data.videos.filter(video =>
+    video.status === "投稿済み" &&
+    Boolean(safeExternalUrl(video.youtubeUrl))
+  );
+}
+
+async function getFunctionInvokeErrorMessage(error) {
+  if (!error) {
+    return "Edge Functionの呼び出しに失敗しました。";
+  }
+
+  try {
+    const context = error.context;
+
+    if (context && typeof context.clone === "function") {
+      const payload = await context.clone().json();
+      const message =
+        payload?.error ||
+        payload?.message ||
+        payload?.details;
+
+      if (message) {
+        return String(message);
+      }
+    }
+  } catch {
+    // JSON以外のエラーレスポンスは通常のmessageを使う
+  }
+
+  return getErrorMessage(error);
+}
+
+async function syncYouTubeVideos(
+  videoRecordIds,
+  triggerButton,
+  { isBulk = false } = {}
+) {
+  const ids = [...new Set(
+    (videoRecordIds || [])
+      .map(id => String(id || "").trim())
+      .filter(Boolean)
+  )];
+
+  if (!ids.length) {
+    showToast(
+      isBulk
+        ? "YouTube URLが設定された投稿済み動画がありません。"
+        : "更新する動画が見つかりませんでした。",
+      "error"
+    );
+    return;
+  }
+
+  setLoading(
+    triggerButton,
+    true,
+    isBulk ? "一括更新中..." : "更新中..."
+  );
+  setSyncStatus("YouTube情報を更新中...");
+
+  try {
+    const { data: result, error } =
+      await supabaseClient.functions.invoke(
+        YOUTUBE_SYNC_FUNCTION,
+        {
+          body: {
+            videoRecordIds: ids
+          }
+        }
+      );
+
+    if (error) {
+      throw new Error(
+        await getFunctionInvokeErrorMessage(error)
+      );
+    }
+
+    const updated = Array.isArray(result?.updated)
+      ? result.updated
+      : [];
+    const failed = Array.isArray(result?.failed)
+      ? result.failed
+      : [];
+
+    await loadAllData({ silent: true });
+
+    if (!updated.length && failed.length) {
+      const firstFailure = failed[0]?.reason || "更新できませんでした。";
+      throw new Error(
+        failed.length === 1
+          ? firstFailure
+          : `${failed.length}件を更新できませんでした。${firstFailure}`
+      );
+    }
+
+    if (failed.length) {
+      showToast(
+        `${updated.length}件更新・${failed.length}件失敗しました。`,
+        "error"
+      );
+    } else {
+      showToast(
+        isBulk
+          ? `${updated.length}件のYouTube情報を更新しました`
+          : "YouTube情報を更新しました"
+      );
+    }
+
+    setSyncStatus("同期済み", "online");
+  } catch (error) {
+    console.error(error);
+    const message = getErrorMessage(error);
+    showToast(`YouTube情報を更新できませんでした：${message}`, "error");
+    setSyncStatus("YouTube更新エラー", "error");
+  } finally {
+    setLoading(triggerButton, false);
+  }
+}
+
 function getOpenDialogs() {
   return [...document.querySelectorAll("dialog[open]")];
 }
@@ -556,6 +687,22 @@ function mapVideo(row) {
     postDate: row.post_date || "",
     views24: Number(row.views_24 || 0),
     youtubeUrl: row.youtube_url || "",
+    youtubeVideoId: row.youtube_video_id || "",
+    youtubeViews:
+      row.youtube_views === null || row.youtube_views === undefined
+        ? null
+        : Number(row.youtube_views),
+    youtubeLikes:
+      row.youtube_likes === null || row.youtube_likes === undefined
+        ? null
+        : Number(row.youtube_likes),
+    youtubeComments:
+      row.youtube_comments === null || row.youtube_comments === undefined
+        ? null
+        : Number(row.youtube_comments),
+    youtubePublishedAt: row.youtube_published_at || "",
+    youtubeThumbnailUrl: row.youtube_thumbnail_url || "",
+    youtubeSyncedAt: row.youtube_synced_at || "",
     memo: row.memo || "",
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
@@ -1239,6 +1386,13 @@ function renderVideos() {
           </div>
 
           <h4>${escapeHtml(video.title)}</h4>
+
+          ${video.youtubeViews !== null ? `
+            <div class="youtube-current-views">
+              <span>現在</span>
+              <strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
+            </div>
+          ` : ""}
 
           <div class="meta">
             <span>${escapeHtml(video.type)}</span>
@@ -2403,8 +2557,27 @@ async function achieveGoal(id, triggerButton) {
 
 function renderVideoDetail(video) {
   const youtubeUrl = safeExternalUrl(video.youtubeUrl);
+  const thumbnailUrl = safeExternalUrl(video.youtubeThumbnailUrl);
+
   elements.videoDetailTitle.textContent = video.title;
   elements.videoDetailBody.innerHTML = `
+    ${thumbnailUrl ? `
+      <a
+        class="youtube-thumbnail-card"
+        href="${escapeHtml(youtubeUrl || thumbnailUrl)}"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="${escapeHtml(video.title)}をYouTubeで開く"
+      >
+        <img
+          src="${escapeHtml(thumbnailUrl)}"
+          alt="${escapeHtml(video.title)}のYouTubeサムネイル"
+          loading="lazy"
+        />
+        <span>YouTubeで開く</span>
+      </a>
+    ` : ""}
+
     <div class="detail-summary">
       <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(video.status)}</strong></div>
       <div class="detail-field"><span>動画形式</span><strong>${escapeHtml(video.type)}</strong></div>
@@ -2413,11 +2586,48 @@ function renderVideoDetail(video) {
       <div class="detail-field"><span>24時間後の再生数</span><strong>${Number(video.views24).toLocaleString()}回</strong></div>
       <div class="detail-field"><span>YouTube</span><strong>${youtubeUrl ? `<a class="detail-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">動画を開く</a>` : "未設定"}</strong></div>
     </div>
+
+    <section class="detail-section youtube-detail-section">
+      <div class="youtube-detail-heading">
+        <h4>YouTube情報</h4>
+        <span>${video.youtubeSyncedAt ? `最終同期 ${formatDateTime(video.youtubeSyncedAt)}` : "未同期"}</span>
+      </div>
+
+      <div class="youtube-metrics-grid">
+        <article>
+          <span>現在の再生回数</span>
+          <strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
+        </article>
+
+        <article>
+          <span>高評価</span>
+          <strong>${formatYouTubeMetric(video.youtubeLikes, "件")}</strong>
+        </article>
+
+        <article>
+          <span>コメント</span>
+          <strong>${formatYouTubeMetric(video.youtubeComments, "件")}</strong>
+        </article>
+
+        <article>
+          <span>公開日時</span>
+          <strong>${video.youtubePublishedAt ? formatDateTime(video.youtubePublishedAt) : "未取得"}</strong>
+        </article>
+      </div>
+    </section>
+
     <section class="detail-section">
       <h4>メモ</h4>
       <p>${video.memo ? escapeHtml(video.memo) : "メモはありません"}</p>
     </section>
   `;
+
+  elements.youtubeSyncButton.dataset.youtubeSyncId = video.id;
+  elements.youtubeSyncButton.disabled = !youtubeUrl;
+  elements.youtubeSyncButton.textContent = youtubeUrl
+    ? "YouTube情報を更新"
+    : "YouTube URL未設定";
+
   elements.detailEditButton.dataset.editId = video.id;
   elements.detailDeleteButton.dataset.deleteId = video.id;
 }
@@ -3272,6 +3482,24 @@ function setupEventListeners() {
   });
 
   elements.dynamicForm.addEventListener("submit", handleSubmit);
+
+  elements.youtubeSyncButton.addEventListener("click", () => {
+    const id = elements.youtubeSyncButton.dataset.youtubeSyncId;
+    syncYouTubeVideos(
+      [id],
+      elements.youtubeSyncButton
+    );
+  });
+
+  elements.syncAllYoutubeButton.addEventListener("click", () => {
+    const candidates = getYouTubeSyncCandidates();
+
+    syncYouTubeVideos(
+      candidates.map(video => video.id),
+      elements.syncAllYoutubeButton,
+      { isBulk: true }
+    );
+  });
 
   elements.detailEditButton.addEventListener("click", () => {
     const id = elements.detailEditButton.dataset.editId;
