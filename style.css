@@ -273,37 +273,12 @@ textarea:disabled {
 .page.active {
   display: block;
 }
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
 .card {
   padding: 24px;
   border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: var(--radius);
   background: var(--panel);
 }
-
-.stat-card span,
-.stat-card small {
-  color: var(--muted);
-}
-
-.stat-card strong {
-  display: block;
-  margin: 14px 0 4px;
-  font-size: 44px;
-  letter-spacing: -0.04em;
-}
-
-.dashboard-goal {
-  margin-bottom: 16px;
-}
-
 .section-head {
   display: flex;
   justify-content: space-between;
@@ -580,16 +555,6 @@ textarea:disabled {
   line-height: 1.55;
   white-space: pre-wrap;
 }
-
-.idea-card select {
-  width: 100%;
-  margin-bottom: 10px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: white;
-}
-
 .modal {
   width: min(560px, calc(100% - 28px));
   max-height: min(86vh, 900px);
@@ -774,19 +739,14 @@ textarea:disabled {
   .main {
     padding: 20px 18px calc(120px + env(safe-area-inset-bottom));
   }
-
-  .stats-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .mobile-nav {
+.mobile-nav {
     position: fixed;
     left: 12px;
     right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom));
     z-index: 9999;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     align-items: center;
     padding: 8px;
     border: 1px solid var(--line);
@@ -817,19 +777,7 @@ textarea:disabled {
     background: var(--text);
     color: white;
   }
-
-  .mobile-add {
-    width: 46px;
-    height: 46px;
-    margin: auto;
-    border: 0;
-    border-radius: 50%;
-    background: var(--accent);
-    font-size: 24px;
-    font-weight: 800;
-  }
-
-  .toast {
+.toast {
     right: 14px;
     bottom: calc(92px + env(safe-area-inset-bottom));
   }
@@ -851,20 +799,10 @@ textarea:disabled {
   .primary-btn {
     padding: 11px 15px;
   }
-
-  .stats-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .stat-card {
+.stat-card {
     padding: 18px;
   }
-
-  .stat-card strong {
-    font-size: 34px;
-  }
-
-  .kanban {
+.kanban {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
@@ -886,12 +824,7 @@ textarea:disabled {
   .auth-card {
     padding: 26px 20px;
   }
-
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .kanban {
+.kanban {
     grid-template-columns: 1fr;
   }
 
@@ -911,7 +844,6 @@ textarea:disabled {
 }
 
 
-/* Ver20: compact dashboard */
 .compact-dashboard-stats { margin-bottom: 16px; }
 
 .compact-kpi-grid {
@@ -924,13 +856,13 @@ textarea:disabled {
   min-height: 104px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: space-between;
   padding: 14px 10px;
   border: 1px solid rgba(0,0,0,.04);
   border-radius: 20px;
   background: var(--panel);
-  text-align: center;
+  text-align: left;
 }
 
 .compact-kpi-card strong {
@@ -1003,10 +935,6 @@ textarea:disabled {
   line-height: 1;
 }
 
-.detail-section p {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 @media (max-width: 980px) {
   .compact-kpi-grid {
@@ -1029,61 +957,6 @@ textarea:disabled {
   .compact-summary-row span { text-align: center; }
 }
 
-
-/* =========================================================
-   Ver22
-   - iPhone入力時の自動ズーム防止
-   - 下部ナビ4項目化
-   - 目標の並び替えUI
-   ========================================================= */
-
-input,
-select,
-textarea {
-  font-size: 16px;
-}
-
-
-
-
-
-
-
-
-
-
-
-@media (max-width: 980px) {
-  .main {
-    padding-bottom: calc(112px + env(safe-area-inset-bottom));
-  }
-
-  .mobile-nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  input,
-  select,
-  textarea,
-  .form-grid input,
-  .form-grid select,
-  .form-grid textarea,
-  .login-form input {
-    font-size: 16px !important;
-  }
-
-
-}
-
-@media (max-width: 620px) {
-
-
-}
-
-
-/* =========================================================
-   Ver23: 履歴 / 通知 / 全項目並び替え / ゴミ箱
-   ========================================================= */
 
 .header-icon-btn {
   position: relative;
@@ -1116,23 +989,14 @@ textarea {
 }
 
 .notification-badge.is-hidden { display: none; }
-
-.notification-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
-}
-
 .notification-list,
-.trash-list,
-.history-list {
+.trash-list {
   display: grid;
   gap: 10px;
 }
 
 .notification-item,
-.trash-item,
-.history-item {
+.trash-item {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -1145,15 +1009,13 @@ textarea {
 }
 
 .notification-item strong,
-.trash-item strong,
-.history-item strong {
+.trash-item strong {
   display: block;
   margin-bottom: 5px;
 }
 
 .notification-item p,
-.trash-item p,
-.history-item p {
+.trash-item p {
   margin: 0;
   color: var(--muted);
   white-space: pre-wrap;
@@ -1161,7 +1023,6 @@ textarea {
 }
 
 .notification-time,
-.history-time,
 .trash-time {
   display: block;
   margin-top: 8px;
@@ -1175,14 +1036,6 @@ textarea {
   gap: 8px;
   margin-top: 12px;
 }
-
-.history-section {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-}
-
-
 .idea-content-block {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1203,22 +1056,8 @@ textarea {
   }
 
 
-
-
 }
 
-
-/* =========================================================
-   Ver23.3
-   - ダッシュボードをアイコンと識別色で直感的に改善
-   - 動画の順番変更UIを完全削除
-   ========================================================= */
-
-.compact-kpi-card {
-  align-items: stretch;
-  justify-content: space-between;
-  text-align: left;
-}
 
 .kpi-card-top {
   display: flex;
@@ -1373,94 +1212,6 @@ textarea {
   }
 }
 
-
-/* =========================================================
-   Ver23.4
-   - 動画ステータスを「編集待ち」「投稿済み」の2種類に統一
-   - 企画ストック周辺の小さすぎるアイコンを修正
-   ========================================================= */
-
-/* 過去の .compact-summary-row span 指定による縮小を打ち消す */
-.compact-summary-row > .dashboard-summary-chip {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  min-height: 68px;
-  padding: 12px 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  text-align: left;
-}
-
-.compact-summary-row > .dashboard-summary-chip > span {
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
-}
-
-.compact-summary-row .summary-icon {
-  width: 42px;
-  height: 42px;
-  min-width: 42px;
-  padding: 0;
-  border-radius: 13px;
-}
-
-.compact-summary-row .summary-icon svg {
-  width: 23px;
-  height: 23px;
-}
-
-.compact-summary-row .dashboard-summary-chip > span:last-child {
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1.25;
-}
-
-.compact-summary-row .dashboard-summary-chip strong {
-  color: var(--text);
-  font-size: 16px;
-}
-
-@media (max-width: 620px) {
-  .compact-summary-row > .dashboard-summary-chip {
-    gap: 10px;
-    min-height: 66px;
-    padding: 11px 13px;
-  }
-
-  .compact-summary-row .summary-icon {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    border-radius: 12px;
-  }
-
-  .compact-summary-row .summary-icon svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  .compact-summary-row .dashboard-summary-chip > span:last-child {
-    font-size: 13px;
-  }
-
-  .compact-summary-row .dashboard-summary-chip strong {
-    font-size: 15px;
-  }
-}
-
-
-/* =========================================================
-   Ver23.5
-   - 「今月の投稿」タップで今月・累計の投稿実績を表示
-   - ダッシュボードの「次の目標」を削除
-   - 目標の順番変更を削除
-   - 目標詳細で達成度を直接変更
-   ========================================================= */
 
 .dashboard-kpi-button {
   width: 100%;
@@ -1690,12 +1441,6 @@ textarea {
 }
 
 
-/* =========================================================
-   Ver23.6
-   - 投稿実績を月別表示
-   - 月選択と月別一覧を追加
-   ========================================================= */
-
 .post-stats-month-head {
   display: flex;
   align-items: flex-end;
@@ -1732,48 +1477,12 @@ textarea {
   gap: 9px;
 }
 
-.post-monthly-row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(110px, 1.4fr) repeat(3, minmax(80px, 1fr)) 22px;
-  align-items: center;
-  gap: 10px;
-  min-height: 62px;
-  padding: 13px 15px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: #fff;
-  color: var(--text);
-  text-align: left;
-}
 
 .post-monthly-row.is-selected {
   border-color: rgba(10, 132, 255, 0.4);
   background: rgba(10, 132, 255, 0.045);
 }
 
-.post-monthly-row > strong {
-  font-size: 15px;
-}
-
-.post-monthly-row > span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.post-monthly-row b {
-  margin-left: 3px;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.post-monthly-row i {
-  color: #a0a0a5;
-  font-size: 22px;
-  font-style: normal;
-  text-align: right;
-}
 
 @media (max-width: 620px) {
   .post-stats-month-head {
@@ -1786,34 +1495,8 @@ textarea {
     width: 100%;
   }
 
-  .post-monthly-row {
-    grid-template-columns: minmax(100px, 1.35fr) repeat(3, minmax(0, 0.7fr)) 15px;
-    gap: 6px;
-    padding: 12px 11px;
-  }
-
-  .post-monthly-row > strong {
-    font-size: 13px;
-  }
-
-  .post-monthly-row > span {
-    display: grid;
-    gap: 1px;
-    font-size: 10px;
-  }
-
-  .post-monthly-row b {
-    margin-left: 0;
-    font-size: 14px;
-  }
 }
 
-
-/* =========================================================
-   Ver23.7
-   - 動画フィルターを3列・横一列に固定
-   - 通知ベルを開いた時点ですべて既読にする
-   ========================================================= */
 
 #videoFilters {
   display: grid;
@@ -1855,13 +1538,6 @@ textarea {
   }
 }
 
-
-/* =========================================================
-   Ver23.8
-   - 最近投稿した動画は3本まで
-   - タイトル左にYouTube再生ボタン
-   - 実行済み企画内にアイデア管理を追加
-   ========================================================= */
 
 .recent-video-title-cell {
   display: flex;
@@ -2056,13 +1732,6 @@ textarea {
 }
 
 
-/* =========================================================
-   Ver23.9
-   - 企画内アイデアを独立した詳細画面で表示
-   - 全詳細画面から更新履歴を削除
-   - 企画一覧を追加順に固定
-   ========================================================= */
-
 .nested-idea-list-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2156,14 +1825,6 @@ textarea {
   }
 }
 
-
-/* =========================================================
-   Ver23.10
-   - 企画詳細・企画内アイデア詳細を完全フルスクリーン化
-   - iPhone/PWA復帰時の背景スクロールバグ対策
-   - 企画詳細から作成日・更新日を削除
-   - 月別報酬・支払い状況・残金管理
-   ========================================================= */
 
 html.modal-scroll-locked,
 body.modal-scroll-locked {
@@ -2383,12 +2044,19 @@ body.modal-scroll-locked dialog[open] {
 }
 
 .post-monthly-row {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
+  width: 100%;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 0 !important;
+  padding: 0;
   overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
 }
 
 .post-monthly-main {
@@ -2519,14 +2187,6 @@ body.modal-scroll-locked dialog[open] {
 }
 
 
-/* =========================================================
-   Ver23.11
-   - 全モーダルを完全フルスクリーン化
-   - 装飾英語を削除
-   - 月別一覧のスマホ重なりを修正
-   - 企画内アイデアのステータスを一覧で変更
-   ========================================================= */
-
 .modal.fullscreen-modal {
   position: fixed !important;
   inset: 0 !important;
@@ -2622,9 +2282,6 @@ body.modal-scroll-locked dialog[open] {
   opacity: .5;
 }
 
-.nested-idea-list-meta {
-  align-items: center;
-}
 
 .nested-idea-created-date {
   white-space: nowrap;
@@ -2653,96 +2310,7 @@ body.modal-scroll-locked dialog[open] {
     padding-bottom: max(26px, env(safe-area-inset-bottom));
   }
 
-  /* 月別一覧：年月、本数、金額、支払い状態を別段にして重なりを防止 */
-  .post-monthly-row {
-    grid-template-columns: 1fr !important;
-    gap: 10px !important;
-    padding: 14px !important;
-    overflow: visible !important;
-  }
-
-  .post-monthly-main {
-    width: 100%;
-    display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    grid-template-areas:
-      "month month"
-      "shorts long"
-      "amount amount";
-    gap: 9px 12px !important;
-    padding: 0 !important;
-  }
-
-  .post-monthly-main > strong {
-    grid-area: month;
-    font-size: 16px !important;
-  }
-
-  .post-monthly-main > span:nth-of-type(1) {
-    grid-area: shorts;
-  }
-
-  .post-monthly-main > span:nth-of-type(2) {
-    grid-area: long;
-  }
-
-  .post-monthly-main > span:not(.post-monthly-amount) {
-    display: flex !important;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: var(--bg);
-    font-size: 11px !important;
-  }
-
-  .post-monthly-main b {
-    margin: 0 !important;
-    font-size: 16px !important;
-  }
-
-  .post-monthly-main .post-monthly-amount {
-    grid-area: amount;
-    display: block !important;
-    padding-top: 2px;
-    font-size: 21px !important;
-    text-align: left !important;
-  }
-
-  .monthly-payment-toggle {
-    width: 100%;
-    min-height: 44px;
-    margin: 0 !important;
-    padding: 11px 14px !important;
-    font-size: 13px !important;
-    text-align: center;
-  }
-
-  .nested-idea-list-meta {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 9px;
-  }
-
-  .idea-item-status-toggle {
-    width: 100%;
-  }
-
-  .idea-item-status-choice {
-    width: 100%;
-    min-height: 40px;
-  }
-}
-
-
-/* =========================================================
-   Ver23.12
-   - 企画内アイデアを作成日時の追加順で固定
-   - 目標を初めて達成した時に花火・紙吹雪を表示
-   ========================================================= */
-
-.goal-celebration {
+  .goal-celebration {
   position: fixed;
   inset: 0;
   z-index: 50000;
@@ -2924,13 +2492,6 @@ body.modal-scroll-locked dialog[open] {
 }
 
 
-/* =========================================================
-   Ver23.13
-   - 企画内アイデアは新しい追加順
-   - 親企画カードに企画内アイデアの進捗を表示
-   - 他端末にも目標達成演出をリアルタイム表示
-   ========================================================= */
-
 .idea-item-progress-summary {
   display: grid;
   gap: 8px;
@@ -2984,12 +2545,6 @@ body.modal-scroll-locked dialog[open] {
   }
 }
 
-
-/* =========================================================
-   Ver23.15
-   - アイデア企画を実行済み企画内へ移動
-   - 通知タップで対象詳細へ移動
-   ========================================================= */
 
 .move-idea-source {
   display: grid;
@@ -3060,13 +2615,7 @@ body.modal-scroll-locked dialog[open] {
   }
 }
 
-
-/* =========================================================
-   Ver23.16
-   - YouTube情報の個別更新・一括更新
-   - 再生数、高評価、コメント、公開日時、サムネイル表示
-   ========================================================= */
-
+/* Video / YouTube */
 .page-section-actions {
   display: flex;
   align-items: center;
@@ -3075,72 +2624,129 @@ body.modal-scroll-locked dialog[open] {
   gap: 10px;
 }
 
-.youtube-current-views {
-  width: fit-content;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 7px;
-  margin: 2px 0 11px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255, 212, 0, 0.18);
+.video-card {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  border: 1px solid transparent;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.youtube-current-views span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
+.video-card-layout {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
 }
 
-.youtube-current-views strong {
-  font-size: 14px;
-  letter-spacing: -0.02em;
+.video-card-main {
+  min-width: 0;
 }
 
+.video-thumbnail-shell,
 .youtube-thumbnail-card {
   position: relative;
-  display: block;
+  width: 100%;
   overflow: hidden;
-  margin-bottom: 16px;
-  border-radius: 22px;
-  background: #111;
-  color: #fff;
-  text-decoration: none;
+  border-radius: 18px;
+  background: #e9e9ec;
   aspect-ratio: 16 / 9;
 }
 
-.youtube-thumbnail-card img {
+.youtube-thumbnail-card {
+  margin-bottom: 16px;
+  border-radius: 22px;
+}
+
+.video-thumbnail-image,
+.youtube-thumbnail-card > img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
 }
 
-.youtube-thumbnail-card::after {
-  content: "";
+.video-thumbnail-fallback {
   position: absolute;
-  inset: auto 0 0;
-  height: 42%;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0),
-    rgba(0, 0, 0, 0.72)
-  );
-  pointer-events: none;
+  inset: 0;
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 12px;
+  color: var(--muted);
+  text-align: center;
 }
 
-.youtube-thumbnail-card > span {
+.video-thumbnail-fallback span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  font-size: 17px;
+}
+
+.video-thumbnail-fallback small {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.is-thumbnail-error .video-thumbnail-fallback {
+  display: grid;
+}
+
+.youtube-thumbnail-link {
   position: absolute;
-  left: 16px;
-  bottom: 14px;
-  z-index: 1;
+  left: 14px;
+  bottom: 12px;
+  z-index: 2;
   padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.66);
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
   font-size: 12px;
   font-weight: 850;
-  backdrop-filter: blur(10px);
+  text-decoration: none;
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.video-card-metrics {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.video-card-metrics article {
+  min-width: 0;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.video-card-metrics span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.video-card-metrics strong {
+  display: block;
+  min-width: 0;
+  font-size: clamp(13px, 2vw, 17px);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.video-card-meta {
+  min-width: 0;
 }
 
 .youtube-detail-section {
@@ -3212,6 +2818,36 @@ body.modal-scroll-locked dialog[open] {
     width: 100%;
   }
 
+  .video-card-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .video-thumbnail-shell {
+    border-radius: 16px;
+  }
+
+  .video-card-top {
+    align-items: stretch;
+  }
+
+  .video-card-top .status-select {
+    width: 100%;
+  }
+
+  .video-card-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .video-card-metrics article {
+    padding: 9px 8px;
+    text-align: center;
+  }
+
+  .video-card-metrics strong {
+    font-size: clamp(12px, 3.6vw, 15px);
+  }
+
   .youtube-detail-heading {
     flex-direction: column;
     gap: 5px;
@@ -3238,6 +2874,14 @@ body.modal-scroll-locked dialog[open] {
 }
 
 @media (max-width: 390px) {
+  .video-card-metrics span {
+    font-size: 9px;
+  }
+
+  .video-card-metrics strong {
+    font-size: 12px;
+  }
+
   .youtube-metrics-grid {
     grid-template-columns: 1fr;
   }
