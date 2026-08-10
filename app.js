@@ -1,3 +1,6 @@
+// ============================================================
+// Configuration / shared state
+// ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
 
@@ -18,9 +21,6 @@ const supabaseClient = window.supabase.createClient(
 );
 
 const VIDEO_STATUSES = ["編集待ち", "投稿済み"];
-const VIDEO_STATUS_ORDER = new Map(
-  VIDEO_STATUSES.map((status, index) => [status, index])
-);
 const IDEA_STATUSES = ["アイデア", "実行済み"];
 const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
 
@@ -30,7 +30,6 @@ let data = {
   ideaItems: [],
   goals: [],
   monthlyPayments: [],
-  activityLogs: [],
   notifications: [],
   trash: []
 };
@@ -96,7 +95,6 @@ const elements = {
   notificationBadge: document.getElementById("notificationBadge"),
   notificationModal: document.getElementById("notificationModal"),
   notificationList: document.getElementById("notificationList"),
-  markAllNotificationsRead: document.getElementById("markAllNotificationsRead"),
   trashButton: document.getElementById("trashButton"),
   trashModal: document.getElementById("trashModal"),
   trashList: document.getElementById("trashList"),
@@ -121,6 +119,9 @@ const elements = {
   postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel")
 };
 
+// ============================================================
+// UI helpers / goal celebration
+// ============================================================
 function getErrorMessage(error) {
   if (!error) {
     return "原因不明のエラーです。";
@@ -397,6 +398,9 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#039;");
 }
 
+// ============================================================
+// Common data / YouTube utilities
+// ============================================================
 function safeExternalUrl(value) {
   if (!value) {
     return "";
@@ -408,6 +412,119 @@ function safeExternalUrl(value) {
   } catch {
     return "";
   }
+}
+
+function sameId(left, right) {
+  return String(left ?? "") === String(right ?? "");
+}
+
+function findById(items, id) {
+  return items.find(item => sameId(item.id, id)) || null;
+}
+
+function compareCreatedAtDesc(left, right) {
+  const createdCompare = String(right.createdAt || "").localeCompare(
+    String(left.createdAt || "")
+  );
+
+  if (createdCompare !== 0) {
+    return createdCompare;
+  }
+
+  return String(right.id ?? "").localeCompare(
+    String(left.id ?? ""),
+    "ja",
+    { numeric: true }
+  );
+}
+
+function newestFirst(items) {
+  return [...items].sort(compareCreatedAtDesc);
+}
+
+function sanitizeYouTubeVideoId(value) {
+  const candidate = String(value || "").trim();
+  return /^[A-Za-z0-9_-]{11}$/.test(candidate) ? candidate : "";
+}
+
+function extractYouTubeVideoId(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return "";
+  }
+
+  const directId = sanitizeYouTubeVideoId(raw);
+  if (directId) {
+    return directId;
+  }
+
+  try {
+    const normalized = /^https?:\/\//i.test(raw)
+      ? raw
+      : `https://${raw}`;
+    const url = new URL(normalized);
+    const host = url.hostname
+      .toLowerCase()
+      .replace(/^www\./, "")
+      .replace(/^m\./, "");
+
+    if (host === "youtu.be") {
+      return sanitizeYouTubeVideoId(
+        url.pathname.split("/").filter(Boolean)[0]
+      );
+    }
+
+    if (
+      host === "youtube.com" ||
+      host.endsWith(".youtube.com") ||
+      host === "youtube-nocookie.com" ||
+      host.endsWith(".youtube-nocookie.com")
+    ) {
+      const queryId = sanitizeYouTubeVideoId(
+        url.searchParams.get("v")
+      );
+
+      if (queryId) {
+        return queryId;
+      }
+
+      const segments = url.pathname.split("/").filter(Boolean);
+      if (["shorts", "embed", "live", "v"].includes(segments[0] || "")) {
+        return sanitizeYouTubeVideoId(segments[1]);
+      }
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function getYouTubeVideoId(video) {
+  return (
+    extractYouTubeVideoId(video?.youtubeUrl) ||
+    sanitizeYouTubeVideoId(video?.youtubeVideoId)
+  );
+}
+
+function getYouTubeThumbnailUrl(video) {
+  const videoId = getYouTubeVideoId(video);
+  return videoId
+    ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+    : "";
+}
+
+function getYouTubeWatchUrl(video) {
+  const existingUrl = safeExternalUrl(video?.youtubeUrl);
+  if (existingUrl) {
+    return existingUrl;
+  }
+
+  const videoId = getYouTubeVideoId(video);
+  return videoId
+    ? `https://www.youtube.com/watch?v=${videoId}`
+    : "";
 }
 
 function formatYouTubeMetric(value, suffix = "") {
@@ -538,6 +655,9 @@ async function syncYouTubeVideos(
   }
 }
 
+// ============================================================
+// Dialog / PWA foreground handling
+// ============================================================
 function getOpenDialogs() {
   return [...document.querySelectorAll("dialog[open]")];
 }
@@ -677,13 +797,15 @@ function switchPage(pageId) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+// ============================================================
+// Supabase row mapping / data access
+// ============================================================
 function mapVideo(row) {
   return {
     id: row.id,
     title: row.title,
     type: row.video_type || "Shorts",
     status: row.status === "投稿済み" ? "投稿済み" : "編集待ち",
-    owner: row.owner || "",
     postDate: row.post_date || "",
     views24: Number(row.views_24 || 0),
     youtubeUrl: row.youtube_url || "",
@@ -701,12 +823,9 @@ function mapVideo(row) {
         ? null
         : Number(row.youtube_comments),
     youtubePublishedAt: row.youtube_published_at || "",
-    youtubeThumbnailUrl: row.youtube_thumbnail_url || "",
     youtubeSyncedAt: row.youtube_synced_at || "",
     memo: row.memo || "",
     createdAt: row.created_at || "",
-    updatedAt: row.updated_at || "",
-    sortOrder: row.sort_order == null ? null : Number(row.sort_order),
     deletedAt: row.deleted_at || ""
   };
 }
@@ -717,11 +836,8 @@ function mapIdea(row) {
     title: row.title,
     status: row.status === "実行済み" ? "実行済み" : "アイデア",
     note: row.note || "",
-    priority: Number(row.priority || 1),
-    plannedDate: row.planned_date || "",
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
-    sortOrder: row.sort_order == null ? null : Number(row.sort_order),
     deletedAt: row.deleted_at || ""
   };
 }
@@ -748,35 +864,15 @@ function mapGoal(row) {
     achieved: Boolean(row.achieved),
     achievedDate: row.achieved_date || "",
     createdAt: row.created_at || "",
-    updatedAt: row.updated_at || "",
-    sortOrder:
-      row.sort_order === null || row.sort_order === undefined
-        ? null
-        : Number(row.sort_order),
     deletedAt: row.deleted_at || ""
   };
 }
 
 
-function mapActivityLog(row) {
-  return {
-    id: row.id,
-    entityType: row.entity_type,
-    entityId: row.entity_id,
-    entityTitle: row.entity_title || "",
-    action: row.action || "",
-    details: row.details || "",
-    actorEmail: row.actor_email || "",
-    createdAt: row.created_at || ""
-  };
-}
-
 function mapMonthlyPayment(row) {
   return {
     monthKey: row.month_key || "",
-    isPaid: Boolean(row.is_paid),
-    paidAt: row.paid_at || "",
-    updatedAt: row.updated_at || ""
+    isPaid: Boolean(row.is_paid)
   };
 }
 
@@ -814,38 +910,9 @@ async function addActivityLog(type, entityId, title, action, details = "") {
     details,
     actor_email: getCurrentUserEmail()
   });
-  if (error) console.error("履歴保存:", error);
+  if (error) console.error("操作ログ保存:", error);
 }
 
-async function addNotification() {
-  // Ver23.15以降、通知はSupabaseのDBトリガーで
-  // 操作した本人以外のユーザーにだけ作成します。
-  return null;
-}
-
-function logsFor(type, id) {
-  return data.activityLogs
-    .filter(log => log.entityType === type && String(log.entityId) === String(id))
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-}
-
-function renderHistory(type, id) {
-  const logs = logsFor(type, id);
-  return `
-    <section class="history-section">
-      <h4>更新履歴</h4>
-      <div class="history-list">
-        ${logs.length ? logs.map(log => `
-          <article class="history-item">
-            <strong>${escapeHtml(log.action)}</strong>
-            ${log.details ? `<p>${escapeHtml(log.details)}</p>` : ""}
-            <span class="history-time">${formatDateTime(log.createdAt)}${log.actorEmail ? `・${escapeHtml(log.actorEmail)}` : ""}</span>
-          </article>
-        `).join("") : `<div class="empty-state">履歴はまだありません</div>`}
-      </div>
-    </section>
-  `;
-}
 
 function formatDateTime(value) {
   if (!value) return "日時不明";
@@ -857,21 +924,35 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function compareBySortOrder(a, b) {
-  const ao = Number.isFinite(a.sortOrder) ? a.sortOrder : Number.MAX_SAFE_INTEGER;
-  const bo = Number.isFinite(b.sortOrder) ? b.sortOrder : Number.MAX_SAFE_INTEGER;
-  return ao - bo || String(a.createdAt).localeCompare(String(b.createdAt));
-}
 
-async function fetchGoals() {
-  return supabaseClient
-    .from("goals")
-    .select("*")
-    .order("created_at", { ascending: true });
+function refreshOpenDetailViews() {
+  if (elements.videoDetailModal.open && currentDetailVideoId) {
+    const video = findById(data.videos, currentDetailVideoId);
+    video ? renderVideoDetail(video) : elements.videoDetailModal.close();
+  }
+
+  if (elements.ideaDetailModal.open && currentDetailIdeaId) {
+    const idea = findById(data.ideas, currentDetailIdeaId);
+    idea ? renderIdeaDetail(idea) : elements.ideaDetailModal.close();
+  }
+
+  if (elements.ideaItemDetailModal.open && currentDetailIdeaItemId) {
+    const ideaItem = getIdeaItemById(currentDetailIdeaItemId);
+    ideaItem
+      ? renderIdeaItemDetail(ideaItem)
+      : elements.ideaItemDetailModal.close();
+  }
+
+  if (elements.goalDetailModal.open && currentDetailGoalId) {
+    const goal = findById(data.goals, currentDetailGoalId);
+    goal ? renderGoalDetail(goal) : elements.goalDetailModal.close();
+  }
 }
 
 async function loadAllData({ silent = false } = {}) {
-  if (!silent) setSyncStatus("同期中");
+  if (!silent) {
+    setSyncStatus("同期中");
+  }
 
   const [
     videosResult,
@@ -879,16 +960,21 @@ async function loadAllData({ silent = false } = {}) {
     ideaItemsResult,
     goalsResult,
     monthlyPaymentsResult,
-    logsResult,
     notificationsResult
   ] = await Promise.all([
-    supabaseClient.from("videos").select("*").order("created_at"),
-    supabaseClient.from("ideas").select("*").order("created_at"),
-    supabaseClient.from("idea_items").select("*").order("created_at"),
-    fetchGoals(),
-    supabaseClient.from("monthly_payments").select("*").order("month_key", { ascending: false }),
-    supabaseClient.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500),
-    supabaseClient.from("notifications").select("*").order("created_at", { ascending: false }).limit(200)
+    supabaseClient.from("videos").select("*"),
+    supabaseClient.from("ideas").select("*"),
+    supabaseClient.from("idea_items").select("*"),
+    supabaseClient.from("goals").select("*"),
+    supabaseClient
+      .from("monthly_payments")
+      .select("*")
+      .order("month_key", { ascending: false }),
+    supabaseClient
+      .from("notifications")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200)
   ]);
 
   const firstError =
@@ -897,57 +983,54 @@ async function loadAllData({ silent = false } = {}) {
     ideaItemsResult.error ||
     goalsResult.error ||
     monthlyPaymentsResult.error ||
-    logsResult.error ||
     notificationsResult.error;
 
   if (firstError) {
     console.error(firstError);
     setSyncStatus("同期エラー", "error");
-    if (!silent) showToast(`読み込みに失敗しました：${getErrorMessage(firstError)}`, "error");
+    if (!silent) {
+      showToast(
+        `読み込みに失敗しました：${getErrorMessage(firstError)}`,
+        "error"
+      );
+    }
     return false;
   }
 
-  const allVideos = videosResult.data.map(mapVideo);
-  const allIdeas = ideasResult.data.map(mapIdea);
-  const allIdeaItems = ideaItemsResult.data.map(mapIdeaItem);
-  const allGoals = goalsResult.data.map(mapGoal);
-  const allMonthlyPayments = monthlyPaymentsResult.data.map(mapMonthlyPayment);
+  const allVideos = (videosResult.data || []).map(mapVideo);
+  const allIdeas = (ideasResult.data || []).map(mapIdea);
+  const allIdeaItems = (ideaItemsResult.data || []).map(mapIdeaItem);
+  const allGoals = (goalsResult.data || []).map(mapGoal);
 
   data = {
-    videos: allVideos.filter(item => !item.deletedAt).sort(compareBySortOrder),
-    ideas: allIdeas.filter(item => !item.deletedAt),
-    ideaItems: allIdeaItems,
-    goals: allGoals.filter(item => !item.deletedAt),
-    monthlyPayments: allMonthlyPayments,
-    activityLogs: logsResult.data.map(mapActivityLog),
-    notifications: notificationsResult.data.map(mapNotification),
+    videos: newestFirst(allVideos.filter(item => !item.deletedAt)),
+    ideas: newestFirst(allIdeas.filter(item => !item.deletedAt)),
+    ideaItems: newestFirst(allIdeaItems),
+    goals: newestFirst(allGoals.filter(item => !item.deletedAt)),
+    monthlyPayments: (monthlyPaymentsResult.data || []).map(mapMonthlyPayment),
+    notifications: (notificationsResult.data || []).map(mapNotification),
     trash: [
-      ...allVideos.filter(item => item.deletedAt).map(item => ({ ...item, entityType: "video" })),
-      ...allIdeas.filter(item => item.deletedAt).map(item => ({ ...item, entityType: "idea" })),
-      ...allGoals.filter(item => item.deletedAt).map(item => ({ ...item, entityType: "goal" }))
-    ].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)))
+      ...allVideos
+        .filter(item => item.deletedAt)
+        .map(item => ({ ...item, entityType: "video" })),
+      ...allIdeas
+        .filter(item => item.deletedAt)
+        .map(item => ({ ...item, entityType: "idea" })),
+      ...allGoals
+        .filter(item => item.deletedAt)
+        .map(item => ({ ...item, entityType: "goal" }))
+    ].sort((left, right) =>
+      String(right.deletedAt || "").localeCompare(
+        String(left.deletedAt || "")
+      )
+    )
   };
 
   renderAll();
   renderNotifications();
   renderTrash();
+  refreshOpenDetailViews();
 
-  if (elements.videoDetailModal.open && currentDetailVideoId) {
-    const item = data.videos.find(video => video.id === currentDetailVideoId);
-    item ? renderVideoDetail(item) : elements.videoDetailModal.close();
-  }
-  if (elements.ideaDetailModal.open && currentDetailIdeaId) {
-    const item = data.ideas.find(idea => idea.id === currentDetailIdeaId);
-    item ? renderIdeaDetail(item) : elements.ideaDetailModal.close();
-  }
-  if (elements.ideaItemDetailModal.open && currentDetailIdeaItemId) {
-    const item = getIdeaItemById(currentDetailIdeaItemId);
-    item ? renderIdeaItemDetail(item) : elements.ideaItemDetailModal.close();
-  }
-  if (elements.goalDetailModal.open && currentDetailGoalId) {
-    const item = data.goals.find(goal => goal.id === currentDetailGoalId);
-    item ? renderGoalDetail(item) : elements.goalDetailModal.close();
-  }
   if (elements.postStatsModal.open) {
     renderPostStats();
   }
@@ -956,6 +1039,9 @@ async function loadAllData({ silent = false } = {}) {
   return true;
 }
 
+// ============================================================
+// Posting statistics / monthly payment
+// ============================================================
 function isCurrentMonth(dateValue) {
   if (!dateValue) {
     return false;
@@ -1070,9 +1156,7 @@ function getMonthlyPayment(monthKey) {
     payment => payment.monthKey === monthKey
   ) || {
     monthKey,
-    isPaid: false,
-    paidAt: "",
-    updatedAt: ""
+    isPaid: false
   };
 }
 
@@ -1226,6 +1310,9 @@ async function setMonthlyPaymentStatus(monthKey, isPaid, triggerButton) {
   }
 }
 
+// ============================================================
+// Screen rendering
+// ============================================================
 function renderDashboard() {
   document.getElementById("monthlyPosts").textContent = countMonthlyPosts();
   document.getElementById("monthlyShorts").textContent = countMonthlyPostsByType("Shorts");
@@ -1237,9 +1324,13 @@ function renderDashboard() {
   document.getElementById("ideaCount").textContent =
     data.ideas.filter(idea => idea.status !== "実行済み").length;
 
-  const posted = data.videos
+  const posted = [...data.videos]
     .filter(video => video.status === "投稿済み")
-    .sort((a, b) => String(b.postDate).localeCompare(String(a.postDate)));
+    .sort((left, right) =>
+      String(right.postDate || "").localeCompare(
+        String(left.postDate || "")
+      ) || compareCreatedAtDesc(left, right)
+    );
 
   const recentElement = document.getElementById("recentVideos");
 
@@ -1320,51 +1411,14 @@ function renderVideoFilterCounts() {
   });
 }
 
-function videoSortDate(video) {
-  return String(video.updatedAt || video.createdAt || "");
-}
-
-function sortVideosForList(videos) {
-  return [...videos].sort((a, b) => {
-    if (activeVideoFilter === "投稿済み") {
-      return (
-        String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
-        videoSortDate(b).localeCompare(videoSortDate(a))
-      );
-    }
-
-    if (activeVideoFilter !== "all") {
-      return videoSortDate(b).localeCompare(videoSortDate(a));
-    }
-
-    const statusDifference =
-      (VIDEO_STATUS_ORDER.get(a.status) ?? 999) -
-      (VIDEO_STATUS_ORDER.get(b.status) ?? 999);
-
-    if (statusDifference !== 0) {
-      return statusDifference;
-    }
-
-    if (a.status === "投稿済み" && b.status === "投稿済み") {
-      return (
-        String(b.postDate || "").localeCompare(String(a.postDate || "")) ||
-        videoSortDate(b).localeCompare(videoSortDate(a))
-      );
-    }
-
-    return videoSortDate(b).localeCompare(videoSortDate(a));
-  });
-}
 
 function renderVideos() {
   const list = document.getElementById("videoList");
   renderVideoFilterCounts();
 
-  const filteredVideos = activeVideoFilter === "all"
+  const videos = activeVideoFilter === "all"
     ? data.videos
     : data.videos.filter(video => video.status === activeVideoFilter);
-
-  const videos = sortVideosForList(filteredVideos);
 
   if (!videos.length) {
     list.innerHTML = `<div class="card empty-state">該当する動画はありません</div>`;
@@ -1372,37 +1426,74 @@ function renderVideos() {
   }
 
   list.innerHTML = videos.map(video => {
-    const youtubeUrl = safeExternalUrl(video.youtubeUrl);
+    const youtubeUrl = getYouTubeWatchUrl(video);
+    const thumbnailUrl = getYouTubeThumbnailUrl(video);
 
     return `
-      <article class="item-card video-card is-clickable" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
-        <div>
-          <div class="video-card-top">
-            <select class="status-select" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">
-              ${VIDEO_STATUSES.map(status => `
-                <option value="${status}" ${status === video.status ? "selected" : ""}>${status}</option>
-              `).join("")}
-            </select>
-          </div>
-
-          <h4>${escapeHtml(video.title)}</h4>
-
-          ${video.youtubeViews !== null ? `
-            <div class="youtube-current-views">
-              <span>現在</span>
-              <strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
+      <article
+        class="item-card video-card is-clickable"
+        data-video-card-id="${video.id}"
+        tabindex="0"
+        role="button"
+        aria-label="${escapeHtml(video.title)}の詳細を開く"
+      >
+        <div class="video-card-layout">
+          <div class="video-thumbnail-shell${thumbnailUrl ? "" : " is-thumbnail-error"}">
+            ${thumbnailUrl ? `
+              <img
+                class="video-thumbnail-image"
+                data-video-thumbnail
+                src="${escapeHtml(thumbnailUrl)}"
+                alt="${escapeHtml(video.title)}のYouTubeサムネイル"
+                loading="lazy"
+                decoding="async"
+              />
+            ` : ""}
+            <div class="video-thumbnail-fallback" aria-hidden="true">
+              <span>▶</span>
+              <small>サムネイル未取得</small>
             </div>
-          ` : ""}
-
-          <div class="meta">
-            <span>${escapeHtml(video.type)}</span>
-            <span>担当：${escapeHtml(video.owner || "未設定")}</span>
-            <span>投稿日：${formatDate(video.postDate)}</span>
-            ${video.views24 ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>` : ""}
-            ${youtubeUrl ? `<a href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>` : ""}
           </div>
 
-          ${video.memo ? `<p class="card-memo-preview">${escapeHtml(video.memo)}</p>` : ""}
+          <div class="video-card-main">
+            <div class="video-card-top">
+              <select
+                class="status-select"
+                data-video-status-id="${video.id}"
+                aria-label="${escapeHtml(video.title)}のステータス"
+              >
+                ${VIDEO_STATUSES.map(status => `
+                  <option value="${status}" ${status === video.status ? "selected" : ""}>${status}</option>
+                `).join("")}
+              </select>
+            </div>
+
+            <h4>${escapeHtml(video.title)}</h4>
+
+            <div class="video-card-metrics" aria-label="YouTube統計">
+              <article>
+                <span>再生</span>
+                <strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
+              </article>
+              <article>
+                <span>高評価</span>
+                <strong>${formatYouTubeMetric(video.youtubeLikes, "件")}</strong>
+              </article>
+              <article>
+                <span>コメント</span>
+                <strong>${formatYouTubeMetric(video.youtubeComments, "件")}</strong>
+              </article>
+            </div>
+
+            <div class="meta video-card-meta">
+              <span>${escapeHtml(video.type)}</span>
+              <span>投稿日：${formatDate(video.postDate)}</span>
+              ${video.views24 ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>` : ""}
+              ${youtubeUrl ? `<a href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>` : ""}
+            </div>
+
+            ${video.memo ? `<p class="card-memo-preview">${escapeHtml(video.memo)}</p>` : ""}
+          </div>
         </div>
 
         <div class="item-actions">
@@ -1430,19 +1521,9 @@ function renderIdeas() {
   const board = document.getElementById("ideaBoard");
 
   board.innerHTML = IDEA_STATUSES.map(status => {
-    const items = data.ideas
-      .filter(idea => idea.status === status)
-      .sort((a, b) => {
-        const createdCompare = String(a.createdAt || "").localeCompare(
-          String(b.createdAt || "")
-        );
-
-        if (createdCompare !== 0) {
-          return createdCompare;
-        }
-
-        return String(a.id).localeCompare(String(b.id));
-      });
+    const items = data.ideas.filter(
+      idea => idea.status === status
+    );
 
     return `
       <section class="kanban-column">
@@ -1562,10 +1643,40 @@ function renderNotifications() {
     : `<div class="empty-state">通知はありません</div>`;
 }
 
-function openNotificationTarget(notificationId) {
-  const notification = data.notifications.find(
-    item => String(item.id) === String(notificationId)
+async function markNotificationsReadOnOpen() {
+  const unreadIds = data.notifications
+    .filter(item => !item.isRead)
+    .map(item => item.id);
+
+  if (!unreadIds.length) {
+    return;
+  }
+
+  const unreadKeySet = new Set(unreadIds.map(id => String(id)));
+  data.notifications = data.notifications.map(item =>
+    unreadKeySet.has(String(item.id))
+      ? { ...item, isRead: true }
+      : item
   );
+  renderNotifications();
+
+  const { error } = await supabaseClient
+    .from("notifications")
+    .update({ is_read: true })
+    .in("id", unreadIds);
+
+  if (error) {
+    console.error(error);
+    showToast(
+      `通知を既読にできませんでした：${getErrorMessage(error)}`,
+      "error"
+    );
+    await loadAllData({ silent: true });
+  }
+}
+
+function openNotificationTarget(notificationId) {
+  const notification = findById(data.notifications, notificationId);
 
   if (!notification) {
     showToast("通知が見つかりませんでした。", "error");
@@ -1631,6 +1742,9 @@ function renderAll() {
   renderGoals();
 }
 
+// ============================================================
+// Forms / mutations
+// ============================================================
 function getEntity(type, id) {
   const keyMap = {
     video: "videos",
@@ -1638,7 +1752,7 @@ function getEntity(type, id) {
     goal: "goals"
   };
 
-  return data[keyMap[type]]?.find(item => item.id === id) || null;
+  return findById(data[keyMap[type]] || [], id);
 }
 
 function formValue(value) {
@@ -1665,7 +1779,6 @@ function openForm(type, id = "") {
       title: "",
       type: "Shorts",
       status: "編集待ち",
-      owner: "",
       postDate: "",
       views24: 0,
       youtubeUrl: "",
@@ -1687,7 +1800,6 @@ function openForm(type, id = "") {
             ${VIDEO_STATUSES.map(status => `<option ${optionSelected(video.status, status)}>${status}</option>`).join("")}
           </select>
         </label>
-        <label>担当者<input name="owner" value="${formValue(video.owner)}" placeholder="自分 / 相方" /></label>
         <label>投稿日<input type="date" name="postDate" value="${formValue(video.postDate)}" /></label>
         <label>24時間後の再生数<input type="number" name="views24" min="0" value="${Number(video.views24 || 0)}" /></label>
         <label>YouTube URL<input type="url" name="youtubeUrl" value="${formValue(video.youtubeUrl)}" placeholder="https://youtube.com/..." /></label>
@@ -1732,22 +1844,14 @@ function openForm(type, id = "") {
 }
 
 function getCompletedIdeaTargets(sourceIdeaId) {
-  return data.ideas
-    .filter(idea =>
-      idea.status === "実行済み" &&
-      String(idea.id) !== String(sourceIdeaId)
-    )
-    .sort((a, b) =>
-      String(b.createdAt || "").localeCompare(
-        String(a.createdAt || "")
-      )
-    );
+  return data.ideas.filter(idea =>
+    idea.status === "実行済み" &&
+    !sameId(idea.id, sourceIdeaId)
+  );
 }
 
 function openMoveIdeaToItemForm(sourceIdeaId) {
-  const sourceIdea = data.ideas.find(
-    idea => String(idea.id) === String(sourceIdeaId)
-  );
+  const sourceIdea = findById(data.ideas, sourceIdeaId);
 
   if (!sourceIdea || sourceIdea.status !== "アイデア") {
     showToast("移動できる企画が見つかりませんでした。", "error");
@@ -1807,12 +1911,8 @@ function openMoveIdeaToItemForm(sourceIdeaId) {
 }
 
 async function moveIdeaToItem(sourceIdeaId, targetIdeaId) {
-  const sourceIdea = data.ideas.find(
-    idea => String(idea.id) === String(sourceIdeaId)
-  );
-  const targetIdea = data.ideas.find(
-    idea => String(idea.id) === String(targetIdeaId)
-  );
+  const sourceIdea = findById(data.ideas, sourceIdeaId);
+  const targetIdea = findById(data.ideas, targetIdeaId);
 
   if (!sourceIdea || !targetIdea) {
     throw new Error("移動元または移動先が見つかりません。");
@@ -1861,48 +1961,67 @@ function validateTitle(value, label) {
   return trimmed;
 }
 
-function confirmPostDateIfNeeded(status, postDate) {
-  if (status !== "投稿済み" || postDate) {
-    return postDate || null;
-  }
-
-  const useToday = window.confirm(
-    "投稿日が未設定です。今日の日付を投稿日に設定しますか？\n\n「キャンセル」を選ぶと、投稿日を未設定のまま投稿済みにします。"
-  );
-
-  return useToday ? todayString() : null;
-}
 
 async function saveVideo(values, mode, id) {
   const existing = mode === "edit" ? getEntity("video", id) : null;
+  const youtubeUrl = values.youtubeUrl?.trim() || "";
+  const youtubeUrlChanged =
+    mode === "edit" &&
+    String(existing?.youtubeUrl || "") !== youtubeUrl;
+
   const payload = {
     title: validateTitle(values.title, "動画タイトル"),
     video_type: values.type,
     status: values.status,
-    owner: values.owner?.trim() || "",
     post_date: values.postDate || null,
     views_24: Number(values.views24 || 0),
-    youtube_url: values.youtubeUrl?.trim() || "",
+    youtube_url: youtubeUrl,
     memo: values.memo || "",
     updated_at: new Date().toISOString()
   };
 
+  if (youtubeUrlChanged) {
+    Object.assign(payload, {
+      youtube_video_id: null,
+      youtube_views: null,
+      youtube_likes: null,
+      youtube_comments: null,
+      youtube_published_at: null,
+      youtube_synced_at: null
+    });
+  }
+
   const query = mode === "edit"
-    ? supabaseClient.from("videos").update(payload).eq("id", id).select().single()
-    : supabaseClient.from("videos").insert(payload).select().single();
+    ? supabaseClient
+        .from("videos")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single()
+    : supabaseClient
+        .from("videos")
+        .insert(payload)
+        .select()
+        .single();
 
   const { data: row, error } = await query;
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
 
   const action = mode === "edit" ? "動画を編集" : "動画を追加";
   const details = existing && existing.status !== values.status
     ? `${existing.status} → ${values.status}`
     : "";
-  await addActivityLog("video", row.id, row.title, action, details);
 
-  if (mode === "edit" && existing?.status !== values.status) {
-    await addNotification("動画ステータス変更", `${row.title}\n${existing.status} → ${values.status}`, "video", row.id);
-  }
+  await addActivityLog(
+    "video",
+    row.id,
+    row.title,
+    action,
+    details
+  );
+
   return row;
 }
 
@@ -1926,7 +2045,6 @@ async function saveIdea(values, mode, id) {
     ? `${existing.status} → ${values.status}`
     : "";
   await addActivityLog("idea", row.id, row.title, mode === "edit" ? "企画を編集" : "企画を追加", details);
-  if (details) await addNotification("企画ステータス変更", `${row.title}\n${details}`, "idea", row.id);
   return row;
 }
 
@@ -1979,15 +2097,6 @@ async function saveGoal(values, mode, id) {
     row.title,
     mode === "edit" ? "目標を編集" : "目標を追加"
   );
-
-  if (newlyAchieved) {
-    await addNotification(
-      "目標達成",
-      `${row.title}を達成しました`,
-      "goal",
-      row.id
-    );
-  }
 
   return {
     row,
@@ -2069,7 +2178,6 @@ async function deleteItem(type, id, triggerButton = null) {
     if (error) throw error;
 
     await addActivityLog(type, id, entity.title, `${entityLabel(type)}をゴミ箱へ移動`);
-    await addNotification("ゴミ箱へ移動", `${entity.title}をゴミ箱へ移動しました`, type, id);
 
     [elements.videoDetailModal, elements.ideaDetailModal, elements.goalDetailModal]
       .forEach(modal => modal.open && modal.close());
@@ -2120,7 +2228,7 @@ async function permanentDeleteItem(type, id, button) {
 }
 
 async function updateVideoStatus(id, newStatus, selectElement) {
-  const video = data.videos.find(item => item.id === id);
+  const video = findById(data.videos, id);
   if (!video || video.status === newStatus) {
     return;
   }
@@ -2149,8 +2257,6 @@ async function updateVideoStatus(id, newStatus, selectElement) {
     if (error) throw error;
 
     await addActivityLog("video", id, video.title, "動画ステータス変更", `${previousStatus} → ${newStatus}`);
-    await addNotification("動画ステータス変更", `${video.title}
-${previousStatus} → ${newStatus}`, "video", id);
     await loadAllData({ silent: true });
     showToast(`ステータスを「${newStatus}」に変更しました`);
   } catch (error) {
@@ -2166,7 +2272,7 @@ ${previousStatus} → ${newStatus}`, "video", id);
 }
 
 async function moveIdea(id, status, selectElement) {
-  const idea = data.ideas.find(item => item.id === id);
+  const idea = findById(data.ideas, id);
   const previousStatus = idea?.status;
 
   selectElement.disabled = true;
@@ -2194,12 +2300,8 @@ async function moveIdea(id, status, selectElement) {
 }
 
 
-
-
 async function addIdeaItem(parentIdeaId, values, submitButton) {
-  const parentIdea = data.ideas.find(
-    item => String(item.id) === String(parentIdeaId)
-  );
+  const parentIdea = findById(data.ideas, parentIdeaId);
 
   if (!parentIdea || parentIdea.status !== "実行済み") {
     showToast("実行済みの企画内でのみ追加できます。", "error");
@@ -2244,18 +2346,14 @@ async function addIdeaItem(parentIdeaId, values, submitButton) {
 }
 
 async function updateIdeaItem(itemId, values, submitButton) {
-  const item = data.ideaItems.find(
-    entry => String(entry.id) === String(itemId)
-  );
+  const item = findById(data.ideaItems, itemId);
 
   if (!item) {
     showToast("企画内アイデアが見つかりませんでした。", "error");
     return;
   }
 
-  const parentIdea = data.ideas.find(
-    idea => String(idea.id) === String(item.parentIdeaId)
-  );
+  const parentIdea = findById(data.ideas, item.parentIdeaId);
 
   setLoading(submitButton, true, "保存中...");
 
@@ -2304,9 +2402,7 @@ async function updateIdeaItem(itemId, values, submitButton) {
 }
 
 async function updateIdeaItemStatus(itemId, status, triggerElement) {
-  const item = data.ideaItems.find(
-    entry => String(entry.id) === String(itemId)
-  );
+  const item = findById(data.ideaItems, itemId);
 
   if (!item || !IDEA_STATUSES.includes(status)) {
     return;
@@ -2332,9 +2428,7 @@ async function updateIdeaItemStatus(itemId, status, triggerElement) {
 
     if (error) throw error;
 
-    const parentIdea = data.ideas.find(
-      idea => String(idea.id) === String(item.parentIdeaId)
-    );
+    const parentIdea = findById(data.ideas, item.parentIdeaId);
 
     if (parentIdea) {
       await addActivityLog(
@@ -2364,9 +2458,7 @@ async function updateIdeaItemStatus(itemId, status, triggerElement) {
 }
 
 async function deleteIdeaItem(itemId, button) {
-  const item = data.ideaItems.find(
-    entry => String(entry.id) === String(itemId)
-  );
+  const item = findById(data.ideaItems, itemId);
 
   if (!item) {
     showToast("企画内アイデアが見つかりませんでした。", "error");
@@ -2387,9 +2479,7 @@ async function deleteIdeaItem(itemId, button) {
 
     if (error) throw error;
 
-    const parentIdea = data.ideas.find(
-      idea => String(idea.id) === String(item.parentIdeaId)
-    );
+    const parentIdea = findById(data.ideas, item.parentIdeaId);
 
     if (parentIdea) {
       await addActivityLog(
@@ -2417,7 +2507,7 @@ async function deleteIdeaItem(itemId, button) {
 }
 
 async function completeIdea(id, button) {
-  const idea = data.ideas.find(item => String(item.id) === String(id));
+  const idea = findById(data.ideas, id);
   if (!idea || idea.status === "実行済み") return;
   setLoading(button, true, "保存中...");
   const { error } = await supabaseClient.from("ideas")
@@ -2426,7 +2516,6 @@ async function completeIdea(id, button) {
   if (error) showToast(`更新できませんでした：${getErrorMessage(error)}`, "error");
   else {
     await addActivityLog("idea", id, idea.title, "企画を実行済みに変更", "アイデア → 実行済み");
-    await addNotification("企画を実行済みに変更", idea.title, "idea", id);
     elements.ideaDetailModal.close();
     await loadAllData({ silent: true });
     showToast("実行済みに変更しました");
@@ -2435,7 +2524,7 @@ async function completeIdea(id, button) {
 }
 
 async function updateGoalProgress(id, rawValue, triggerButton) {
-  const goal = data.goals.find(item => String(item.id) === String(id));
+  const goal = findById(data.goals, id);
   if (!goal) {
     showToast("目標が見つかりませんでした。", "error");
     return;
@@ -2484,22 +2573,6 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
       `${previousValue} → ${nextValue}`
     );
 
-    if (newlyAchieved) {
-      await addNotification(
-        "目標達成",
-        `${goal.title}を達成しました`,
-        "goal",
-        id
-      );
-    } else {
-      await addNotification(
-        "目標の達成度を更新",
-        `${goal.title}\n${previousValue} → ${nextValue}`,
-        "goal",
-        id
-      );
-    }
-
     await loadAllData({ silent: true });
 
     if (newlyAchieved) {
@@ -2517,9 +2590,7 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
 }
 
 async function achieveGoal(id, triggerButton) {
-  const goal = data.goals.find(
-    item => String(item.id) === String(id)
-  );
+  const goal = findById(data.goals, id);
   if (!goal || goal.achieved) return;
 
   const updatedAt = new Date().toISOString();
@@ -2541,7 +2612,6 @@ async function achieveGoal(id, triggerButton) {
 
     if (error) throw error;
     await addActivityLog("goal", id, goal.title, "目標を達成");
-    await addNotification("目標達成", `${goal.title}を達成しました`, "goal", id);
     await loadAllData({ silent: true });
     showGoalCelebration(goal.title);
     showToast("目標を達成済みにしました");
@@ -2555,33 +2625,42 @@ async function achieveGoal(id, triggerButton) {
   }
 }
 
+// ============================================================
+// Full-screen detail views
+// ============================================================
 function renderVideoDetail(video) {
-  const youtubeUrl = safeExternalUrl(video.youtubeUrl);
-  const thumbnailUrl = safeExternalUrl(video.youtubeThumbnailUrl);
+  const youtubeUrl = getYouTubeWatchUrl(video);
+  const thumbnailUrl = getYouTubeThumbnailUrl(video);
 
   elements.videoDetailTitle.textContent = video.title;
   elements.videoDetailBody.innerHTML = `
-    ${thumbnailUrl ? `
-      <a
-        class="youtube-thumbnail-card"
-        href="${escapeHtml(youtubeUrl || thumbnailUrl)}"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="${escapeHtml(video.title)}をYouTubeで開く"
-      >
+    <div class="youtube-thumbnail-card${thumbnailUrl ? "" : " is-thumbnail-error"}">
+      ${thumbnailUrl ? `
         <img
+          data-video-thumbnail
           src="${escapeHtml(thumbnailUrl)}"
           alt="${escapeHtml(video.title)}のYouTubeサムネイル"
           loading="lazy"
+          decoding="async"
         />
-        <span>YouTubeで開く</span>
-      </a>
-    ` : ""}
+      ` : ""}
+      <div class="video-thumbnail-fallback" aria-hidden="true">
+        <span>▶</span>
+        <small>サムネイル未取得</small>
+      </div>
+      ${youtubeUrl ? `
+        <a
+          class="youtube-thumbnail-link"
+          href="${escapeHtml(youtubeUrl)}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >YouTubeで開く</a>
+      ` : ""}
+    </div>
 
     <div class="detail-summary">
       <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(video.status)}</strong></div>
       <div class="detail-field"><span>動画形式</span><strong>${escapeHtml(video.type)}</strong></div>
-      <div class="detail-field"><span>担当</span><strong>${escapeHtml(video.owner || "未設定")}</strong></div>
       <div class="detail-field"><span>投稿日</span><strong>${formatDate(video.postDate)}</strong></div>
       <div class="detail-field"><span>24時間後の再生数</span><strong>${Number(video.views24).toLocaleString()}回</strong></div>
       <div class="detail-field"><span>YouTube</span><strong>${youtubeUrl ? `<a class="detail-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">動画を開く</a>` : "未設定"}</strong></div>
@@ -2598,17 +2677,14 @@ function renderVideoDetail(video) {
           <span>現在の再生回数</span>
           <strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
         </article>
-
         <article>
-          <span>高評価</span>
+          <span>高評価数</span>
           <strong>${formatYouTubeMetric(video.youtubeLikes, "件")}</strong>
         </article>
-
         <article>
-          <span>コメント</span>
+          <span>コメント数</span>
           <strong>${formatYouTubeMetric(video.youtubeComments, "件")}</strong>
         </article>
-
         <article>
           <span>公開日時</span>
           <strong>${video.youtubePublishedAt ? formatDateTime(video.youtubePublishedAt) : "未取得"}</strong>
@@ -2623,8 +2699,8 @@ function renderVideoDetail(video) {
   `;
 
   elements.youtubeSyncButton.dataset.youtubeSyncId = video.id;
-  elements.youtubeSyncButton.disabled = !youtubeUrl;
-  elements.youtubeSyncButton.textContent = youtubeUrl
+  elements.youtubeSyncButton.disabled = !safeExternalUrl(video.youtubeUrl);
+  elements.youtubeSyncButton.textContent = safeExternalUrl(video.youtubeUrl)
     ? "YouTube情報を更新"
     : "YouTube URL未設定";
 
@@ -2633,9 +2709,7 @@ function renderVideoDetail(video) {
 }
 
 function openVideoDetail(id) {
-  const video = data.videos.find(
-    item => String(item.id) === String(id)
-  );
+  const video = findById(data.videos, id);
   if (!video) {
     showToast("動画が見つかりませんでした。", "error");
     return;
@@ -2647,21 +2721,9 @@ function openVideoDetail(id) {
 }
 
 function getIdeaItems(parentIdeaId) {
-  return data.ideaItems
-    .filter(item => String(item.parentIdeaId) === String(parentIdeaId))
-    .sort((a, b) => {
-      const createdCompare = String(b.createdAt || "").localeCompare(
-        String(a.createdAt || "")
-      );
-
-      if (createdCompare !== 0) {
-        return createdCompare;
-      }
-
-      return String(b.id).localeCompare(String(a.id), "ja", {
-        numeric: true
-      });
-    });
+  return data.ideaItems.filter(
+    item => sameId(item.parentIdeaId, parentIdeaId)
+  );
 }
 
 function renderIdeaItemsSection(idea) {
@@ -2752,13 +2814,11 @@ function renderIdeaItemsSection(idea) {
 }
 
 function getIdeaItemById(id) {
-  return data.ideaItems.find(item => String(item.id) === String(id));
+  return findById(data.ideaItems, id);
 }
 
 function renderIdeaItemDetail(item) {
-  const parentIdea = data.ideas.find(
-    idea => String(idea.id) === String(item.parentIdeaId)
-  );
+  const parentIdea = findById(data.ideas, item.parentIdeaId);
 
   elements.ideaItemDetailTitle.textContent = item.title;
   elements.ideaItemDetailBody.innerHTML = `
@@ -2898,9 +2958,7 @@ function renderIdeaDetail(idea) {
 }
 
 function openIdeaDetail(id) {
-  const idea = data.ideas.find(
-    item => String(item.id) === String(id)
-  );
+  const idea = findById(data.ideas, id);
   if (!idea) {
     showToast("企画が見つかりませんでした。", "error");
     return;
@@ -2984,9 +3042,7 @@ function renderGoalDetail(goal) {
 }
 
 function openGoalDetail(id) {
-  const goal = data.goals.find(
-    item => String(item.id) === String(id)
-  );
+  const goal = findById(data.goals, id);
   if (!goal) {
     showToast("目標が見つかりませんでした。", "error");
     return;
@@ -2996,6 +3052,9 @@ function openGoalDetail(id) {
   openManagedDialog(elements.goalDetailModal);
 }
 
+// ============================================================
+// Realtime / authentication
+// ============================================================
 function scheduleRealtimeRefresh() {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => loadAllData({ silent: true }), 200);
@@ -3010,9 +3069,7 @@ function handleGoalRealtime(payload) {
     return;
   }
 
-  const currentGoal = data.goals.find(
-    goal => String(goal.id) === goalId
-  );
+  const currentGoal = findById(data.goals, goalId);
 
   const nextAchieved = Boolean(nextGoal.achieved);
   const wasAchieved = Boolean(currentGoal?.achieved);
@@ -3060,7 +3117,6 @@ function subscribeRealtime() {
       handleGoalRealtime
     )
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
     .subscribe(status => {
       if (status === "SUBSCRIBED") {
@@ -3098,7 +3154,6 @@ async function logout() {
     ideaItems: [],
     goals: [],
     monthlyPayments: [],
-    activityLogs: [],
     notifications: [],
     trash: []
   };
@@ -3138,6 +3193,9 @@ async function initialize() {
   });
 }
 
+// ============================================================
+// Event wiring / application start
+// ============================================================
 function setupEventListeners() {
   elements.loginForm.addEventListener("submit", async event => {
     event.preventDefault();
@@ -3427,6 +3485,24 @@ function setupEventListeners() {
   });
 
 
+  document.addEventListener(
+    "error",
+    event => {
+      const image = event.target;
+      if (!(image instanceof HTMLImageElement)) {
+        return;
+      }
+      if (!image.matches("[data-video-thumbnail]")) {
+        return;
+      }
+
+      image.closest(".video-thumbnail-shell, .youtube-thumbnail-card")
+        ?.classList.add("is-thumbnail-error");
+      image.remove();
+    },
+    true
+  );
+
   document.addEventListener("change", event => {
     const videoSelect = event.target.closest("[data-video-status-id]");
     if (videoSelect) {
@@ -3566,33 +3642,9 @@ function setupEventListeners() {
     );
   });
 
-  elements.notificationButton.addEventListener("click", async () => {
+  elements.notificationButton.addEventListener("click", () => {
     openManagedDialog(elements.notificationModal);
-
-    const unreadIds = data.notifications
-      .filter(item => !item.isRead)
-      .map(item => item.id);
-
-    if (!unreadIds.length) return;
-
-    // ベルを開いた瞬間に、画面上ではすぐ既読として反映
-    data.notifications = data.notifications.map(item =>
-      unreadIds.includes(item.id)
-        ? { ...item, isRead: true }
-        : item
-    );
-    renderNotifications();
-
-    const { error } = await supabaseClient
-      .from("notifications")
-      .update({ is_read: true })
-      .in("id", unreadIds);
-
-    if (error) {
-      console.error(error);
-      showToast(`通知を既読にできませんでした：${getErrorMessage(error)}`, "error");
-      await loadAllData({ silent: true });
-    }
+    void markNotificationsReadOnOpen();
   });
 
   elements.postStatsButton.addEventListener("click", () => {
@@ -3611,13 +3663,6 @@ function setupEventListeners() {
     openManagedDialog(elements.trashModal);
   });
 
-  elements.markAllNotificationsRead.addEventListener("click", async () => {
-    const unreadIds = data.notifications.filter(item => !item.isRead).map(item => item.id);
-    if (!unreadIds.length) return;
-    const { error } = await supabaseClient.from("notifications").update({ is_read: true }).in("id", unreadIds);
-    if (error) showToast(`既読にできませんでした：${getErrorMessage(error)}`, "error");
-    else await loadAllData({ silent: true });
-  });
 
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {
