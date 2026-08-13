@@ -8,11 +8,11 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=6" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=6" />
-  <link rel="manifest" href="manifest.json?v=23.17" />
+  <link rel="manifest" href="manifest.json?v=23.19" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="競艇管理" />
-  <link rel="stylesheet" href="style.css?v=23.17" />
+  <link rel="stylesheet" href="style.css?v=23.19" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -47,7 +47,8 @@
         <button type="button" class="nav-item active" data-page="dashboard">ダッシュボード</button>
         <button type="button" class="nav-item" data-page="videos">動画管理</button>
         <button type="button" class="nav-item" data-page="ideas">企画管理</button>
-        <button type="button" class="nav-item" data-page="goals">目標・実績</button>
+        <button type="button" class="nav-item" data-page="goals">目標</button>
+        <button type="button" class="nav-item" data-page="achievements">実績</button>
       </nav>
 
       <div class="sidebar-foot">
@@ -229,12 +230,26 @@
       <section id="goals" class="page">
         <div class="section-head page-section-head">
           <div>
-                <h3>目標・実績</h3>
+                <h3>目標</h3>
           </div>
           <button type="button" class="secondary-btn" data-open-form="goal">＋ 目標を追加</button>
         </div>
 
         <div id="goalList" class="cards-list"></div>
+      </section>
+      <section id="achievements" class="page">
+        <div class="section-head page-section-head"><div><h3>実績</h3></div></div>
+        <div class="achievement-hero-card"><div><span>今月</span><h4 id="achievementMonthLabel">今月の実績</h4></div><strong id="achievementMonthlyScore">0%</strong></div>
+        <div class="achievement-grid">
+          <article class="achievement-card"><span>投稿本数</span><strong id="achievementPosts">0</strong></article>
+          <article class="achievement-card"><span>総再生数</span><strong id="achievementViews">0</strong></article>
+          <article class="achievement-card"><span>高評価</span><strong id="achievementLikes">0</strong></article>
+          <article class="achievement-card"><span>コメント</span><strong id="achievementComments">0</strong></article>
+          <article class="achievement-card"><span>平均再生数</span><strong id="achievementAverageViews">0</strong></article>
+          <article class="achievement-card"><span>チャンネル登録者</span><strong id="achievementSubscribers">未連携</strong></article>
+        </div>
+        <article class="card"><div class="section-head"><div><h3>今月の目標</h3></div></div><div id="monthlyGoalSummary" class="cards-list compact-goal-list"></div></article>
+        <article class="card"><div class="section-head"><div><h3>簡単な成績分析</h3></div></div><div id="achievementAnalysis" class="achievement-analysis-list"></div></article>
       </section>
     </main>
   </div>
@@ -244,6 +259,7 @@
     <button type="button" class="mobile-nav-item" data-page="videos">動画</button>
     <button type="button" class="mobile-nav-item" data-page="ideas">企画</button>
     <button type="button" class="mobile-nav-item" data-page="goals">目標</button>
+    <button type="button" class="mobile-nav-item" data-page="achievements">実績</button>
   </div>
 
   <dialog id="formModal" class="modal form-modal fullscreen-modal">
@@ -495,6 +511,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.17"></script>
+  <script src="app.js?v=23.19"></script>
 </body>
 </html>
