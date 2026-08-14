@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@^2.95.0";
 import { corsHeaders } from "npm:@supabase/supabase-js@^2.95.0/cors";
+import { shouldCapture24HourViews } from "./capture-policy.ts";
 
 type VideoRecord = {
   id: string | number;
@@ -7,6 +8,7 @@ type VideoRecord = {
   youtube_url: string | null;
   youtube_video_id: string | null;
   views_24?: number | null;
+  youtube_synced_at?: string | null;
   youtube_24h_captured_at?: string | null;
 };
 
@@ -228,7 +230,9 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
     const { data: records, error: recordsError } = await supabase
       .from("videos")
-      .select("id,title,youtube_url,youtube_video_id,views_24,youtube_24h_captured_at")
+      .select(
+        "id,title,youtube_url,youtube_video_id,views_24,youtube_synced_at,youtube_24h_captured_at",
+      )
       .in("id", recordIds);
     if (recordsError) throw recordsError;
 
@@ -269,13 +273,14 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
       const currentViews = parseCount(youtubeVideo.statistics?.viewCount);
       const publishedAt = youtubeVideo.snippet?.publishedAt || null;
-      const publishedTime = publishedAt ? new Date(publishedAt).getTime() : NaN;
-      const shouldCapture24h =
-        !item.record.youtube_24h_captured_at &&
-        Number(item.record.views_24 || 0) <= 0 &&
-        Number.isFinite(publishedTime) &&
-        Date.now() >= publishedTime + 24 * 60 * 60 * 1000 &&
-        currentViews !== null;
+      const shouldCapture24h = shouldCapture24HourViews({
+        storedViews24: item.record.views_24,
+        capturedAt: item.record.youtube_24h_captured_at,
+        previousSyncedAt: item.record.youtube_synced_at,
+        publishedAt,
+        currentViews,
+        now: Date.now(),
+      });
 
       const updatePayload: Record<string, unknown> = {
         youtube_video_id: item.youtubeVideoId,
@@ -317,29 +322,53 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
     let channelStats: Array<Record<string, unknown>> = [];
     if (channelIds.size) {
-      const channels = await fetchYouTubeChannels([...channelIds], youtubeApiKey);
-      channelStats = channels.flatMap((channel) => {
-        const channelId = String(channel.id || "").trim();
-        if (!channelId) return [];
-        return [{
-          channel_id: channelId,
-          channel_title: channel.snippet?.title || "",
-          subscriber_count: parseCount(channel.statistics?.subscriberCount),
-          total_view_count: parseCount(channel.statistics?.viewCount),
-          video_count: parseCount(channel.statistics?.videoCount),
-          synced_at: syncedAt,
-        }];
-      });
+      try {
+        const channels = await fetchYouTubeChannels([...channelIds], youtubeApiKey);
+        const nextChannelStats = channels.flatMap((channel) => {
+          const channelId = String(channel.id || "").trim();
+          if (!channelId) return [];
+          return [{
+            channel_id: channelId,
+            channel_title: channel.snippet?.title || "",
+            subscriber_count: parseCount(channel.statistics?.subscriberCount),
+            total_view_count: parseCount(channel.statistics?.viewCount),
+            video_count: parseCount(channel.statistics?.videoCount),
+            synced_at: syncedAt,
+          }];
+        });
 
-      if (channelStats.length) {
-        const { error: channelError } = await supabase
-          .from("channel_stats")
-          .upsert(channelStats, { onConflict: "channel_id" });
-        if (channelError) throw channelError;
+        if (nextChannelStats.length !== channelIds.size) {
+          failed.push({
+            recordId: "channel-stats",
+            title: "チャンネル統計",
+            reason: "一部のチャンネル統計を取得できませんでした。",
+          });
+        }
+
+        if (nextChannelStats.length) {
+          const { error: channelError } = await supabase
+            .from("channel_stats")
+            .upsert(nextChannelStats, { onConflict: "channel_id" });
+          if (channelError) throw channelError;
+          channelStats = nextChannelStats;
+        }
+      } catch (error) {
+        failed.push({
+          recordId: "channel-stats",
+          title: "チャンネル統計",
+          reason: error instanceof Error
+            ? error.message
+            : "チャンネル統計を更新できませんでした。",
+        });
       }
     }
 
-    return jsonResponse({ updated, failed, channelStats, syncedAt });
+    return jsonResponse({
+      updated,
+      failed,
+      channelStats,
+      syncedAt: updated.length || channelStats.length ? syncedAt : null,
+    });
   } catch (error) {
     console.error(error);
     return jsonResponse({
