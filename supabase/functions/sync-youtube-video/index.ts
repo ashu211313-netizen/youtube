@@ -1,15 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@^2.95.0";
 import { corsHeaders } from "npm:@supabase/supabase-js@^2.95.0/cors";
-import { shouldCapture24HourViews } from "./capture-policy.ts";
 
 type VideoRecord = {
   id: string | number;
   title: string | null;
   youtube_url: string | null;
   youtube_video_id: string | null;
-  views_24?: number | null;
-  youtube_synced_at?: string | null;
-  youtube_24h_captured_at?: string | null;
 };
 
 type YouTubeVideo = {
@@ -230,9 +226,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
     const { data: records, error: recordsError } = await supabase
       .from("videos")
-      .select(
-        "id,title,youtube_url,youtube_video_id,views_24,youtube_synced_at,youtube_24h_captured_at",
-      )
+      .select("id,title,youtube_url,youtube_video_id")
       .in("id", recordIds);
     if (recordsError) throw recordsError;
 
@@ -257,7 +251,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
     const youtubeVideos = await fetchYouTubeVideos(uniqueYouTubeIds, youtubeApiKey);
     const syncedAt = new Date().toISOString();
-    const updated: Array<{ recordId: string; youtubeVideoId: string; captured24h: boolean }> = [];
+    const updated: Array<{ recordId: string; youtubeVideoId: string }> = [];
     const channelIds = new Set<string>();
 
     for (const item of prepared) {
@@ -273,14 +267,6 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
       const currentViews = parseCount(youtubeVideo.statistics?.viewCount);
       const publishedAt = youtubeVideo.snippet?.publishedAt || null;
-      const shouldCapture24h = shouldCapture24HourViews({
-        storedViews24: item.record.views_24,
-        capturedAt: item.record.youtube_24h_captured_at,
-        previousSyncedAt: item.record.youtube_synced_at,
-        publishedAt,
-        currentViews,
-        now: Date.now(),
-      });
 
       const updatePayload: Record<string, unknown> = {
         youtube_video_id: item.youtubeVideoId,
@@ -290,11 +276,6 @@ Deno.serve(async (request: Request): Promise<Response> => {
         youtube_published_at: publishedAt,
         youtube_synced_at: syncedAt,
       };
-
-      if (shouldCapture24h) {
-        updatePayload.views_24 = currentViews;
-        updatePayload.youtube_24h_captured_at = syncedAt;
-      }
 
       const { error: updateError } = await supabase
         .from("videos")
@@ -316,7 +297,6 @@ Deno.serve(async (request: Request): Promise<Response> => {
       updated.push({
         recordId: String(item.record.id),
         youtubeVideoId: item.youtubeVideoId,
-        captured24h: shouldCapture24h,
       });
     }
 
