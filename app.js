@@ -26,6 +26,8 @@ const IDEA_STATUS_LABELS = { アイデア: "アイデア", 実行済み: "企画
 const GOAL_SCOPES = { monthly: "今月の目標", long: "長期目標" };
 const IDEA_IMAGE_BUCKET = "idea-images";
 const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
+const YOUTUBE_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const YOUTUBE_SYNC_STALE_MS = 55 * 60 * 1000;
 
 function createEmptyDataState() {
   return {
@@ -35,6 +37,7 @@ function createEmptyDataState() {
     goals: [],
     monthlyPayments: [],
     notifications: [],
+    channelStats: null,
     trash: []
   };
 }
@@ -50,8 +53,9 @@ let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailIdeaItemId = null;
 let currentDetailGoalId = null;
-const localGoalCelebrationSuppressions = new Map();
-const shownGoalCelebrationEvents = new Map();
+let youtubeAutoSyncTimer = null;
+let youtubeAutoSyncInFlight = false;
+let lastYoutubeAutoSyncAttemptAt = 0;
 let lockedPageScrollY = 0;
 let isRestoringDialogState = false;
 
@@ -124,6 +128,11 @@ const elements = {
   postStatsRewardLongAmount: document.getElementById("postStatsRewardLongAmount"),
   postStatsRewardTotal: document.getElementById("postStatsRewardTotal"),
   postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel"),
+  dashboardMonthlyViews: document.getElementById("dashboardMonthlyViews"),
+  dashboardMonthlyLikes: document.getElementById("dashboardMonthlyLikes"),
+  dashboardMonthlyComments: document.getElementById("dashboardMonthlyComments"),
+  dashboardMonthlyAverageViews: document.getElementById("dashboardMonthlyAverageViews"),
+  dashboardMonthlySyncLabel: document.getElementById("dashboardMonthlySyncLabel"),
   achievementMonthLabel: document.getElementById("achievementMonthLabel"),
   achievementMonthlyScore: document.getElementById("achievementMonthlyScore"),
   achievementPosts: document.getElementById("achievementPosts"),
@@ -137,7 +146,7 @@ const elements = {
 };
 
 // ============================================================
-// UI helpers / goal celebration
+// UI helpers
 // ============================================================
 function getErrorMessage(error) {
   if (!error) {
@@ -160,84 +169,6 @@ function showToast(message, type = "success") {
   toastTimer = setTimeout(() => {
     elements.toast.className = "toast";
   }, type === "error" ? 5200 : 2800);
-}
-
-function cleanupGoalCelebrationMaps() {
-  const now = Date.now();
-
-  for (const [key, expiresAt] of localGoalCelebrationSuppressions) {
-    if (expiresAt <= now) {
-      localGoalCelebrationSuppressions.delete(key);
-    }
-  }
-
-  for (const [key, expiresAt] of shownGoalCelebrationEvents) {
-    if (expiresAt <= now) {
-      shownGoalCelebrationEvents.delete(key);
-    }
-  }
-}
-
-function goalCelebrationSuppressionKey(goalId, updatedAt) {
-  return `${String(goalId || "new")}:${String(updatedAt || "")}`;
-}
-
-function suppressLocalGoalRealtimeCelebration(goalId, updatedAt) {
-  cleanupGoalCelebrationMaps();
-
-  localGoalCelebrationSuppressions.set(
-    goalCelebrationSuppressionKey(goalId, updatedAt),
-    Date.now() + 15000
-  );
-}
-
-function consumeLocalGoalRealtimeCelebration(goalRow) {
-  cleanupGoalCelebrationMaps();
-
-  const updatedAt = goalRow?.updated_at || "";
-  const exactKey = goalCelebrationSuppressionKey(goalRow?.id, updatedAt);
-  const newGoalKey = goalCelebrationSuppressionKey("new", updatedAt);
-
-  if (localGoalCelebrationSuppressions.has(exactKey)) {
-    localGoalCelebrationSuppressions.delete(exactKey);
-    return true;
-  }
-
-  if (localGoalCelebrationSuppressions.has(newGoalKey)) {
-    localGoalCelebrationSuppressions.delete(newGoalKey);
-    return true;
-  }
-
-  return false;
-}
-
-function goalCelebrationEventKey(goalRow) {
-  return [
-    goalRow?.id || "",
-    goalRow?.updated_at || "",
-    goalRow?.achieved_date || "",
-    goalRow?.achieved ? "1" : "0"
-  ].join(":");
-}
-
-function hasShownGoalCelebration(goalRow) {
-  cleanupGoalCelebrationMaps();
-  return shownGoalCelebrationEvents.has(
-    goalCelebrationEventKey(goalRow)
-  );
-}
-
-function markGoalCelebrationShown(goalRow) {
-  cleanupGoalCelebrationMaps();
-
-  shownGoalCelebrationEvents.set(
-    goalCelebrationEventKey(goalRow),
-    Date.now() + 60000
-  );
-}
-
-function showGoalCelebration() {
-  return;
 }
 
 function setSyncStatus(text, status = "") {
@@ -490,6 +421,24 @@ function formatNumber(value, fallback = "0") {
   const number = Number(value || 0);
   return Number.isFinite(number) ? number.toLocaleString("ja-JP") : fallback;
 }
+
+function format24HourViews(video) {
+  const hasValue = Number(video?.views24 || 0) > 0 || Boolean(video?.youtube24hCapturedAt);
+  return hasValue ? `${formatNumber(video.views24)}回` : "未取得";
+}
+
+function findMaxByMetric(items, key) {
+  let best = null;
+  let bestValue = -Infinity;
+  for (const item of items || []) {
+    const value = Number(item?.[key] || 0);
+    if (value > bestValue) {
+      best = item;
+      bestValue = value;
+    }
+  }
+  return best;
+}
 function ideaStatusLabel(status) { return IDEA_STATUS_LABELS[status] || status || ""; }
 function parseTags(value) {
   return String(value || "").split(/[、,\n]/).map(item => item.trim()).filter(Boolean).filter((item, index, array) => array.indexOf(item) === index).slice(0, 8);
@@ -558,7 +507,7 @@ async function getFunctionInvokeErrorMessage(error) {
 async function syncYouTubeVideos(
   videoRecordIds,
   triggerButton,
-  { isBulk = false } = {}
+  { isBulk = false, silent = false } = {}
 ) {
   const ids = [...new Set(
     (videoRecordIds || [])
@@ -567,79 +516,155 @@ async function syncYouTubeVideos(
   )];
 
   if (!ids.length) {
-    showToast(
-      isBulk
-        ? "YouTube URLが設定された投稿済み動画がありません。"
-        : "更新する動画が見つかりませんでした。",
-      "error"
-    );
-    return;
+    if (!silent) {
+      showToast(
+        isBulk
+          ? "YouTube URLが設定された投稿済み動画がありません。"
+          : "更新する動画が見つかりませんでした。",
+        "error"
+      );
+    }
+    return { updated: [], failed: [] };
   }
 
-  setLoading(
-    triggerButton,
-    true,
-    isBulk ? "一括更新中..." : "更新中..."
-  );
-  setSyncStatus("YouTube情報を更新中...");
+  if (!silent) {
+    setLoading(
+      triggerButton,
+      true,
+      isBulk ? "一括更新中..." : "更新中..."
+    );
+    setSyncStatus("YouTube情報を更新中...");
+  }
 
   try {
     const { data: result, error } =
       await supabaseClient.functions.invoke(
         YOUTUBE_SYNC_FUNCTION,
-        {
-          body: {
-            videoRecordIds: ids
-          }
-        }
+        { body: { videoRecordIds: ids } }
       );
 
     if (error) {
-      throw new Error(
-        await getFunctionInvokeErrorMessage(error)
-      );
+      throw new Error(await getFunctionInvokeErrorMessage(error));
     }
 
-    const updated = Array.isArray(result?.updated)
-      ? result.updated
-      : [];
-    const failed = Array.isArray(result?.failed)
-      ? result.failed
-      : [];
+    const updated = Array.isArray(result?.updated) ? result.updated : [];
+    const failed = Array.isArray(result?.failed) ? result.failed : [];
 
     await loadAllData({ silent: true });
 
-    if (!updated.length && failed.length) {
-      const firstFailure = failed[0]?.reason || "更新できませんでした。";
-      throw new Error(
-        failed.length === 1
-          ? firstFailure
-          : `${failed.length}件を更新できませんでした。${firstFailure}`
-      );
+    if (!silent) {
+      if (!updated.length && failed.length) {
+        const firstFailure = failed[0]?.reason || "更新できませんでした。";
+        throw new Error(
+          failed.length === 1
+            ? firstFailure
+            : `${failed.length}件を更新できませんでした。${firstFailure}`
+        );
+      }
+
+      if (failed.length) {
+        showToast(`${updated.length}件更新・${failed.length}件失敗しました。`, "error");
+      } else {
+        showToast(
+          isBulk
+            ? `${updated.length}件のYouTube情報を更新しました`
+            : "YouTube情報を更新しました"
+        );
+      }
+      setSyncStatus("同期済み", "online");
     }
 
-    if (failed.length) {
-      showToast(
-        `${updated.length}件更新・${failed.length}件失敗しました。`,
-        "error"
-      );
-    } else {
-      showToast(
-        isBulk
-          ? `${updated.length}件のYouTube情報を更新しました`
-          : "YouTube情報を更新しました"
-      );
-    }
-
-    setSyncStatus("同期済み", "online");
+    return { updated, failed };
   } catch (error) {
     console.error(error);
-    const message = getErrorMessage(error);
-    showToast(`YouTube情報を更新できませんでした：${message}`, "error");
-    setSyncStatus("YouTube更新エラー", "error");
+    if (!silent) {
+      const message = getErrorMessage(error);
+      showToast(`YouTube情報を更新できませんでした：${message}`, "error");
+      setSyncStatus("YouTube更新エラー", "error");
+    }
+    return { updated: [], failed: [{ reason: getErrorMessage(error) }] };
   } finally {
-    setLoading(triggerButton, false);
+    if (!silent) {
+      setLoading(triggerButton, false);
+    }
   }
+}
+
+function getYouTubePublishedTime(video) {
+  const value = video?.youtubePublishedAt;
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function needsYouTubeAutoSync(video, now = Date.now()) {
+  if (video?.status !== "投稿済み" || !getYouTubeVideoId(video)) {
+    return false;
+  }
+
+  const syncedAt = video.youtubeSyncedAt
+    ? new Date(video.youtubeSyncedAt).getTime()
+    : 0;
+  const isStale = !Number.isFinite(syncedAt) || now - syncedAt >= YOUTUBE_SYNC_STALE_MS;
+
+  const publishedAt = getYouTubePublishedTime(video);
+  const dueFor24h =
+    publishedAt > 0 &&
+    now >= publishedAt + 24 * 60 * 60 * 1000 &&
+    !video.youtube24hCapturedAt &&
+    Number(video.views24 || 0) <= 0;
+
+  return isStale || dueFor24h;
+}
+
+async function runAutoYouTubeSync({ force = false } = {}) {
+  if (youtubeAutoSyncInFlight || document.visibilityState === "hidden") {
+    return;
+  }
+
+  const now = Date.now();
+  if (!force && now - lastYoutubeAutoSyncAttemptAt < 60 * 1000) {
+    return;
+  }
+
+  const candidates = data.videos.filter(video =>
+    force
+      ? video.status === "投稿済み" && Boolean(getYouTubeVideoId(video))
+      : needsYouTubeAutoSync(video, now)
+  );
+
+  if (!candidates.length) {
+    return;
+  }
+
+  youtubeAutoSyncInFlight = true;
+  lastYoutubeAutoSyncAttemptAt = now;
+  try {
+    await syncYouTubeVideos(
+      candidates.map(video => video.id),
+      null,
+      { isBulk: true, silent: true }
+    );
+  } finally {
+    youtubeAutoSyncInFlight = false;
+  }
+}
+
+function startYouTubeAutoSync() {
+  stopYouTubeAutoSync();
+  window.setTimeout(() => void runAutoYouTubeSync(), 1400);
+  youtubeAutoSyncTimer = window.setInterval(
+    () => void runAutoYouTubeSync(),
+    YOUTUBE_AUTO_SYNC_INTERVAL_MS
+  );
+}
+
+function stopYouTubeAutoSync() {
+  if (youtubeAutoSyncTimer) {
+    window.clearInterval(youtubeAutoSyncTimer);
+    youtubeAutoSyncTimer = null;
+  }
+  youtubeAutoSyncInFlight = false;
 }
 
 // ============================================================
@@ -812,6 +837,7 @@ function mapVideo(row) {
         : Number(row.youtube_comments),
     youtubePublishedAt: row.youtube_published_at || "",
     youtubeSyncedAt: row.youtube_synced_at || "",
+    youtube24hCapturedAt: row.youtube_24h_captured_at || "",
     tags: row.tags || "",
     memo: row.memo || "",
     createdAt: row.created_at || "",
@@ -879,6 +905,18 @@ function mapNotification(row) {
     entityId: row.entity_id || "",
     isRead: Boolean(row.is_read),
     createdAt: row.created_at || ""
+  };
+}
+
+function mapChannelStats(row) {
+  if (!row) return null;
+  return {
+    channelId: row.channel_id || "",
+    channelTitle: row.channel_title || "",
+    subscriberCount: row.subscriber_count == null ? null : Number(row.subscriber_count),
+    totalViewCount: row.total_view_count == null ? null : Number(row.total_view_count),
+    videoCount: row.video_count == null ? null : Number(row.video_count),
+    syncedAt: row.synced_at || ""
   };
 }
 
@@ -961,7 +999,8 @@ async function loadAllData({ silent = false } = {}) {
     ideaItemsResult,
     goalsResult,
     monthlyPaymentsResult,
-    notificationsResult
+    notificationsResult,
+    channelStatsResult
   ] = await Promise.all([
     selectNewestRows("videos"),
     selectNewestRows("ideas"),
@@ -975,7 +1014,13 @@ async function loadAllData({ silent = false } = {}) {
       .from("notifications")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(200)
+      .limit(200),
+    supabaseClient
+      .from("channel_stats")
+      .select("*")
+      .order("synced_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
   ]);
 
   const firstError =
@@ -984,7 +1029,8 @@ async function loadAllData({ silent = false } = {}) {
     ideaItemsResult.error ||
     goalsResult.error ||
     monthlyPaymentsResult.error ||
-    notificationsResult.error;
+    notificationsResult.error ||
+    channelStatsResult.error;
 
   if (firstError) {
     console.error(firstError);
@@ -1020,6 +1066,7 @@ async function loadAllData({ silent = false } = {}) {
     notifications: sortByCreatedAtDesc(
       (notificationsResult.data || []).map(mapNotification)
     ),
+    channelStats: mapChannelStats(channelStatsResult.data),
     trash: sortByDeletedAtDesc([
       ...allVideos
         .filter(item => item.deletedAt)
@@ -1081,11 +1128,6 @@ function countMonthlyPostsByType(videoType) {
 
 function countAllPostsByType(videoType) {
   return getPostedVideos().filter(video => video.type === videoType).length;
-}
-
-function currentMonthKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function getPostMonthKey(dateValue) {
@@ -1335,6 +1377,15 @@ function renderDashboard() {
   document.getElementById("ideaCount").textContent =
     data.ideas.filter(idea => idea.status !== "実行済み").length;
 
+  const monthlyPerformance = getMonthlyAchievementStats(currentMonthKey());
+  elements.dashboardMonthlyViews.textContent = formatNumber(monthlyPerformance.views);
+  elements.dashboardMonthlyLikes.textContent = formatNumber(monthlyPerformance.likes);
+  elements.dashboardMonthlyComments.textContent = formatNumber(monthlyPerformance.comments);
+  elements.dashboardMonthlyAverageViews.textContent = formatNumber(monthlyPerformance.monthlyAverageViews);
+  elements.dashboardMonthlySyncLabel.textContent = data.channelStats?.syncedAt
+    ? `最終同期 ${formatDateTime(data.channelStats.syncedAt)}`
+    : "YouTube未同期";
+
   const posted = sortByPostedAtDesc(
     data.videos.filter(video => video.status === "投稿済み")
   );
@@ -1395,7 +1446,7 @@ function renderDashboard() {
               </td>
               <td>${escapeHtml(video.type)}</td>
               <td>${formatDate(video.postDate)}</td>
-              <td>${Number(video.views24).toLocaleString()}回</td>
+              <td>${format24HourViews(video)}</td>
             </tr>
           `;
         }).join("")}
@@ -1406,41 +1457,115 @@ function renderDashboard() {
 
 
 function getMonthlyPostedVideos(monthKey = currentMonthKey()) {
-  return data.videos.filter(video => video.status === "投稿済み" && String(video.postDate || "").slice(0, 7) === monthKey);
+  return data.videos.filter(video =>
+    video.status === "投稿済み" &&
+    String(video.postDate || "").slice(0, 7) === monthKey
+  );
 }
-function sumVideoMetric(videos, key) { return videos.reduce((total, video) => total + Math.max(0, Number(video[key] || 0)), 0); }
+
+function sumVideoMetric(videos, key) {
+  return (videos || []).reduce(
+    (total, video) => total + Math.max(0, Number(video?.[key] || 0)),
+    0
+  );
+}
+
+function getAverageVideoViews(videos) {
+  const synced = (videos || []).filter(video => video.youtubeViews !== null);
+  if (!synced.length) return 0;
+  return Math.round(sumVideoMetric(synced, "youtubeViews") / synced.length);
+}
+
 function getMonthlyAchievementStats(monthKey = currentMonthKey()) {
   const videos = getMonthlyPostedVideos(monthKey);
   const views = sumVideoMetric(videos, "youtubeViews");
   const likes = sumVideoMetric(videos, "youtubeLikes");
   const comments = sumVideoMetric(videos, "youtubeComments");
-  const averageViews = videos.length ? Math.round(views / videos.length) : 0;
-  const monthlyGoals = data.goals.filter(goal => goal.scope === "monthly" && (goal.goalMonth || currentMonthKey()) === monthKey);
-  const goalScore = monthlyGoals.length ? Math.round(monthlyGoals.reduce((sum, goal) => {
-    const target = Math.max(1, Number(goal.target || 0));
-    return sum + Math.min(100, Math.max(0, Math.round((Number(goal.current || 0) / target) * 100)));
-  }, 0) / monthlyGoals.length) : 0;
-  return { videos, posts: videos.length, views, likes, comments, averageViews, monthlyGoals, goalScore };
+  const monthlyAverageViews = getAverageVideoViews(videos);
+  const allPostedVideos = data.videos.filter(video => video.status === "投稿済み");
+  const allAverageViews = getAverageVideoViews(allPostedVideos);
+  const monthlyGoals = data.goals.filter(goal =>
+    goal.scope === "monthly" &&
+    (goal.goalMonth || currentMonthKey()) === monthKey
+  );
+  const goalScore = monthlyGoals.length
+    ? Math.round(monthlyGoals.reduce((sum, goal) => {
+        const target = Math.max(1, Number(goal.target || 0));
+        return sum + Math.min(
+          100,
+          Math.max(0, Math.round((Number(goal.current || 0) / target) * 100))
+        );
+      }, 0) / monthlyGoals.length)
+    : 0;
+
+  return {
+    videos,
+    posts: videos.length,
+    views,
+    likes,
+    comments,
+    monthlyAverageViews,
+    allAverageViews,
+    monthlyGoals,
+    goalScore
+  };
 }
+
 function renderAchievements() {
   if (!elements.achievementMonthLabel) return;
+
   const monthKey = currentMonthKey();
   const stats = getMonthlyAchievementStats(monthKey);
+  const topVideo = findMaxByMetric(stats.videos, "youtubeViews");
+
   elements.achievementMonthLabel.textContent = `${formatMonthLabel(monthKey)}の実績`;
   elements.achievementMonthlyScore.textContent = `${stats.goalScore}%`;
   elements.achievementPosts.textContent = formatNumber(stats.posts);
   elements.achievementViews.textContent = formatNumber(stats.views);
   elements.achievementLikes.textContent = formatNumber(stats.likes);
   elements.achievementComments.textContent = formatNumber(stats.comments);
-  elements.achievementAverageViews.textContent = formatNumber(stats.averageViews);
-  elements.achievementSubscribers.textContent = "未連携";
-  elements.monthlyGoalSummary.innerHTML = stats.monthlyGoals.length ? stats.monthlyGoals.map(goal => {
-    const target = Math.max(1, Number(goal.target || 0));
-    const percent = Math.min(100, Math.max(0, Math.round((Number(goal.current || 0) / target) * 100)));
-    return `<article class="monthly-goal-mini-card"><div><strong>${escapeHtml(goal.title)}</strong><span>${formatNumber(goal.current)} / ${formatNumber(goal.target)}</span></div><div class="progress"><span style="width:${percent}%"></span></div></article>`;
-  }).join("") : `<div class="empty-state">今月の目標はまだありません</div>`;
-  const topVideo = sortCopy(stats.videos, (a, b) => Number(b.youtubeViews || 0) - Number(a.youtubeViews || 0))[0];
-  elements.achievementAnalysis.innerHTML = `<article><span>一番伸びている動画</span><strong>${topVideo ? escapeHtml(topVideo.title) : "未取得"}</strong></article><article><span>今月の平均再生数</span><strong>${formatNumber(stats.averageViews)}回</strong></article><article><span>今月の反応数</span><strong>${formatNumber(stats.likes + stats.comments)}件</strong></article>`;
+  elements.achievementAverageViews.textContent = `${formatNumber(stats.allAverageViews)}回`;
+  elements.achievementSubscribers.textContent = data.channelStats?.subscriberCount == null
+    ? "未取得"
+    : formatNumber(data.channelStats.subscriberCount);
+
+  elements.monthlyGoalSummary.innerHTML = stats.monthlyGoals.length
+    ? stats.monthlyGoals.map(goal => {
+        const target = Math.max(1, Number(goal.target || 0));
+        const percent = Math.min(
+          100,
+          Math.max(0, Math.round((Number(goal.current || 0) / target) * 100))
+        );
+        return `
+          <article class="monthly-goal-mini-card">
+            <div>
+              <strong>${escapeHtml(goal.title)}</strong>
+              <span>${formatNumber(goal.current)} / ${formatNumber(goal.target)}</span>
+            </div>
+            <div class="progress"><span style="width:${percent}%"></span></div>
+          </article>
+        `;
+      }).join("")
+    : `<div class="empty-state">今月の目標はまだありません</div>`;
+
+  elements.achievementAnalysis.innerHTML = `
+    <article>
+      <span>今月一番伸びている動画</span>
+      <strong>${topVideo ? escapeHtml(topVideo.title) : "未取得"}</strong>
+    </article>
+    <article>
+      <span>今月投稿動画の平均再生</span>
+      <strong>${formatNumber(stats.monthlyAverageViews)}回</strong>
+    </article>
+    <article>
+      <span>今月の反応数</span>
+      <strong>${formatNumber(stats.likes + stats.comments)}件</strong>
+    </article>
+    <article>
+      <span>YouTube最終同期</span>
+      <strong>${data.channelStats?.syncedAt ? formatDateTime(data.channelStats.syncedAt) : "未取得"}</strong>
+    </article>
+  `;
 }
 
 function renderVideoFilterCounts() {
@@ -1536,7 +1661,7 @@ function renderVideos() {
             <div class="meta video-card-meta">
               <span>${escapeHtml(video.type)}</span>
               <span>投稿日：${formatDate(video.postDate)}</span>
-              ${video.views24 ? `<span>24時間：${Number(video.views24).toLocaleString()}回</span>` : ""}
+              <span>24時間：${format24HourViews(video)}</span>
               ${youtubeUrl ? `<a href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">YouTubeを開く</a>` : ""}
             </div>
 
@@ -1760,6 +1885,7 @@ function renderAll() {
   renderVideos();
   renderIdeas();
   renderGoals();
+  renderAchievements();
 }
 
 // ============================================================
@@ -1821,7 +1947,6 @@ function openForm(type, id = "") {
           </select>
         </label>
         <label>投稿日<input type="date" name="postDate" value="${formValue(video.postDate)}" /></label>
-        <label>24時間後の再生数<input type="number" name="views24" min="0" value="${Number(video.views24 || 0)}" /></label>
         <label>YouTube URL<input type="url" name="youtubeUrl" value="${formValue(video.youtubeUrl)}" placeholder="https://youtube.com/..." /></label>
         <label>タグ<input name="tags" value="${formValue(video.tags)}" placeholder="選手紹介, 用語解説 など" /></label>
         <label>メモ<textarea name="memo">${formValue(video.memo)}</textarea></label>
@@ -1837,7 +1962,7 @@ function openForm(type, id = "") {
         <label>企画名<input name="title" value="${formValue(idea.title)}" required /></label>
         <label>ステータス
           <select name="status">
-            ${IDEA_STATUSES.map(status => `<option ${optionSelected(idea.status, status)}>${status}</option>`).join("")}
+            ${IDEA_STATUSES.map(status => `<option value="${status}" ${optionSelected(idea.status, status)}>${ideaStatusLabel(status)}</option>`).join("")}
           </select>
         </label>
         <label>企画内容・メモ<textarea name="note">${formValue(idea.note)}</textarea></label>
@@ -2002,7 +2127,6 @@ async function saveVideo(values, mode, id) {
     video_type: values.type,
     status: values.status,
     post_date: values.postDate || null,
-    views_24: Number(values.views24 || 0),
     youtube_url: youtubeUrl,
     tags: serializeTags(values.tags),
     memo: values.memo || "",
@@ -2016,8 +2140,15 @@ async function saveVideo(values, mode, id) {
       youtube_likes: null,
       youtube_comments: null,
       youtube_published_at: null,
-      youtube_synced_at: null
+      youtube_synced_at: null,
+      youtube_24h_captured_at: null,
+      views_24: 0
     });
+  }
+
+  if (mode !== "edit") {
+    payload.views_24 = 0;
+    payload.youtube_24h_captured_at = null;
   }
 
   const query = mode === "edit"
@@ -2532,10 +2663,10 @@ async function completeIdea(id, button) {
     .eq("id", id);
   if (error) showToast(`更新できませんでした：${getErrorMessage(error)}`, "error");
   else {
-    await addActivityLog("idea", id, idea.title, "企画を実行済みに変更", "アイデア → 実行済み");
+    await addActivityLog("idea", id, idea.title, "企画ボードへ移動", "アイデア → 企画ボード");
     elements.ideaDetailModal.close();
     await loadAllData({ silent: true });
-    showToast("実行済みに変更しました");
+    showToast("企画ボードへ移動しました");
   }
   setLoading(button, false);
 }
@@ -2559,10 +2690,6 @@ async function updateGoalProgress(id, rawValue, triggerButton) {
   const nextAchieved = target > 0 && nextValue >= target;
   const newlyAchieved = !goal.achieved && nextAchieved;
   const updatedAt = new Date().toISOString();
-
-  if (newlyAchieved) {
-    suppressLocalGoalRealtimeCelebration(id, updatedAt);
-  }
 
   setLoading(triggerButton, true, "保存中...");
   setSyncStatus("達成度を保存中...");
@@ -2607,7 +2734,6 @@ async function achieveGoal(id, triggerButton) {
   if (!goal || goal.achieved) return;
 
   const updatedAt = new Date().toISOString();
-  suppressLocalGoalRealtimeCelebration(id, updatedAt);
 
   setLoading(triggerButton, true, "保存中...");
   setSyncStatus("変更を保存中...");
@@ -2674,7 +2800,7 @@ function renderVideoDetail(video) {
       <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(video.status)}</strong></div>
       <div class="detail-field"><span>動画形式</span><strong>${escapeHtml(video.type)}</strong></div>
       <div class="detail-field"><span>投稿日</span><strong>${formatDate(video.postDate)}</strong></div>
-      <div class="detail-field"><span>24時間後の再生数</span><strong>${Number(video.views24).toLocaleString()}回</strong></div>
+      <div class="detail-field"><span>24時間後の再生数</span><strong>${format24HourViews(video)}</strong></div>
       <div class="detail-field"><span>YouTube</span><strong>${youtubeUrl ? `<a class="detail-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">動画を開く</a>` : "未設定"}</strong></div>
     </div>
 
@@ -2705,8 +2831,6 @@ function renderVideoDetail(video) {
         </article>
       </div>
     </section>
-
-    ${renderIdeaImage(item.imageUrl, `${item.title}の画像`)}
 
     <section class="detail-section">
       <h4>メモ</h4>
@@ -3087,39 +3211,6 @@ function scheduleRealtimeRefresh() {
   refreshTimer = setTimeout(() => loadAllData({ silent: true }), 200);
 }
 
-function handleGoalRealtime(payload) {
-  const nextGoal = payload?.new || {};
-  const goalId = String(nextGoal.id || "");
-
-  if (!goalId) {
-    scheduleRealtimeRefresh();
-    return;
-  }
-
-  const currentGoal = findById(data.goals, goalId);
-
-  const nextAchieved = Boolean(nextGoal.achieved);
-  const wasAchieved = Boolean(currentGoal?.achieved);
-  const becameAchieved =
-    nextAchieved &&
-    (
-      payload.eventType === "INSERT" ||
-      !wasAchieved
-    );
-
-  if (
-    becameAchieved &&
-    !hasShownGoalCelebration(nextGoal)
-  ) {
-    markGoalCelebrationShown(nextGoal);
-
-    const isLocalAction =
-      consumeLocalGoalRealtimeCelebration(nextGoal);
-  }
-
-  scheduleRealtimeRefresh();
-}
-
 function subscribeRealtime() {
   if (realtimeChannel) {
     supabaseClient.removeChannel(realtimeChannel);
@@ -3130,13 +3221,10 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "goals" },
-      handleGoalRealtime
-    )
+    .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "channel_stats" }, scheduleRealtimeRefresh)
     .subscribe(status => {
       if (status === "SUBSCRIBED") {
         setSyncStatus("リアルタイム同期中", "online");
@@ -3167,6 +3255,7 @@ async function logout() {
     realtimeChannel = null;
   }
 
+  stopYouTubeAutoSync();
   data = createEmptyDataState();
   showAuthScreen();
 }
@@ -3177,6 +3266,7 @@ async function startAuthenticatedApp(user) {
   renderAll();
   await loadAllData();
   subscribeRealtime();
+  startYouTubeAutoSync();
 }
 
 async function initialize() {
@@ -3719,11 +3809,18 @@ function setupEventListeners() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       restoreDialogStateAfterResume();
+      void runAutoYouTubeSync();
     }
   });
 
-  window.addEventListener("pageshow", restoreDialogStateAfterResume);
-  window.addEventListener("focus", restoreDialogStateAfterResume);
+  window.addEventListener("pageshow", () => {
+    restoreDialogStateAfterResume();
+    void runAutoYouTubeSync();
+  });
+  window.addEventListener("focus", () => {
+    restoreDialogStateAfterResume();
+    void runAutoYouTubeSync();
+  });
 }
 
 initialize().catch(error => {

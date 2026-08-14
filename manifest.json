@@ -1,6 +1,7 @@
- "name": "競艇チャンネル管理",
+{
+  "name": "競艇チャンネル管理",
   "short_name": "競艇管理",
-  "description": "競艇YouTubeチャンネルの動画・企画・目標・実績・画像付き企画を共有管理するPWA",
+  "description": "競艇YouTubeチャンネルの動画・企画・目標・実績・YouTube統計を共有管理するPWA",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
