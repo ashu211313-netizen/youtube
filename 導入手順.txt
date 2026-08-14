@@ -1,24 +1,23 @@
-競艇チャンネル管理 Ver23.20 導入手順
+競艇チャンネル管理 Ver23.21 導入手順
 
-1. Supabase SQL Editorで ver23_20_supabase.sql を1回実行
-2. supabase/functions/sync-youtube-video/index.ts を Edge Functions の sync-youtube-video としてDeploy
+1. Supabase SQLの追加実行は不要
+2. supabase/functions/sync-youtube-video/index.ts を Edge Functions の sync-youtube-video として再Deploy
 3. Edge FunctionのSecretに既存の YOUTUBE_API_KEY が設定されていることを確認
 4. Pull RequestをmainへMergeし、GitHub Pagesの反映を待つ
-5. 反映後、PCブラウザとiPhone PWAを再読み込み
+5. 反映後、PCブラウザを再読み込みし、iPhone PWAを完全終了して再起動
 
 確認ポイント
-・下ナビが「ホーム / 動画 / 企画 / 目標 / 実績」の5個横一列
-・新規動画/企画/企画内アイデア/目標が先頭
-・編集/状態変更だけでは並び順が動かない
+・下ナビが「ホーム / 動画 / 企画 / 実績」の4個横一列
+・動画タグは固定6種類から複数選択でき、再読み込み後も維持
+・動画一覧はYouTube公開日時（未取得時は入力した投稿日）の新しい順
+・編集/タグ/状態変更だけでは動画の並び順が動かない
 ・通知が相手側に届き、通知画面を開くと全部既読
 ・企画内アイデアでは通知を作らない
 ・企画ボード表示が統一
 ・企画内アイデアの実行済みが黄色
 ・iPhone入力欄をタップしても自動ズームしない
 ・登録動画/企画ストックのアイコンが見やすい
-・実績ページに登録者/再生/高評価/コメント/平均再生が表示
+・ホームと実績ページに今月のタグ別投稿本数が表示
+・実績ページに投稿/登録者/再生/高評価/コメント/平均再生のバーが表示
+・レース映像タグ付き動画の報酬は0円、その他はShorts 100円・横動画 1,000円
 ・YouTube情報はアプリ起動中に最大おおむね1時間間隔で自動同期
-・24時間再生はYouTube公開時刻から24時間を過ぎた最初の自動同期時に保存
-
-注意
-iPhone PWAを完全に閉じている間はブラウザJavaScriptが動作しないため、24時間ちょうどの瞬間を保証するバックグラウンド取得ではありません。次回起動または起動中の自動同期で記録します。
