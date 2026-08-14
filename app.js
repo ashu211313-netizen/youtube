@@ -423,8 +423,22 @@ function formatNumber(value, fallback = "0") {
 }
 
 function format24HourViews(video) {
-  const hasValue = Number(video?.views24 || 0) > 0 || Boolean(video?.youtube24hCapturedAt);
+  const hasValue = video?.views24 !== null && video?.views24 !== undefined;
   return hasValue ? `${formatNumber(video.views24)}回` : "未取得";
+}
+
+function getLatestYouTubeSyncAt() {
+  const timestamps = [
+    data.channelStats?.syncedAt,
+    ...data.videos.map(video => video.youtubeSyncedAt)
+  ]
+    .filter(Boolean)
+    .map(value => new Date(value).getTime())
+    .filter(Number.isFinite);
+
+  return timestamps.length
+    ? new Date(Math.max(...timestamps)).toISOString()
+    : "";
 }
 
 function findMaxByMetric(items, key) {
@@ -552,6 +566,13 @@ async function syncYouTubeVideos(
 
     await loadAllData({ silent: true });
 
+    if (silent && failed.length) {
+      setSyncStatus(
+        updated.length ? "一部更新エラー" : "YouTube更新エラー",
+        "error"
+      );
+    }
+
     if (!silent) {
       if (!updated.length && failed.length) {
         const firstFailure = failed[0]?.reason || "更新できませんでした。";
@@ -564,23 +585,24 @@ async function syncYouTubeVideos(
 
       if (failed.length) {
         showToast(`${updated.length}件更新・${failed.length}件失敗しました。`, "error");
+        setSyncStatus("一部更新エラー", "error");
       } else {
         showToast(
           isBulk
             ? `${updated.length}件のYouTube情報を更新しました`
             : "YouTube情報を更新しました"
         );
+        setSyncStatus("同期済み", "online");
       }
-      setSyncStatus("同期済み", "online");
     }
 
     return { updated, failed };
   } catch (error) {
     console.error(error);
+    setSyncStatus("YouTube更新エラー", "error");
     if (!silent) {
       const message = getErrorMessage(error);
       showToast(`YouTube情報を更新できませんでした：${message}`, "error");
-      setSyncStatus("YouTube更新エラー", "error");
     }
     return { updated: [], failed: [{ reason: getErrorMessage(error) }] };
   } finally {
@@ -597,6 +619,19 @@ function getYouTubePublishedTime(video) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function wasTrackedWithinFirst24Hours(video) {
+  const publishedAt = getYouTubePublishedTime(video);
+  const syncedAt = video?.youtubeSyncedAt
+    ? new Date(video.youtubeSyncedAt).getTime()
+    : Number.NaN;
+
+  return (
+    publishedAt > 0 &&
+    Number.isFinite(syncedAt) &&
+    syncedAt <= publishedAt + 24 * 60 * 60 * 1000
+  );
+}
+
 function needsYouTubeAutoSync(video, now = Date.now()) {
   if (video?.status !== "投稿済み" || !getYouTubeVideoId(video)) {
     return false;
@@ -611,8 +646,9 @@ function needsYouTubeAutoSync(video, now = Date.now()) {
   const dueFor24h =
     publishedAt > 0 &&
     now >= publishedAt + 24 * 60 * 60 * 1000 &&
+    wasTrackedWithinFirst24Hours(video) &&
     !video.youtube24hCapturedAt &&
-    Number(video.views24 || 0) <= 0;
+    video.views24 === null;
 
   return isStale || dueFor24h;
 }
@@ -820,7 +856,10 @@ function mapVideo(row) {
     type: row.video_type || "Shorts",
     status: row.status === "投稿済み" ? "投稿済み" : "編集待ち",
     postDate: row.post_date || "",
-    views24: Number(row.views_24 || 0),
+    views24:
+      row.views_24 === null || row.views_24 === undefined
+        ? null
+        : Number(row.views_24),
     youtubeUrl: row.youtube_url || "",
     youtubeVideoId: row.youtube_video_id || "",
     youtubeViews:
@@ -1382,8 +1421,9 @@ function renderDashboard() {
   elements.dashboardMonthlyLikes.textContent = formatNumber(monthlyPerformance.likes);
   elements.dashboardMonthlyComments.textContent = formatNumber(monthlyPerformance.comments);
   elements.dashboardMonthlyAverageViews.textContent = formatNumber(monthlyPerformance.monthlyAverageViews);
-  elements.dashboardMonthlySyncLabel.textContent = data.channelStats?.syncedAt
-    ? `最終同期 ${formatDateTime(data.channelStats.syncedAt)}`
+  const latestYouTubeSyncAt = getLatestYouTubeSyncAt();
+  elements.dashboardMonthlySyncLabel.textContent = latestYouTubeSyncAt
+    ? `最終同期 ${formatDateTime(latestYouTubeSyncAt)}`
     : "YouTube未同期";
 
   const posted = sortByPostedAtDesc(
@@ -1517,6 +1557,7 @@ function renderAchievements() {
   const monthKey = currentMonthKey();
   const stats = getMonthlyAchievementStats(monthKey);
   const topVideo = findMaxByMetric(stats.videos, "youtubeViews");
+  const latestYouTubeSyncAt = getLatestYouTubeSyncAt();
 
   elements.achievementMonthLabel.textContent = `${formatMonthLabel(monthKey)}の実績`;
   elements.achievementMonthlyScore.textContent = `${stats.goalScore}%`;
@@ -1563,7 +1604,7 @@ function renderAchievements() {
     </article>
     <article>
       <span>YouTube最終同期</span>
-      <strong>${data.channelStats?.syncedAt ? formatDateTime(data.channelStats.syncedAt) : "未取得"}</strong>
+      <strong>${latestYouTubeSyncAt ? formatDateTime(latestYouTubeSyncAt) : "未取得"}</strong>
     </article>
   `;
 }
@@ -1926,7 +1967,7 @@ function openForm(type, id = "") {
       type: "Shorts",
       status: "編集待ち",
       postDate: "",
-      views24: 0,
+      views24: null,
       youtubeUrl: "",
       memo: ""
     };
@@ -2142,12 +2183,12 @@ async function saveVideo(values, mode, id) {
       youtube_published_at: null,
       youtube_synced_at: null,
       youtube_24h_captured_at: null,
-      views_24: 0
+      views_24: null
     });
   }
 
   if (mode !== "edit") {
-    payload.views_24 = 0;
+    payload.views_24 = null;
     payload.youtube_24h_captured_at = null;
   }
 

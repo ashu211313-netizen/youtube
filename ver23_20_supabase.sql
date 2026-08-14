@@ -14,6 +14,10 @@ alter table public.videos add column if not exists youtube_synced_at timestamptz
 alter table public.videos add column if not exists youtube_24h_captured_at timestamptz;
 alter table public.videos add column if not exists tags text;
 
+-- 未取得(NULL)と実測0回を区別する。既存値は変更しない。
+alter table public.videos alter column views_24 drop not null;
+alter table public.videos alter column views_24 drop default;
+
 alter table public.ideas add column if not exists tags text;
 alter table public.ideas add column if not exists image_url text;
 alter table public.idea_items add column if not exists image_url text;
