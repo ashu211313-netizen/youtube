@@ -8,11 +8,11 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=6" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=6" />
-  <link rel="manifest" href="manifest.json?v=23.20" />
+  <link rel="manifest" href="manifest.json?v=23.21" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="競艇管理" />
-  <link rel="stylesheet" href="style.css?v=23.20" />
+  <link rel="stylesheet" href="style.css?v=23.21" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -47,7 +47,6 @@
         <button type="button" class="nav-item active" data-page="dashboard">ダッシュボード</button>
         <button type="button" class="nav-item" data-page="videos">動画管理</button>
         <button type="button" class="nav-item" data-page="ideas">企画管理</button>
-        <button type="button" class="nav-item" data-page="goals">目標</button>
         <button type="button" class="nav-item" data-page="achievements">実績</button>
       </nav>
 
@@ -178,6 +177,11 @@
               <article><span>コメント</span><strong id="dashboardMonthlyComments">0</strong></article>
               <article><span>平均再生</span><strong id="dashboardMonthlyAverageViews">0</strong></article>
             </div>
+
+            <div class="dashboard-tag-summary-wrap">
+              <h4>今月のタグ別投稿</h4>
+              <div id="dashboardTagSummary" class="dashboard-tag-summary"></div>
+            </div>
           </section>
         </div>
 
@@ -244,28 +248,17 @@
         <div class="kanban" id="ideaBoard"></div>
       </section>
 
-      <section id="goals" class="page">
-        <div class="section-head page-section-head">
-          <div>
-                <h3>目標</h3>
-          </div>
-          <button type="button" class="secondary-btn" data-open-form="goal">＋ 目標を追加</button>
-        </div>
-
-        <div id="goalList" class="cards-list"></div>
-      </section>
       <section id="achievements" class="page">
         <div class="section-head page-section-head"><div><h3>実績</h3></div></div>
-        <div class="achievement-hero-card"><div><span>今月</span><h4 id="achievementMonthLabel">今月の実績</h4></div><strong id="achievementMonthlyScore">0%</strong></div>
-        <div class="achievement-grid">
-          <article class="achievement-card"><span>投稿本数</span><strong id="achievementPosts">0</strong></article>
-          <article class="achievement-card"><span>今月投稿動画の再生</span><strong id="achievementViews">0</strong></article>
-          <article class="achievement-card"><span>高評価</span><strong id="achievementLikes">0</strong></article>
-          <article class="achievement-card"><span>コメント</span><strong id="achievementComments">0</strong></article>
-          <article class="achievement-card"><span>全動画の平均再生</span><strong id="achievementAverageViews">0</strong></article>
-          <article class="achievement-card"><span>チャンネル登録者</span><strong id="achievementSubscribers">未取得</strong></article>
+        <div class="achievement-hero-card">
+          <div><span>今月</span><h4 id="achievementMonthLabel">今月の実績</h4></div>
+          <small>比較可能な項目は前月比で表示</small>
         </div>
-        <article class="card"><div class="section-head"><div><h3>今月の目標</h3></div></div><div id="monthlyGoalSummary" class="cards-list compact-goal-list"></div></article>
+        <div id="achievementMetricGrid" class="achievement-metric-grid"></div>
+        <article class="card achievement-tag-card">
+          <div class="section-head"><div><h3>今月のタグ別投稿本数</h3></div></div>
+          <div id="achievementTagBreakdown" class="achievement-tag-breakdown"></div>
+        </article>
         <article class="card"><div class="section-head"><div><h3>簡単な成績分析</h3></div></div><div id="achievementAnalysis" class="achievement-analysis-list"></div></article>
       </section>
     </main>
@@ -275,7 +268,6 @@
     <button type="button" class="mobile-nav-item active" data-page="dashboard">ホーム</button>
     <button type="button" class="mobile-nav-item" data-page="videos">動画</button>
     <button type="button" class="mobile-nav-item" data-page="ideas">企画</button>
-    <button type="button" class="mobile-nav-item" data-page="goals">目標</button>
     <button type="button" class="mobile-nav-item" data-page="achievements">実績</button>
   </div>
 
@@ -356,22 +348,6 @@
     </div>
   </dialog>
 
-  <dialog id="goalDetailModal" class="modal detail-modal fullscreen-modal">
-    <div class="modal-head">
-      <div>
-        <h3 id="goalDetailTitle">目標詳細</h3>
-      </div>
-      <button type="button" class="icon-btn" data-close>×</button>
-    </div>
-    <div id="goalDetailBody" class="detail-body"></div>
-    <div class="detail-actions">
-      <button type="button" id="goalDetailEditButton" class="secondary-btn">編集</button>
-      <button type="button" id="goalDetailDeleteButton" class="danger-outline-btn">削除</button>
-    </div>
-  </dialog>
-
-
-
   <dialog id="postStatsModal" class="modal detail-modal post-stats-modal fullscreen-modal">
     <div class="modal-head">
       <div>
@@ -441,6 +417,14 @@
           <strong id="postStatsRewardLongAmount">¥0</strong>
         </article>
 
+        <article>
+          <div>
+            <span>レース映像</span>
+            <small id="postStatsRewardRaceFormula">0本 × 0円</small>
+          </div>
+          <strong id="postStatsRewardRaceAmount">¥0</strong>
+        </article>
+
         <article class="reward-total-row">
           <div>
             <span>合計</span>
@@ -502,7 +486,7 @@
       <div id="postStatsMonthlyList" class="post-monthly-list"></div>
     </section>
 
-    <p class="post-stats-note">「投稿済み」で投稿日が設定されている動画を集計しています。</p>
+    <p class="post-stats-note">「投稿済み」の動画を、YouTube公開日時（未取得時は入力した投稿日）で集計しています。</p>
   </dialog>
 
   <dialog id="notificationModal" class="modal detail-modal fullscreen-modal">
@@ -528,6 +512,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.20"></script>
+  <script src="app.js?v=23.21"></script>
 </body>
 </html>
