@@ -8,11 +8,11 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=6" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=6" />
-  <link rel="manifest" href="manifest.json?v=23.22" />
+  <link rel="manifest" href="manifest.json?v=23.23" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="競艇管理" />
-  <link rel="stylesheet" href="style.css?v=23.22" />
+  <link rel="stylesheet" href="style.css?v=23.23" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -183,28 +183,35 @@
               <div id="dashboardTagSummary" class="dashboard-tag-summary"></div>
             </div>
           </section>
-        </div>
 
-
-        <article class="card">
-          <div class="section-head">
-            <div class="dashboard-section-title">
-              <span class="section-icon section-video-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <rect x="3" y="4.5" width="18" height="15" rx="3"></rect>
-                  <path d="m10 9 5 3-5 3Z"></path>
-                </svg>
-              </span>
+          <section class="dashboard-monthly-goals" aria-labelledby="dashboardGoalTitle">
+            <div class="dashboard-monthly-goals-head">
               <div>
-                        <h3>最近投稿した動画</h3>
+                <span>月別に確認・更新</span>
+                <h3 id="dashboardGoalTitle">今月の目標</h3>
               </div>
+              <button type="button" id="dashboardGoalButton" class="secondary-btn">更新</button>
             </div>
-          </div>
 
-          <div id="recentVideos" class="table-wrap empty-state">
-            投稿済み動画はまだありません
-          </div>
-        </article>
+            <div class="month-navigator month-navigator-light" aria-label="ホームの目標月を選択">
+              <button
+                type="button"
+                id="dashboardGoalPreviousButton"
+                data-dashboard-goal-month-shift="-1"
+                aria-label="前月の目標を表示"
+              >‹</button>
+              <strong id="dashboardGoalMonthLabel">現在月</strong>
+              <button
+                type="button"
+                id="dashboardGoalNextButton"
+                data-dashboard-goal-month-shift="1"
+                aria-label="翌月の目標を表示"
+              >›</button>
+            </div>
+
+            <div id="dashboardGoalSummary" class="dashboard-goal-summary"></div>
+          </section>
+        </div>
       </section>
 
       <section id="videos" class="page">
@@ -251,15 +258,30 @@
       <section id="achievements" class="page">
         <div class="section-head page-section-head"><div><h3>実績</h3></div></div>
         <div class="achievement-hero-card">
-          <div><span>今月</span><h4 id="achievementMonthLabel">今月の実績</h4></div>
+          <span>月間実績</span>
+          <div class="month-navigator month-navigator-dark" aria-label="実績月を選択">
+            <button
+              type="button"
+              id="achievementPreviousMonthButton"
+              data-achievement-month-shift="-1"
+              aria-label="前月の実績を表示"
+            >‹</button>
+            <h4 id="achievementMonthLabel">現在月の実績</h4>
+            <button
+              type="button"
+              id="achievementNextMonthButton"
+              data-achievement-month-shift="1"
+              aria-label="翌月の実績を表示"
+            >›</button>
+          </div>
           <div class="achievement-hero-action">
-            <small>黄色バーは今月目標の達成率</small>
             <button type="button" id="achievementGoalButton" class="secondary-btn">目標を設定</button>
           </div>
+          <small id="achievementDataNote">黄色バーは選択月目標の達成率です。</small>
         </div>
         <div id="achievementMetricGrid" class="achievement-metric-grid"></div>
         <article class="card achievement-tag-card">
-          <div class="section-head"><div><h3>今月のタグ別投稿本数</h3></div></div>
+          <div class="section-head"><div><h3 id="achievementTagTitle">今月のタグ別投稿本数</h3></div></div>
           <div id="achievementTagBreakdown" class="achievement-tag-breakdown"></div>
         </article>
       </section>
@@ -531,6 +553,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23.22"></script>
+  <script src="app.js?v=23.23"></script>
 </body>
 </html>
