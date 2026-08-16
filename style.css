@@ -2714,29 +2714,49 @@ input, textarea, select { font-size: 16px !important; }
 .achievement-hero-card { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:18px; padding:24px; border-radius:28px; background:#1d1d1f; color:#fff; box-shadow:0 18px 50px rgba(0,0,0,.13); }
 .achievement-hero-card span { color:rgba(255,255,255,.65); font-size:12px; font-weight:850; }
 .achievement-hero-card h4 { margin:4px 0 0; font-size:24px; }
-.achievement-hero-card > small { color:rgba(255,255,255,.7); font-size:13px; font-weight:800; }
+.achievement-hero-action { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; }
+.achievement-hero-action small { color:rgba(255,255,255,.7); font-size:13px; font-weight:800; }
+.achievement-hero-action .secondary-btn { border-color:rgba(255,255,255,.2); background:#fff; color:var(--text); white-space:nowrap; }
 .achievement-metric-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-width:980px; margin:0 auto 18px; }
-.achievement-metric-card, .achievement-analysis-list article { padding:18px; border:1px solid var(--line); border-radius:22px; background:#fff; }
+.achievement-metric-card { min-width:0; padding:18px; border:1px solid var(--line); border-radius:22px; background:#fff; }
 .achievement-metric-head { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; }
-.achievement-metric-head span, .achievement-analysis-list span { display:block; color:var(--muted); font-size:12px; font-weight:800; }
-.achievement-metric-head strong, .achievement-analysis-list strong { display:block; font-size:24px; letter-spacing:-.04em; text-align:right; overflow-wrap:anywhere; }
+.achievement-metric-head span { display:block; color:var(--muted); font-size:12px; font-weight:800; }
+.achievement-metric-head strong { display:block; font-size:24px; letter-spacing:-.04em; text-align:right; overflow-wrap:anywhere; }
+.achievement-metric-goal { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:13px; font-size:12px; }
+.achievement-metric-goal span { color:var(--muted); font-weight:800; }
+.achievement-metric-goal strong { text-align:right; font-weight:850; }
 .achievement-metric-comparison { margin-top:8px; color:var(--muted); font-size:12px; font-weight:800; }
 .achievement-progress { height:13px; margin-top:10px; }
-.achievement-progress.is-unrated span { background:repeating-linear-gradient(135deg,#d2d2d7 0,#d2d2d7 7px,#e8e8ed 7px,#e8e8ed 14px); }
+.achievement-progress.is-unset span,
+.monthly-tag-progress.is-unset span { width:100% !important; background:repeating-linear-gradient(135deg,#d2d2d7 0,#d2d2d7 7px,#e8e8ed 7px,#e8e8ed 14px); }
 .achievement-tag-card { max-width:980px; margin-right:auto; margin-left:auto; }
-.achievement-tag-breakdown, .achievement-analysis-list { display:grid; gap:12px; }
+.achievement-tag-breakdown { display:grid; gap:12px; }
 .achievement-tag-breakdown { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .monthly-tag-row { min-width:0; }
 .monthly-tag-row > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .monthly-tag-row span { color:var(--muted); font-size:13px; font-weight:800; overflow-wrap:anywhere; }
 .monthly-tag-row strong { flex:0 0 auto; font-size:14px; }
+.monthly-tag-row.has-target { padding:14px; border:1px solid var(--line); border-radius:18px; background:var(--bg); }
+.monthly-tag-target { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:9px; }
+.monthly-tag-target strong { text-align:right; font-size:12px; }
 .monthly-tag-progress { height:9px; margin-top:8px; }
+.achievement-goal-section { min-width:0; margin:0; padding:18px; border:1px solid var(--line); border-radius:22px; background:var(--bg); }
+.achievement-goal-section + .achievement-goal-section { margin-top:16px; }
+.achievement-goal-section legend { padding:0 7px; font-size:15px; font-weight:850; }
+.achievement-goal-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+.achievement-goal-grid label { display:grid; min-width:0; gap:7px; font-size:13px; font-weight:750; }
+.achievement-goal-input-wrap { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; }
+.achievement-goal-input-wrap input { width:100%; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:14px; background:#fff; font-size:16px; }
+.achievement-goal-input-wrap small { min-width:20px; color:var(--muted); font-size:13px; font-weight:800; }
+.achievement-goal-modal form { padding-bottom:max(12px,env(safe-area-inset-bottom)); }
+.achievement-goal-modal .form-help { margin:14px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }
+.achievement-goal-modal .form-submit { position:sticky; bottom:0; z-index:20; min-height:48px; box-shadow:0 -14px 25px 12px rgba(255,255,255,.92); }
 @media (min-width:900px){ .main{max-width:1180px;} .cards-list{gap:18px;} .item-card,.card,.kanban-column,.compact-kpi-card{border-radius:28px; box-shadow:0 14px 45px rgba(0,0,0,.055);} .video-card-layout{grid-template-columns:230px minmax(0,1fr); gap:20px;} .kanban{align-items:start; gap:18px;} }
-@media (max-width:620px){ .achievement-metric-grid,.achievement-tag-breakdown{grid-template-columns:1fr;} .achievement-hero-card{padding:20px; border-radius:24px;} .achievement-metric-head strong{font-size:22px;} .tag-chip{min-height:30px;} .video-tag-options{grid-template-columns:1fr;} }
+@media (max-width:620px){ .achievement-metric-grid,.achievement-tag-breakdown,.achievement-goal-grid{grid-template-columns:1fr;} .achievement-hero-card{align-items:flex-start; padding:20px; border-radius:24px;} .achievement-hero-action{max-width:48%;} .achievement-hero-action small{display:none;} .achievement-metric-head strong{font-size:22px;} .tag-chip{min-height:30px;} .video-tag-options{grid-template-columns:1fr;} }
 
 
 /* =========================================================
-   Ver23.20 — iOS/PWA parity, four-item nav, stable metrics
+   Ver23.22 — iOS/PWA parity, four-item nav, monthly achievement goals
    ========================================================= */
 
 /* iOS Safari/PWA: inputs under 16px trigger automatic zoom. */

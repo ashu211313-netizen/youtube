@@ -1,4 +1,4 @@
--- 競艇チャンネル管理 Ver23.20
+-- 競艇チャンネル管理 Ver23.22
 -- Supabase Dashboard → SQL Editorで1回だけ実行してください。
 -- 既存データを破壊するDDLや一括書き換えはありません。
 
@@ -21,6 +21,12 @@ alter table public.goals
   add column if not exists goal_scope text not null default 'long';
 alter table public.goals
   add column if not exists goal_month text;
+alter table public.goals
+  add column if not exists goal_key text;
+
+-- 旧目標行はgoal_keyがNULLのため影響を受けない。月・指標ごとの実績目標だけを一意化する。
+create unique index if not exists goals_scope_month_key_uidx
+  on public.goals(goal_scope, goal_month, goal_key);
 
 create index if not exists videos_youtube_video_id_idx
   on public.videos(youtube_video_id);
@@ -142,7 +148,7 @@ begin
     elsif tg_op = 'UPDATE' then
       if new.deleted_at is not null then return new; end if;
 
-      -- YouTube自動同期（再生/高評価/コメント/24h記録/同期時刻）だけでは通知しない。
+      -- YouTube自動同期（再生/高評価/コメント/同期時刻）だけでは通知しない。
       if row(
         new.title,
         new.video_type,
@@ -187,6 +193,11 @@ begin
     end if;
 
   elsif tg_table_name = 'goals' then
+    -- 実績ページ内の月間目標は通知を作らない。
+    if coalesce(new.goal_scope, '') = 'monthly' and new.goal_key is not null then
+      return new;
+    end if;
+
     v_entity_type := 'goal';
     v_entity_id := new.id::text;
     v_message := coalesce(new.title, '');
@@ -295,6 +306,15 @@ begin
     select 1 from pg_publication_tables
     where pubname = 'supabase_realtime'
       and schemaname = 'public'
+      and tablename = 'goals'
+  ) then
+    alter publication supabase_realtime add table public.goals;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
       and tablename = 'channel_stats'
   ) then
     alter publication supabase_realtime add table public.channel_stats;
@@ -302,6 +322,7 @@ begin
 end $$;
 
 alter table public.notifications replica identity full;
+alter table public.goals replica identity full;
 alter table public.channel_stats replica identity full;
 
 -- =========================================================
