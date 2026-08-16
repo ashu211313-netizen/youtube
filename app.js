@@ -74,6 +74,8 @@ let realtimeChannel = null;
 let toastTimer = null;
 let refreshTimer = null;
 let selectedPostStatsMonth = "";
+let selectedDashboardGoalMonth = "";
+let selectedAchievementMonth = "";
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailIdeaItemId = null;
@@ -155,9 +157,19 @@ const elements = {
   dashboardMonthlyAverageViews: document.getElementById("dashboardMonthlyAverageViews"),
   dashboardMonthlySyncLabel: document.getElementById("dashboardMonthlySyncLabel"),
   dashboardTagSummary: document.getElementById("dashboardTagSummary"),
+  dashboardGoalTitle: document.getElementById("dashboardGoalTitle"),
+  dashboardGoalMonthLabel: document.getElementById("dashboardGoalMonthLabel"),
+  dashboardGoalPreviousButton: document.getElementById("dashboardGoalPreviousButton"),
+  dashboardGoalNextButton: document.getElementById("dashboardGoalNextButton"),
+  dashboardGoalButton: document.getElementById("dashboardGoalButton"),
+  dashboardGoalSummary: document.getElementById("dashboardGoalSummary"),
   achievementMonthLabel: document.getElementById("achievementMonthLabel"),
+  achievementPreviousMonthButton: document.getElementById("achievementPreviousMonthButton"),
+  achievementNextMonthButton: document.getElementById("achievementNextMonthButton"),
   achievementGoalButton: document.getElementById("achievementGoalButton"),
+  achievementDataNote: document.getElementById("achievementDataNote"),
   achievementMetricGrid: document.getElementById("achievementMetricGrid"),
+  achievementTagTitle: document.getElementById("achievementTagTitle"),
   achievementTagBreakdown: document.getElementById("achievementTagBreakdown"),
   achievementGoalModal: document.getElementById("achievementGoalModal"),
   achievementGoalForm: document.getElementById("achievementGoalForm"),
@@ -1187,6 +1199,31 @@ function formatMonthLabel(monthKey) {
   return `${Number(match[1])}年${Number(match[2])}月`;
 }
 
+function shiftMonthKey(monthKey, offset) {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey || "");
+  const safeOffset = Number(offset);
+  if (!match || !Number.isInteger(safeOffset)) return "";
+
+  const date = new Date(Number(match[1]), Number(match[2]) - 1 + safeOffset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function normalizeSelectableMonthKey(monthKey) {
+  const current = currentMonthKey();
+  const candidate = /^(\d{4})-(\d{2})$/.test(monthKey || "")
+    ? monthKey
+    : current;
+  return candidate > current ? current : candidate;
+}
+
+function updateMonthNavigator(monthKey, labelElement, previousButton, nextButton, suffix = "") {
+  const normalized = normalizeSelectableMonthKey(monthKey);
+  labelElement.textContent = `${formatMonthLabel(normalized)}${suffix}`;
+  previousButton.disabled = false;
+  nextButton.disabled = normalized >= currentMonthKey();
+  nextButton.setAttribute("aria-disabled", String(nextButton.disabled));
+}
+
 function getMonthlyPostStats(monthKey) {
   const videos = getPostedVideos().filter(video =>
     getVideoMonthKey(video) === monthKey
@@ -1497,6 +1534,36 @@ function renderMonthlyTagRows(tagCounts, { targets = null } = {}) {
   }).join("");
 }
 
+function renderDashboardGoalSummary(monthKey) {
+  const targets = getAchievementTargets(monthKey);
+  const renderGoalItems = definitions => definitions.map(definition => {
+    const target = targets[definition.key];
+    const targetLabel = target
+      ? `${formatNumber(target)}${definition.suffix}`
+      : "未設定";
+    const label = definition.label.replace(/^今月の/, "");
+
+    return `
+      <article class="dashboard-goal-item">
+        <span>${label}</span>
+        <strong class="${target ? "" : "is-unset"}">${targetLabel}</strong>
+      </article>
+    `;
+  }).join("");
+  const tagDefinitions = getAchievementGoalDefinitions().filter(item => item.isTag);
+
+  elements.dashboardGoalSummary.innerHTML = `
+    <section class="dashboard-goal-group" aria-label="主要6指標の目標">
+      <h4>主要6指標</h4>
+      <div class="dashboard-goal-grid">${renderGoalItems(ACHIEVEMENT_METRIC_DEFINITIONS)}</div>
+    </section>
+    <section class="dashboard-goal-group" aria-label="固定6タグの目標">
+      <h4>タグ別投稿本数</h4>
+      <div class="dashboard-goal-grid">${renderGoalItems(tagDefinitions)}</div>
+    </section>
+  `;
+}
+
 function renderDashboard() {
   const monthKey = currentMonthKey();
   const monthlyPostStats = getMonthlyPostStats(monthKey);
@@ -1520,49 +1587,17 @@ function renderDashboard() {
     ? `最終同期 ${formatDateTime(latestYouTubeSyncAt)}`
     : "YouTube未同期";
 
-  const posted = sortByPostedAtDesc(
-    data.videos.filter(video => video.status === "投稿済み")
+  selectedDashboardGoalMonth = normalizeSelectableMonthKey(selectedDashboardGoalMonth);
+  elements.dashboardGoalTitle.textContent = selectedDashboardGoalMonth === monthKey
+    ? "今月の目標"
+    : "月間目標";
+  updateMonthNavigator(
+    selectedDashboardGoalMonth,
+    elements.dashboardGoalMonthLabel,
+    elements.dashboardGoalPreviousButton,
+    elements.dashboardGoalNextButton
   );
-  const recentElement = document.getElementById("recentVideos");
-
-  if (!posted.length) {
-    recentElement.className = "table-wrap empty-state";
-    recentElement.textContent = "投稿済み動画はまだありません";
-    return;
-  }
-
-  recentElement.className = "table-wrap";
-  recentElement.innerHTML = `
-    <table class="data-table">
-      <thead><tr><th>動画名</th><th>種類</th><th>投稿日</th><th>再生</th></tr></thead>
-      <tbody>
-        ${posted.slice(0, 3).map(video => {
-          const youtubeUrl = safeExternalUrl(video.youtubeUrl);
-          return `
-            <tr>
-              <td>
-                <div class="recent-video-title-cell">
-                  ${youtubeUrl ? `
-                    <a class="recent-video-play-button" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(video.title)}をYouTubeで再生" title="YouTubeで再生">
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5 16 12l-7 4.5Z"></path></svg>
-                    </a>
-                  ` : `
-                    <span class="recent-video-play-button is-disabled" aria-label="YouTube URL未設定" title="YouTube URL未設定">
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5 16 12l-7 4.5Z"></path></svg>
-                    </span>
-                  `}
-                  <span class="recent-video-title">${escapeHtml(video.title)}</span>
-                </div>
-              </td>
-              <td>${escapeHtml(video.type)}</td>
-              <td>${formatDate(getVideoPublishedDateKey(video))}</td>
-              <td>${formatYouTubeMetric(video.youtubeViews, "回")}</td>
-            </tr>
-          `;
-        }).join("")}
-      </tbody>
-    </table>
-  `;
+  renderDashboardGoalSummary(selectedDashboardGoalMonth);
 }
 
 
@@ -1613,10 +1648,7 @@ function getMonthlyAchievementStats(monthKey = currentMonthKey()) {
 }
 
 function getPreviousMonthKey(monthKey) {
-  const match = /^(\d{4})-(\d{2})$/.exec(monthKey || "");
-  if (!match) return "";
-  const date = new Date(Number(match[1]), Number(match[2]) - 2, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  return shiftMonthKey(monthKey, -1);
 }
 
 function getMetricComparison(currentValue, previousValue) {
@@ -1659,6 +1691,11 @@ function renderAchievementMetric({
     : progress.isAvailable
       ? `達成率 ${formatAchievementPercentage(progress.percentage)}%`
       : "達成率 計算不可";
+  const progressClass = !progress.isSet
+    ? " is-unset"
+    : progress.isAvailable
+      ? ""
+      : " is-unavailable";
 
   return `
     <article class="achievement-metric-card" data-achievement-metric="${key}">
@@ -1667,7 +1704,7 @@ function renderAchievementMetric({
         <strong>${displayValue || `${formatNumber(safeValue)}${suffix}`}</strong>
       </div>
       <div class="achievement-metric-goal"><span>${targetLabel}</span><strong>${achievementLabel}</strong></div>
-      <div class="progress achievement-progress${progress.isSet && progress.isAvailable ? "" : " is-unset"}" aria-label="${label} ${targetLabel} ${achievementLabel}">
+      <div class="progress achievement-progress${progressClass}" aria-label="${label} ${targetLabel} ${achievementLabel}">
         <span style="width:${progress.width}%"></span>
       </div>
       <div class="achievement-metric-comparison">${comparison}</div>
@@ -1720,8 +1757,9 @@ function renderAchievementGoalFields(monthKey = currentMonthKey()) {
   `;
 }
 
-function openAchievementGoalModal() {
-  const monthKey = currentMonthKey();
+function openAchievementGoalModal(requestedMonthKey = currentMonthKey()) {
+  const monthKey = normalizeSelectableMonthKey(requestedMonthKey);
+  elements.achievementGoalForm.dataset.monthKey = monthKey;
   elements.achievementGoalMonthLabel.textContent = `${formatMonthLabel(monthKey)}の目標`;
   elements.achievementGoalError.textContent = "";
   renderAchievementGoalFields(monthKey);
@@ -1747,7 +1785,9 @@ function parseAchievementTargetValue(value, label) {
 
 async function saveAchievementGoals(event) {
   event.preventDefault();
-  const monthKey = currentMonthKey();
+  const monthKey = normalizeSelectableMonthKey(
+    elements.achievementGoalForm.dataset.monthKey
+  );
   const formData = new FormData(elements.achievementGoalForm);
   const definitions = getAchievementGoalDefinitions();
   const updatedAt = new Date().toISOString();
@@ -1793,32 +1833,79 @@ async function saveAchievementGoals(event) {
 function renderAchievements() {
   if (!elements.achievementMonthLabel) return;
 
-  const monthKey = currentMonthKey();
+  selectedAchievementMonth = normalizeSelectableMonthKey(selectedAchievementMonth);
+  const monthKey = selectedAchievementMonth;
+  const isCurrentMonth = monthKey === currentMonthKey();
   const stats = getMonthlyAchievementStats(monthKey);
   const previousStats = getMonthlyAchievementStats(getPreviousMonthKey(monthKey));
   const monthlyPostStats = getMonthlyPostStats(monthKey);
   const targets = getAchievementTargets(monthKey);
   const subscriberCount = data.channelStats?.subscriberCount;
+  const historicalValueLabel = "履歴データなし";
 
-  elements.achievementMonthLabel.textContent = `${formatMonthLabel(monthKey)}の実績`;
+  updateMonthNavigator(
+    monthKey,
+    elements.achievementMonthLabel,
+    elements.achievementPreviousMonthButton,
+    elements.achievementNextMonthButton,
+    "の実績"
+  );
   elements.achievementGoalButton.textContent = Object.keys(targets).length
     ? "目標を編集"
     : "目標を設定";
+  elements.achievementDataNote.textContent = isCurrentMonth
+    ? "黄色バーは選択月目標の達成率です。"
+    : "投稿本数とタグ本数は投稿日から集計。その他は月末履歴がないため表示しません。";
+  elements.achievementTagTitle.textContent = `${formatMonthLabel(monthKey)}のタグ別投稿本数`;
   elements.achievementMetricGrid.innerHTML = [
     {
       key: "subscribers",
       label: "チャンネル登録者数",
-      value: subscriberCount ?? 0,
+      value: isCurrentMonth ? subscriberCount ?? 0 : 0,
       suffix: "人",
       target: targets.subscribers,
-      currentAvailable: subscriberCount != null,
-      displayValue: subscriberCount == null ? "未取得" : ""
+      currentAvailable: isCurrentMonth && subscriberCount != null,
+      displayValue: isCurrentMonth
+        ? subscriberCount == null ? "未取得" : ""
+        : historicalValueLabel
     },
-    { key: "highest_views", label: "今月の最高再生数", value: stats.highestViews, suffix: "回", target: targets.highest_views, previousValue: previousStats.highestViews },
+    {
+      key: "highest_views",
+      label: isCurrentMonth ? "今月の最高再生数" : "その月の最高再生数",
+      value: isCurrentMonth ? stats.highestViews : 0,
+      suffix: "回",
+      target: targets.highest_views,
+      currentAvailable: isCurrentMonth,
+      displayValue: isCurrentMonth ? "" : historicalValueLabel
+    },
     { key: "posts", label: "投稿本数", value: stats.posts, suffix: "本", target: targets.posts, previousValue: previousStats.posts },
-    { key: "monthly_views", label: "今月の再生数", value: stats.views, suffix: "回", target: targets.monthly_views, previousValue: previousStats.views },
-    { key: "average_views", label: "平均再生", value: stats.monthlyAverageViews, suffix: "回", target: targets.average_views, previousValue: previousStats.monthlyAverageViews },
-    { key: "likes", label: "高評価", value: stats.likes, suffix: "件", target: targets.likes, previousValue: previousStats.likes }
+    {
+      key: "monthly_views",
+      label: isCurrentMonth ? "今月の再生数" : "その月の再生数",
+      value: isCurrentMonth ? stats.views : 0,
+      suffix: "回",
+      target: targets.monthly_views,
+      currentAvailable: isCurrentMonth,
+      displayValue: isCurrentMonth ? "" : historicalValueLabel
+    },
+    {
+      key: "average_views",
+      label: "平均再生",
+      value: isCurrentMonth ? stats.monthlyAverageViews : 0,
+      suffix: "回",
+      target: targets.average_views,
+      currentAvailable: isCurrentMonth,
+      displayValue: isCurrentMonth ? "" : historicalValueLabel
+    },
+    {
+      key: "likes",
+      label: "高評価",
+      value: isCurrentMonth ? stats.likes : 0,
+      suffix: "件",
+      target: targets.likes,
+      currentAvailable: isCurrentMonth,
+      displayValue: isCurrentMonth ? "" : historicalValueLabel
+    }
   ].map(renderAchievementMetric).join("");
   elements.achievementTagBreakdown.innerHTML = renderMonthlyTagRows(
     monthlyPostStats.tagCounts,
@@ -3248,6 +3335,8 @@ async function logout() {
 
   stopYouTubeAutoSync();
   data = createEmptyDataState();
+  selectedDashboardGoalMonth = "";
+  selectedAchievementMonth = "";
   showAuthScreen();
 }
 
@@ -3313,6 +3402,34 @@ function setupEventListeners() {
     if (pageButton) {
       event.preventDefault();
       switchPage(pageButton.dataset.page);
+      return;
+    }
+
+    const dashboardGoalMonthButton = event.target.closest(
+      "[data-dashboard-goal-month-shift]"
+    );
+    if (dashboardGoalMonthButton) {
+      selectedDashboardGoalMonth = normalizeSelectableMonthKey(
+        shiftMonthKey(
+          selectedDashboardGoalMonth || currentMonthKey(),
+          Number(dashboardGoalMonthButton.dataset.dashboardGoalMonthShift)
+        )
+      );
+      renderDashboard();
+      return;
+    }
+
+    const achievementMonthButton = event.target.closest(
+      "[data-achievement-month-shift]"
+    );
+    if (achievementMonthButton) {
+      selectedAchievementMonth = normalizeSelectableMonthKey(
+        shiftMonthKey(
+          selectedAchievementMonth || currentMonthKey(),
+          Number(achievementMonthButton.dataset.achievementMonthShift)
+        )
+      );
+      renderAchievements();
       return;
     }
 
@@ -3606,7 +3723,12 @@ function setupEventListeners() {
 
   elements.dynamicForm.addEventListener("submit", handleSubmit);
   elements.achievementGoalForm.addEventListener("submit", saveAchievementGoals);
-  elements.achievementGoalButton.addEventListener("click", openAchievementGoalModal);
+  elements.achievementGoalButton.addEventListener("click", () => {
+    openAchievementGoalModal(selectedAchievementMonth);
+  });
+  elements.dashboardGoalButton.addEventListener("click", () => {
+    openAchievementGoalModal(selectedDashboardGoalMonth);
+  });
 
   elements.youtubeSyncButton.addEventListener("click", () => {
     const id = elements.youtubeSyncButton.dataset.youtubeSyncId;
