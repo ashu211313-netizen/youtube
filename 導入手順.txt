@@ -1,10 +1,9 @@
-競艇チャンネル管理 Ver23.21 導入手順
+競艇チャンネル管理 Ver23.22 導入手順
 
-1. Supabase SQLの追加実行は不要
-2. supabase/functions/sync-youtube-video/index.ts を Edge Functions の sync-youtube-video として再Deploy
-3. Edge FunctionのSecretに既存の YOUTUBE_API_KEY が設定されていることを確認
-4. Pull RequestをmainへMergeし、GitHub Pagesの反映を待つ
-5. 反映後、PCブラウザを再読み込みし、iPhone PWAを完全終了して再起動
+1. Supabase SQL Editorで ver23_20_supabase.sql を1回実行
+2. Edge Functionの再Deployは不要
+3. Pull RequestをmainへMergeし、GitHub Pagesの反映を待つ
+4. 反映後、PCブラウザを再読み込みし、iPhone PWAを完全終了して再起動
 
 確認ポイント
 ・下ナビが「ホーム / 動画 / 企画 / 実績」の4個横一列
@@ -18,6 +17,10 @@
 ・iPhone入力欄をタップしても自動ズームしない
 ・登録動画/企画ストックのアイコンが見やすい
 ・ホームと実績ページに今月のタグ別投稿本数が表示
-・実績ページに投稿/登録者/再生/高評価/コメント/平均再生のバーが表示
+・実績ページの6指標が「登録者 / 最高再生 / 投稿 / 再生 / 平均再生 / 高評価」の順
+・主要6指標と固定6タグの月間目標を設定でき、再読み込み後も維持
+・黄色バーが前月比ではなく今月目標の達成率を表示
+・目標設定・変更では通知を作らない
+・「簡単な成績分析」が表示されない
 ・レース映像タグ付き動画の報酬は0円、その他はShorts 100円・横動画 1,000円
 ・YouTube情報はアプリ起動中に最大おおむね1時間間隔で自動同期

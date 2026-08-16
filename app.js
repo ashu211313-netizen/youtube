@@ -31,6 +31,24 @@ const VIDEO_TAGS = [
   "ネット競艇",
   "レース映像"
 ];
+const ACHIEVEMENT_GOAL_SCOPE = "monthly";
+const ACHIEVEMENT_GOAL_MAX = 2147483647;
+const ACHIEVEMENT_METRIC_DEFINITIONS = [
+  { key: "subscribers", label: "チャンネル登録者数", suffix: "人" },
+  { key: "highest_views", label: "今月の最高再生数", suffix: "回" },
+  { key: "posts", label: "投稿本数", suffix: "本" },
+  { key: "monthly_views", label: "今月の再生数", suffix: "回" },
+  { key: "average_views", label: "平均再生", suffix: "回" },
+  { key: "likes", label: "高評価", suffix: "件" }
+];
+const ACHIEVEMENT_TAG_GOAL_KEYS = {
+  "横動画": "tag_horizontal",
+  "選手解説": "tag_player",
+  "用語解説": "tag_terms",
+  "競艇場解説": "tag_venue",
+  "ネット競艇": "tag_online",
+  "レース映像": "tag_race"
+};
 const IDEA_IMAGE_BUCKET = "idea-images";
 const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
 const YOUTUBE_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
@@ -41,6 +59,7 @@ function createEmptyDataState() {
     videos: [],
     ideas: [],
     ideaItems: [],
+    achievementGoals: [],
     monthlyPayments: [],
     notifications: [],
     channelStats: null,
@@ -137,9 +156,15 @@ const elements = {
   dashboardMonthlySyncLabel: document.getElementById("dashboardMonthlySyncLabel"),
   dashboardTagSummary: document.getElementById("dashboardTagSummary"),
   achievementMonthLabel: document.getElementById("achievementMonthLabel"),
+  achievementGoalButton: document.getElementById("achievementGoalButton"),
   achievementMetricGrid: document.getElementById("achievementMetricGrid"),
   achievementTagBreakdown: document.getElementById("achievementTagBreakdown"),
-  achievementAnalysis: document.getElementById("achievementAnalysis")
+  achievementGoalModal: document.getElementById("achievementGoalModal"),
+  achievementGoalForm: document.getElementById("achievementGoalForm"),
+  achievementGoalMonthLabel: document.getElementById("achievementGoalMonthLabel"),
+  achievementGoalFields: document.getElementById("achievementGoalFields"),
+  achievementGoalError: document.getElementById("achievementGoalError"),
+  achievementGoalSaveButton: document.getElementById("achievementGoalSaveButton")
 };
 
 // ============================================================
@@ -440,18 +465,6 @@ function getLatestYouTubeSyncAt() {
     : "";
 }
 
-function findMaxByMetric(items, key) {
-  let best = null;
-  let bestValue = -Infinity;
-  for (const item of items || []) {
-    const value = Number(item?.[key] || 0);
-    if (value > bestValue) {
-      best = item;
-      bestValue = value;
-    }
-  }
-  return best;
-}
 function ideaStatusLabel(status) { return IDEA_STATUS_LABELS[status] || status || ""; }
 function parseTags(value) {
   const source = Array.isArray(value) ? value : String(value || "").split(/[、,\n]/);
@@ -946,6 +959,16 @@ function mapIdeaItem(row) {
   };
 }
 
+function mapAchievementGoal(row) {
+  const target = Number(row.target_value);
+  return {
+    id: row.id,
+    key: row.goal_key || "",
+    monthKey: row.goal_month || "",
+    target: Number.isFinite(target) && target > 0 ? Math.floor(target) : null
+  };
+}
+
 function mapMonthlyPayment(row) {
   return {
     monthKey: row.month_key || "",
@@ -1050,6 +1073,7 @@ async function loadAllData({ silent = false } = {}) {
     videosResult,
     ideasResult,
     ideaItemsResult,
+    achievementGoalsResult,
     monthlyPaymentsResult,
     notificationsResult,
     channelStatsResult
@@ -1057,6 +1081,12 @@ async function loadAllData({ silent = false } = {}) {
     selectNewestRows("videos"),
     selectNewestRows("ideas"),
     selectNewestRows("idea_items"),
+    supabaseClient
+      .from("goals")
+      .select("*")
+      .eq("goal_scope", ACHIEVEMENT_GOAL_SCOPE)
+      .is("deleted_at", null)
+      .order("goal_month", { ascending: false }),
     supabaseClient
       .from("monthly_payments")
       .select("*")
@@ -1078,6 +1108,7 @@ async function loadAllData({ silent = false } = {}) {
     videosResult.error ||
     ideasResult.error ||
     ideaItemsResult.error ||
+    achievementGoalsResult.error ||
     monthlyPaymentsResult.error ||
     notificationsResult.error ||
     channelStatsResult.error;
@@ -1106,6 +1137,7 @@ async function loadAllData({ silent = false } = {}) {
       allIdeas.filter(item => !item.deletedAt)
     ),
     ideaItems: sortByCreatedAtDesc(allIdeaItems),
+    achievementGoals: (achievementGoalsResult.data || []).map(mapAchievementGoal),
     monthlyPayments: sortPaymentsByMonthDesc(
       (monthlyPaymentsResult.data || []).map(mapMonthlyPayment)
     ),
@@ -1411,19 +1443,55 @@ async function setMonthlyPaymentStatus(monthKey, isPaid, triggerButton) {
 // ============================================================
 // Screen rendering
 // ============================================================
-function renderMonthlyTagRows(tagCounts, { withBars = false } = {}) {
-  const maxCount = Math.max(0, ...VIDEO_TAGS.map(tag => Number(tagCounts?.[tag] || 0)));
+function formatAchievementPercentage(value) {
+  const safeValue = Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+  const rounded = Math.round(safeValue * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
 
+function getAchievementProgress(currentValue, targetValue, currentAvailable = true) {
+  const current = Number(currentValue);
+  const target = Number(targetValue);
+
+  if (!Number.isFinite(target) || target <= 0) {
+    return { isSet: false, isAvailable: currentAvailable, percentage: null, width: 0 };
+  }
+
+  if (!currentAvailable || !Number.isFinite(current)) {
+    return { isSet: true, isAvailable: false, percentage: null, width: 0 };
+  }
+
+  const percentage = Math.max(0, (Math.max(0, current) / target) * 100);
+  return {
+    isSet: true,
+    isAvailable: true,
+    percentage,
+    width: Math.min(100, percentage)
+  };
+}
+
+function renderMonthlyTagRows(tagCounts, { targets = null } = {}) {
   return VIDEO_TAGS.map(tag => {
     const count = Math.max(0, Number(tagCounts?.[tag] || 0));
-    const width = withBars && maxCount > 0
-      ? Math.min(100, Math.max(0, Math.round((count / maxCount) * 100)))
-      : 0;
+    const hasTargets = targets !== null;
+    const target = hasTargets ? targets?.[ACHIEVEMENT_TAG_GOAL_KEYS[tag]] : null;
+    const progress = getAchievementProgress(count, target);
+    const targetLabel = progress.isSet
+      ? `目標 ${formatNumber(target)}本`
+      : "目標未設定";
+    const achievementLabel = progress.isSet
+      ? `達成率 ${formatAchievementPercentage(progress.percentage)}%`
+      : "達成率 —";
 
     return `
-      <article class="monthly-tag-row">
+      <article class="monthly-tag-row${hasTargets ? " has-target" : ""}">
         <div><span>${tag}</span><strong>${count}本</strong></div>
-        ${withBars ? `<div class="progress monthly-tag-progress" aria-label="${tag} ${count}本"><span style="width:${width}%"></span></div>` : ""}
+        ${hasTargets ? `
+          <div class="monthly-tag-target"><span>${targetLabel}</span><strong>${achievementLabel}</strong></div>
+          <div class="progress monthly-tag-progress${progress.isSet ? "" : " is-unset"}" aria-label="${tag} ${targetLabel} ${achievementLabel}">
+            <span style="width:${progress.width}%"></span>
+          </div>
+        ` : ""}
       </article>
     `;
   }).join("");
@@ -1510,9 +1578,19 @@ function sumVideoMetric(videos, key) {
 }
 
 function getAverageVideoViews(videos) {
-  const synced = (videos || []).filter(video => video.youtubeViews !== null);
-  if (!synced.length) return 0;
-  return Math.round(sumVideoMetric(synced, "youtubeViews") / synced.length);
+  const monthlyVideos = videos || [];
+  if (!monthlyVideos.length) return 0;
+  return Math.round(sumVideoMetric(monthlyVideos, "youtubeViews") / monthlyVideos.length);
+}
+
+function getHighestVideoViews(videos) {
+  return (videos || []).reduce(
+    (highest, video) => {
+      const value = Number(video?.youtubeViews);
+      return Math.max(highest, Number.isFinite(value) ? Math.max(0, value) : 0);
+    },
+    0
+  );
 }
 
 function getMonthlyAchievementStats(monthKey = currentMonthKey()) {
@@ -1521,6 +1599,7 @@ function getMonthlyAchievementStats(monthKey = currentMonthKey()) {
   const likes = sumVideoMetric(videos, "youtubeLikes");
   const comments = sumVideoMetric(videos, "youtubeComments");
   const monthlyAverageViews = getAverageVideoViews(videos);
+  const highestViews = getHighestVideoViews(videos);
 
   return {
     videos,
@@ -1528,7 +1607,8 @@ function getMonthlyAchievementStats(monthKey = currentMonthKey()) {
     views,
     likes,
     comments,
-    monthlyAverageViews
+    monthlyAverageViews,
+    highestViews
   };
 }
 
@@ -1544,32 +1624,170 @@ function getMetricComparison(currentValue, previousValue) {
   const previous = Number(previousValue);
 
   if (!Number.isFinite(previous) || previous <= 0) {
-    return { label: "比較データなし", width: 100, isComparable: false };
+    return "比較データなし";
   }
 
-  const percentage = Math.max(0, Math.round((current / previous) * 100));
-  return {
-    label: `前月比 ${percentage}%`,
-    width: Math.min(100, percentage),
-    isComparable: true
-  };
+  return `前月比 ${formatAchievementPercentage((current / previous) * 100)}%`;
 }
 
-function renderAchievementMetric({ label, value, suffix, previousValue = null, displayValue = "" }) {
+function getAchievementTargets(monthKey = currentMonthKey()) {
+  return Object.fromEntries(
+    data.achievementGoals
+      .filter(goal => goal.monthKey === monthKey && goal.key && goal.target)
+      .map(goal => [goal.key, goal.target])
+  );
+}
+
+function renderAchievementMetric({
+  key,
+  label,
+  value,
+  suffix,
+  target,
+  previousValue = null,
+  currentAvailable = true,
+  displayValue = ""
+}) {
   const comparison = getMetricComparison(value, previousValue);
   const safeValue = Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+  const progress = getAchievementProgress(value, target, currentAvailable);
+  const targetLabel = progress.isSet
+    ? `目標 ${formatNumber(target)}${suffix}`
+    : "目標未設定";
+  const achievementLabel = !progress.isSet
+    ? "達成率 —"
+    : progress.isAvailable
+      ? `達成率 ${formatAchievementPercentage(progress.percentage)}%`
+      : "達成率 計算不可";
+
   return `
-    <article class="achievement-metric-card">
+    <article class="achievement-metric-card" data-achievement-metric="${key}">
       <div class="achievement-metric-head">
         <span>${label}</span>
         <strong>${displayValue || `${formatNumber(safeValue)}${suffix}`}</strong>
       </div>
-      <div class="achievement-metric-comparison">${comparison.label}</div>
-      <div class="progress achievement-progress${comparison.isComparable ? "" : " is-unrated"}" aria-label="${label} ${comparison.label}">
-        <span style="width:${comparison.width}%"></span>
+      <div class="achievement-metric-goal"><span>${targetLabel}</span><strong>${achievementLabel}</strong></div>
+      <div class="progress achievement-progress${progress.isSet && progress.isAvailable ? "" : " is-unset"}" aria-label="${label} ${targetLabel} ${achievementLabel}">
+        <span style="width:${progress.width}%"></span>
       </div>
+      <div class="achievement-metric-comparison">${comparison}</div>
     </article>
   `;
+}
+
+function getAchievementGoalDefinitions() {
+  return [
+    ...ACHIEVEMENT_METRIC_DEFINITIONS,
+    ...VIDEO_TAGS.map(tag => ({
+      key: ACHIEVEMENT_TAG_GOAL_KEYS[tag],
+      label: tag,
+      suffix: "本",
+      isTag: true
+    }))
+  ];
+}
+
+function renderAchievementGoalFields(monthKey = currentMonthKey()) {
+  const targets = getAchievementTargets(monthKey);
+  const renderFields = definitions => definitions.map(definition => `
+    <label>
+      ${definition.label}
+      <span class="achievement-goal-input-wrap">
+        <input
+          type="number"
+          name="${definition.key}"
+          value="${targets[definition.key] || ""}"
+          min="0"
+          max="${ACHIEVEMENT_GOAL_MAX}"
+          step="1"
+          inputmode="numeric"
+          placeholder="未設定"
+        />
+        <small>${definition.suffix}</small>
+      </span>
+    </label>
+  `).join("");
+
+  elements.achievementGoalFields.innerHTML = `
+    <fieldset class="achievement-goal-section">
+      <legend>主要6指標</legend>
+      <div class="achievement-goal-grid">${renderFields(ACHIEVEMENT_METRIC_DEFINITIONS)}</div>
+    </fieldset>
+    <fieldset class="achievement-goal-section">
+      <legend>タグ別投稿本数</legend>
+      <div class="achievement-goal-grid">${renderFields(getAchievementGoalDefinitions().filter(item => item.isTag))}</div>
+    </fieldset>
+  `;
+}
+
+function openAchievementGoalModal() {
+  const monthKey = currentMonthKey();
+  elements.achievementGoalMonthLabel.textContent = `${formatMonthLabel(monthKey)}の目標`;
+  elements.achievementGoalError.textContent = "";
+  renderAchievementGoalFields(monthKey);
+  openManagedDialog(elements.achievementGoalModal);
+}
+
+function parseAchievementTargetValue(value, label) {
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+
+  const number = Number(text);
+  if (!Number.isFinite(number) || !Number.isInteger(number)) {
+    throw new Error(`${label}は整数で入力してください。`);
+  }
+  if (number < 0) {
+    throw new Error(`${label}に負数は設定できません。`);
+  }
+  if (number > ACHIEVEMENT_GOAL_MAX) {
+    throw new Error(`${label}は${formatNumber(ACHIEVEMENT_GOAL_MAX)}以下で入力してください。`);
+  }
+  return number;
+}
+
+async function saveAchievementGoals(event) {
+  event.preventDefault();
+  const monthKey = currentMonthKey();
+  const formData = new FormData(elements.achievementGoalForm);
+  const definitions = getAchievementGoalDefinitions();
+  const updatedAt = new Date().toISOString();
+
+  elements.achievementGoalError.textContent = "";
+
+  try {
+    const payload = definitions.map(definition => ({
+      title: definition.label,
+      current_value: 0,
+      target_value: parseAchievementTargetValue(formData.get(definition.key), definition.label),
+      deadline: null,
+      achieved: false,
+      achieved_date: null,
+      goal_scope: ACHIEVEMENT_GOAL_SCOPE,
+      goal_month: monthKey,
+      goal_key: definition.key,
+      deleted_at: null,
+      updated_at: updatedAt
+    }));
+
+    setLoading(elements.achievementGoalSaveButton, true, "保存中...");
+    setSyncStatus("月間目標を保存中...");
+
+    const { error } = await supabaseClient
+      .from("goals")
+      .upsert(payload, { onConflict: "goal_scope,goal_month,goal_key" });
+
+    if (error) throw error;
+
+    elements.achievementGoalModal.close();
+    await loadAllData({ silent: true });
+    showToast(`${formatMonthLabel(monthKey)}の目標を保存しました`);
+  } catch (error) {
+    console.error(error);
+    elements.achievementGoalError.textContent = getErrorMessage(error);
+    setSyncStatus("保存エラー", "error");
+  } finally {
+    setLoading(elements.achievementGoalSaveButton, false);
+  }
 }
 
 function renderAchievements() {
@@ -1579,47 +1797,33 @@ function renderAchievements() {
   const stats = getMonthlyAchievementStats(monthKey);
   const previousStats = getMonthlyAchievementStats(getPreviousMonthKey(monthKey));
   const monthlyPostStats = getMonthlyPostStats(monthKey);
-  const topVideo = findMaxByMetric(stats.videos, "youtubeViews");
-  const latestYouTubeSyncAt = getLatestYouTubeSyncAt();
+  const targets = getAchievementTargets(monthKey);
   const subscriberCount = data.channelStats?.subscriberCount;
 
   elements.achievementMonthLabel.textContent = `${formatMonthLabel(monthKey)}の実績`;
+  elements.achievementGoalButton.textContent = Object.keys(targets).length
+    ? "目標を編集"
+    : "目標を設定";
   elements.achievementMetricGrid.innerHTML = [
-    { label: "投稿本数", value: stats.posts, suffix: "本", previousValue: previousStats.posts },
-    { label: "今月の再生数", value: stats.views, suffix: "回", previousValue: previousStats.views },
-    { label: "高評価", value: stats.likes, suffix: "件", previousValue: previousStats.likes },
-    { label: "コメント", value: stats.comments, suffix: "件", previousValue: previousStats.comments },
-    { label: "平均再生", value: stats.monthlyAverageViews, suffix: "回", previousValue: previousStats.monthlyAverageViews },
     {
+      key: "subscribers",
       label: "チャンネル登録者数",
       value: subscriberCount ?? 0,
       suffix: "人",
+      target: targets.subscribers,
+      currentAvailable: subscriberCount != null,
       displayValue: subscriberCount == null ? "未取得" : ""
-    }
+    },
+    { key: "highest_views", label: "今月の最高再生数", value: stats.highestViews, suffix: "回", target: targets.highest_views, previousValue: previousStats.highestViews },
+    { key: "posts", label: "投稿本数", value: stats.posts, suffix: "本", target: targets.posts, previousValue: previousStats.posts },
+    { key: "monthly_views", label: "今月の再生数", value: stats.views, suffix: "回", target: targets.monthly_views, previousValue: previousStats.views },
+    { key: "average_views", label: "平均再生", value: stats.monthlyAverageViews, suffix: "回", target: targets.average_views, previousValue: previousStats.monthlyAverageViews },
+    { key: "likes", label: "高評価", value: stats.likes, suffix: "件", target: targets.likes, previousValue: previousStats.likes }
   ].map(renderAchievementMetric).join("");
   elements.achievementTagBreakdown.innerHTML = renderMonthlyTagRows(
     monthlyPostStats.tagCounts,
-    { withBars: true }
+    { targets }
   );
-
-  elements.achievementAnalysis.innerHTML = `
-    <article>
-      <span>今月一番伸びている動画</span>
-      <strong>${topVideo ? escapeHtml(topVideo.title) : "未取得"}</strong>
-    </article>
-    <article>
-      <span>今月投稿動画の平均再生</span>
-      <strong>${formatNumber(stats.monthlyAverageViews)}回</strong>
-    </article>
-    <article>
-      <span>今月の反応数</span>
-      <strong>${formatNumber(stats.likes + stats.comments)}件</strong>
-    </article>
-    <article>
-      <span>YouTube最終同期</span>
-      <strong>${latestYouTubeSyncAt ? formatDateTime(latestYouTubeSyncAt) : "未取得"}</strong>
-    </article>
-  `;
 }
 
 function renderVideoFilterCounts() {
@@ -3008,6 +3212,7 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "channel_stats" }, scheduleRealtimeRefresh)
@@ -3400,6 +3605,8 @@ function setupEventListeners() {
   });
 
   elements.dynamicForm.addEventListener("submit", handleSubmit);
+  elements.achievementGoalForm.addEventListener("submit", saveAchievementGoals);
+  elements.achievementGoalButton.addEventListener("click", openAchievementGoalModal);
 
   elements.youtubeSyncButton.addEventListener("click", () => {
     const id = elements.youtubeSyncButton.dataset.youtubeSyncId;
@@ -3505,7 +3712,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.formModal, elements.videoDetailModal, elements.ideaDetailModal, elements.ideaItemDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
+  [elements.formModal, elements.achievementGoalModal, elements.videoDetailModal, elements.ideaDetailModal, elements.ideaItemDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) {
         dialog.close();
