@@ -1,4 +1,4 @@
--- 競艇チャンネル管理 Ver23.22
+-- 競艇チャンネル管理 Ver23.24
 -- Supabase Dashboard → SQL Editorで1回だけ実行してください。
 -- 既存データを破壊するDDLや一括書き換えはありません。
 
@@ -27,6 +27,175 @@ alter table public.goals
 -- 旧目標行はgoal_keyがNULLのため影響を受けない。月・指標ごとの実績目標だけを一意化する。
 create unique index if not exists goals_scope_month_key_uidx
   on public.goals(goal_scope, goal_month, goal_key);
+
+-- =========================================================
+-- 月間実績スナップショット（共有チャンネル単位・確定後は不変）
+-- =========================================================
+create table if not exists public.monthly_achievement_snapshots (
+  month_key text primary key
+    check (month_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  subscriber_count bigint
+    check (subscriber_count is null or subscriber_count >= 0),
+  highest_views bigint not null default 0 check (highest_views >= 0),
+  post_count integer not null default 0 check (post_count >= 0),
+  monthly_views bigint not null default 0 check (monthly_views >= 0),
+  average_views bigint not null default 0 check (average_views >= 0),
+  likes bigint not null default 0 check (likes >= 0),
+  tag_counts jsonb not null default '{"横動画":0,"選手解説":0,"用語解説":0,"競艇場解説":0,"ネット競艇":0,"レース映像":0}'::jsonb
+    check (jsonb_typeof(tag_counts) = 'object'),
+  metric_targets jsonb not null default '{}'::jsonb
+    check (jsonb_typeof(metric_targets) = 'object'),
+  tag_targets jsonb not null default '{}'::jsonb
+    check (jsonb_typeof(tag_targets) = 'object'),
+  is_finalized boolean not null default true check (is_finalized),
+  finalized_at timestamptz not null default now(),
+  source_synced_at timestamptz,
+  schema_version integer not null default 1 check (schema_version > 0)
+);
+
+alter table public.monthly_achievement_snapshots enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'monthly_achievement_snapshots'
+      and policyname = 'authenticated read monthly achievement snapshots'
+  ) then
+    create policy "authenticated read monthly achievement snapshots"
+    on public.monthly_achievement_snapshots for select to authenticated
+    using (true);
+  end if;
+end $$;
+
+revoke insert, update, delete on public.monthly_achievement_snapshots from anon, authenticated;
+grant select on public.monthly_achievement_snapshots to authenticated;
+grant all on public.monthly_achievement_snapshots to service_role;
+
+create or replace function public.reject_monthly_achievement_snapshot_change()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception '確定済みの月間実績は変更できません。'
+    using errcode = '55000';
+end;
+$$;
+
+drop trigger if exists monthly_achievement_snapshots_immutable
+on public.monthly_achievement_snapshots;
+create trigger monthly_achievement_snapshots_immutable
+before update or delete on public.monthly_achievement_snapshots
+for each row execute function public.reject_monthly_achievement_snapshot_change();
+
+-- DBはUTCのまま維持し、運用月だけAsia/Tokyoで判定する。
+create or replace function public.current_jst_month_key()
+returns text
+language sql
+stable
+set search_path = pg_catalog
+as $$
+  select to_char(timezone('Asia/Tokyo', now()), 'YYYY-MM');
+$$;
+
+create or replace function public.reject_past_monthly_goal_change()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_current_month text := public.current_jst_month_key();
+  v_old_is_past boolean := false;
+  v_new_is_past boolean := false;
+begin
+  if tg_op <> 'INSERT' then
+    v_old_is_past :=
+      coalesce(old.goal_scope, '') = 'monthly'
+      and old.goal_key is not null
+      and coalesce(old.goal_month, '') ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+      and old.goal_month < v_current_month;
+  end if;
+
+  if tg_op <> 'DELETE' then
+    v_new_is_past :=
+      coalesce(new.goal_scope, '') = 'monthly'
+      and new.goal_key is not null
+      and coalesce(new.goal_month, '') ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+      and new.goal_month < v_current_month;
+  end if;
+
+  if v_old_is_past or v_new_is_past then
+    raise exception '過去月の目標は変更できません。'
+      using errcode = '55000';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists goals_reject_past_monthly_change on public.goals;
+create trigger goals_reject_past_monthly_change
+before insert or update or delete on public.goals
+for each row execute function public.reject_past_monthly_goal_change();
+
+-- Supabase公式のpg_cron + pg_net + Vault方式でEdge Functionを定期実行する。
+create extension if not exists pg_cron with schema pg_catalog;
+create extension if not exists pg_net with schema extensions;
+
+select vault.create_secret(
+  'https://jyxrrnfnypqaecfojsle.supabase.co',
+  'youtube_app_project_url',
+  '競艇管理アプリのEdge Function URL'
+)
+where not exists (
+  select 1 from vault.decrypted_secrets where name = 'youtube_app_project_url'
+);
+
+-- Publishable keyはブラウザ配布前提の公開鍵。private keyやservice_roleは保存しない。
+select vault.create_secret(
+  'sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb',
+  'youtube_app_publishable_key',
+  '競艇管理アプリの公開APIキー'
+)
+where not exists (
+  select 1 from vault.decrypted_secrets where name = 'youtube_app_publishable_key'
+);
+
+do $schedule$
+begin
+  if not exists (
+    select 1 from cron.job
+    where jobname = 'finalize-monthly-achievements-jst'
+  ) then
+    perform cron.schedule(
+      'finalize-monthly-achievements-jst',
+      '5 15 * * *', -- 毎日00:05 JST。失敗時は翌日に安全に再試行。
+      $job$
+        select net.http_post(
+          url := (
+            select decrypted_secret
+            from vault.decrypted_secrets
+            where name = 'youtube_app_project_url'
+          ) || '/functions/v1/finalize-monthly-achievements',
+          headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'apikey', (
+              select decrypted_secret
+              from vault.decrypted_secrets
+              where name = 'youtube_app_publishable_key'
+            )
+          ),
+          body := jsonb_build_object('scheduled_at', now())
+        ) as request_id;
+      $job$
+    );
+  end if;
+end $schedule$;
 
 create index if not exists videos_youtube_video_id_idx
   on public.videos(youtube_video_id);
@@ -318,6 +487,16 @@ begin
       and tablename = 'channel_stats'
   ) then
     alter publication supabase_realtime add table public.channel_stats;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'monthly_achievement_snapshots'
+  ) then
+    alter publication supabase_realtime
+      add table public.monthly_achievement_snapshots;
   end if;
 end $$;
 

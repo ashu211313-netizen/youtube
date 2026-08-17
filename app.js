@@ -33,6 +33,7 @@ const VIDEO_TAGS = [
 ];
 const ACHIEVEMENT_GOAL_SCOPE = "monthly";
 const ACHIEVEMENT_GOAL_MAX = 2147483647;
+const ACHIEVEMENT_HISTORY_START_MONTH = "2026-07";
 const ACHIEVEMENT_METRIC_DEFINITIONS = [
   { key: "subscribers", label: "チャンネル登録者数", suffix: "人" },
   { key: "highest_views", label: "今月の最高再生数", suffix: "回" },
@@ -60,6 +61,7 @@ function createEmptyDataState() {
     ideas: [],
     ideaItems: [],
     achievementGoals: [],
+    achievementSnapshots: [],
     monthlyPayments: [],
     notifications: [],
     channelStats: null,
@@ -74,7 +76,6 @@ let realtimeChannel = null;
 let toastTimer = null;
 let refreshTimer = null;
 let selectedPostStatsMonth = "";
-let selectedDashboardGoalMonth = "";
 let selectedAchievementMonth = "";
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
@@ -108,6 +109,7 @@ const elements = {
   videoDetailBody: document.getElementById("videoDetailBody"),
   youtubeSyncButton: document.getElementById("youtubeSyncButton"),
   syncAllYoutubeButton: document.getElementById("syncAllYoutubeButton"),
+  dashboardYoutubeSyncButton: document.getElementById("dashboardYoutubeSyncButton"),
   detailEditButton: document.getElementById("detailEditButton"),
   detailDeleteButton: document.getElementById("detailDeleteButton"),
   ideaDetailModal: document.getElementById("ideaDetailModal"),
@@ -157,17 +159,10 @@ const elements = {
   dashboardMonthlyAverageViews: document.getElementById("dashboardMonthlyAverageViews"),
   dashboardMonthlySyncLabel: document.getElementById("dashboardMonthlySyncLabel"),
   dashboardTagSummary: document.getElementById("dashboardTagSummary"),
-  dashboardGoalTitle: document.getElementById("dashboardGoalTitle"),
-  dashboardGoalMonthLabel: document.getElementById("dashboardGoalMonthLabel"),
-  dashboardGoalPreviousButton: document.getElementById("dashboardGoalPreviousButton"),
-  dashboardGoalNextButton: document.getElementById("dashboardGoalNextButton"),
-  dashboardGoalButton: document.getElementById("dashboardGoalButton"),
-  dashboardGoalSummary: document.getElementById("dashboardGoalSummary"),
   achievementMonthLabel: document.getElementById("achievementMonthLabel"),
-  achievementPreviousMonthButton: document.getElementById("achievementPreviousMonthButton"),
-  achievementNextMonthButton: document.getElementById("achievementNextMonthButton"),
+  achievementMonthSelect: document.getElementById("achievementMonthSelect"),
+  achievementMonthStatus: document.getElementById("achievementMonthStatus"),
   achievementGoalButton: document.getElementById("achievementGoalButton"),
-  achievementDataNote: document.getElementById("achievementDataNote"),
   achievementMetricGrid: document.getElementById("achievementMetricGrid"),
   achievementTagTitle: document.getElementById("achievementTagTitle"),
   achievementTagBreakdown: document.getElementById("achievementTagBreakdown"),
@@ -523,9 +518,25 @@ function renderIdeaImage(imageUrl, label = "添付画像") {
   const safeUrl = safeExternalUrl(imageUrl);
   return safeUrl ? `<figure class="idea-image-card"><img src="${escapeHtml(safeUrl)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async" /></figure>` : "";
 }
-function currentMonthKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+function getJstDateParts(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date)
+      .filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value])
+  );
+}
+
+function currentMonthKey(now = new Date()) {
+  const parts = getJstDateParts(now);
+  return parts ? `${parts.year}-${parts.month}` : "";
 }
 
 function getYouTubeSyncCandidates() {
@@ -654,6 +665,16 @@ async function syncYouTubeVideos(
     }
   }
 }
+
+function syncAllYouTubeVideos(triggerButton) {
+  const candidates = getYouTubeSyncCandidates();
+  return syncYouTubeVideos(
+    candidates.map(video => video.id),
+    triggerButton,
+    { isBulk: true }
+  );
+}
+
 function renderVideoTagChoices(tags) {
   const selected = new Set(parseVideoTags(tags));
   return `
@@ -687,14 +708,8 @@ function getVideoPublishedTime(video) {
 
 function getVideoPublishedDateKey(video) {
   if (video?.youtubePublishedAt) {
-    const published = new Date(video.youtubePublishedAt);
-    if (Number.isFinite(published.getTime())) {
-      return [
-        published.getFullYear(),
-        String(published.getMonth() + 1).padStart(2, "0"),
-        String(published.getDate()).padStart(2, "0")
-      ].join("-");
-    }
+    const parts = getJstDateParts(video.youtubePublishedAt);
+    if (parts) return `${parts.year}-${parts.month}-${parts.day}`;
   }
 
   return /^\d{4}-\d{2}-\d{2}$/.test(video?.postDate || "")
@@ -981,6 +996,53 @@ function mapAchievementGoal(row) {
   };
 }
 
+function mapAchievementSnapshot(row) {
+  const metricTargets = row?.metric_targets && typeof row.metric_targets === "object"
+    ? row.metric_targets
+    : {};
+  const tagTargets = row?.tag_targets && typeof row.tag_targets === "object"
+    ? row.tag_targets
+    : {};
+  const tagCounts = row?.tag_counts && typeof row.tag_counts === "object"
+    ? row.tag_counts
+    : {};
+  const toNumber = value => {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, number) : null;
+  };
+  const toTarget = value => {
+    const number = toNumber(value);
+    return number && number > 0 ? Math.floor(number) : null;
+  };
+
+  return {
+    monthKey: row.month_key || "",
+    metrics: {
+      subscribers: toNumber(row.subscriber_count),
+      highest_views: toNumber(row.highest_views),
+      posts: toNumber(row.post_count) ?? 0,
+      monthly_views: toNumber(row.monthly_views),
+      average_views: toNumber(row.average_views),
+      likes: toNumber(row.likes)
+    },
+    tagCounts: Object.fromEntries(
+      VIDEO_TAGS.map(tag => [tag, toNumber(tagCounts[tag]) ?? 0])
+    ),
+    metricTargets: Object.fromEntries(
+      ACHIEVEMENT_METRIC_DEFINITIONS.map(definition => [
+        definition.key,
+        toTarget(metricTargets[definition.key])
+      ])
+    ),
+    tagTargets: Object.fromEntries(
+      Object.values(ACHIEVEMENT_TAG_GOAL_KEYS).map(key => [key, toTarget(tagTargets[key])])
+    ),
+    finalizedAt: row.finalized_at || "",
+    sourceSyncedAt: row.source_synced_at || "",
+    schemaVersion: Number(row.schema_version || 1)
+  };
+}
+
 function mapMonthlyPayment(row) {
   return {
     monthKey: row.month_key || "",
@@ -1043,6 +1105,7 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit"
   }).format(date);
@@ -1076,6 +1139,11 @@ function selectNewestRows(tableName) {
     .order("created_at", { ascending: false });
 }
 
+function isMissingSnapshotRelation(error) {
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205";
+}
+
 async function loadAllData({ silent = false } = {}) {
   if (!silent) {
     setSyncStatus("同期中");
@@ -1086,6 +1154,7 @@ async function loadAllData({ silent = false } = {}) {
     ideasResult,
     ideaItemsResult,
     achievementGoalsResult,
+    achievementSnapshotsResult,
     monthlyPaymentsResult,
     notificationsResult,
     channelStatsResult
@@ -1099,6 +1168,10 @@ async function loadAllData({ silent = false } = {}) {
       .eq("goal_scope", ACHIEVEMENT_GOAL_SCOPE)
       .is("deleted_at", null)
       .order("goal_month", { ascending: false }),
+    supabaseClient
+      .from("monthly_achievement_snapshots")
+      .select("*")
+      .order("month_key", { ascending: false }),
     supabaseClient
       .from("monthly_payments")
       .select("*")
@@ -1121,6 +1194,9 @@ async function loadAllData({ silent = false } = {}) {
     ideasResult.error ||
     ideaItemsResult.error ||
     achievementGoalsResult.error ||
+    (isMissingSnapshotRelation(achievementSnapshotsResult.error)
+      ? null
+      : achievementSnapshotsResult.error) ||
     monthlyPaymentsResult.error ||
     notificationsResult.error ||
     channelStatsResult.error;
@@ -1150,6 +1226,7 @@ async function loadAllData({ silent = false } = {}) {
     ),
     ideaItems: sortByCreatedAtDesc(allIdeaItems),
     achievementGoals: (achievementGoalsResult.data || []).map(mapAchievementGoal),
+    achievementSnapshots: (achievementSnapshotsResult.data || []).map(mapAchievementSnapshot),
     monthlyPayments: sortPaymentsByMonthDesc(
       (monthlyPaymentsResult.data || []).map(mapMonthlyPayment)
     ),
@@ -1204,24 +1281,10 @@ function shiftMonthKey(monthKey, offset) {
   const safeOffset = Number(offset);
   if (!match || !Number.isInteger(safeOffset)) return "";
 
-  const date = new Date(Number(match[1]), Number(match[2]) - 1 + safeOffset, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function normalizeSelectableMonthKey(monthKey) {
-  const current = currentMonthKey();
-  const candidate = /^(\d{4})-(\d{2})$/.test(monthKey || "")
-    ? monthKey
-    : current;
-  return candidate > current ? current : candidate;
-}
-
-function updateMonthNavigator(monthKey, labelElement, previousButton, nextButton, suffix = "") {
-  const normalized = normalizeSelectableMonthKey(monthKey);
-  labelElement.textContent = `${formatMonthLabel(normalized)}${suffix}`;
-  previousButton.disabled = false;
-  nextButton.disabled = normalized >= currentMonthKey();
-  nextButton.setAttribute("aria-disabled", String(nextButton.disabled));
+  const absoluteMonth = Number(match[1]) * 12 + Number(match[2]) - 1 + safeOffset;
+  const year = Math.floor(absoluteMonth / 12);
+  const month = absoluteMonth - year * 12 + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
 }
 
 function getMonthlyPostStats(monthKey) {
@@ -1261,6 +1324,14 @@ function getAvailablePostMonths() {
   return sortMonthKeysDesc([...months]);
 }
 
+function renderMonthSelectOptions(selectElement, months, selectedMonth) {
+  selectElement.innerHTML = months.map(monthKey => `
+    <option value="${monthKey}" ${monthKey === selectedMonth ? "selected" : ""}>
+      ${formatMonthLabel(monthKey)}
+    </option>
+  `).join("");
+}
+
 function renderPostStatsMonthOptions(months) {
   if (!selectedPostStatsMonth || !months.includes(selectedPostStatsMonth)) {
     selectedPostStatsMonth = months.includes(currentMonthKey())
@@ -1268,11 +1339,11 @@ function renderPostStatsMonthOptions(months) {
       : months[0];
   }
 
-  elements.postStatsMonthSelect.innerHTML = months.map(monthKey => `
-    <option value="${monthKey}" ${monthKey === selectedPostStatsMonth ? "selected" : ""}>
-      ${formatMonthLabel(monthKey)}
-    </option>
-  `).join("");
+  renderMonthSelectOptions(
+    elements.postStatsMonthSelect,
+    months,
+    selectedPostStatsMonth
+  );
 }
 
 function formatYen(value) {
@@ -1534,36 +1605,6 @@ function renderMonthlyTagRows(tagCounts, { targets = null } = {}) {
   }).join("");
 }
 
-function renderDashboardGoalSummary(monthKey) {
-  const targets = getAchievementTargets(monthKey);
-  const renderGoalItems = definitions => definitions.map(definition => {
-    const target = targets[definition.key];
-    const targetLabel = target
-      ? `${formatNumber(target)}${definition.suffix}`
-      : "未設定";
-    const label = definition.label.replace(/^今月の/, "");
-
-    return `
-      <article class="dashboard-goal-item">
-        <span>${label}</span>
-        <strong class="${target ? "" : "is-unset"}">${targetLabel}</strong>
-      </article>
-    `;
-  }).join("");
-  const tagDefinitions = getAchievementGoalDefinitions().filter(item => item.isTag);
-
-  elements.dashboardGoalSummary.innerHTML = `
-    <section class="dashboard-goal-group" aria-label="主要6指標の目標">
-      <h4>主要6指標</h4>
-      <div class="dashboard-goal-grid">${renderGoalItems(ACHIEVEMENT_METRIC_DEFINITIONS)}</div>
-    </section>
-    <section class="dashboard-goal-group" aria-label="固定6タグの目標">
-      <h4>タグ別投稿本数</h4>
-      <div class="dashboard-goal-grid">${renderGoalItems(tagDefinitions)}</div>
-    </section>
-  `;
-}
-
 function renderDashboard() {
   const monthKey = currentMonthKey();
   const monthlyPostStats = getMonthlyPostStats(monthKey);
@@ -1586,18 +1627,6 @@ function renderDashboard() {
   elements.dashboardMonthlySyncLabel.textContent = latestYouTubeSyncAt
     ? `最終同期 ${formatDateTime(latestYouTubeSyncAt)}`
     : "YouTube未同期";
-
-  selectedDashboardGoalMonth = normalizeSelectableMonthKey(selectedDashboardGoalMonth);
-  elements.dashboardGoalTitle.textContent = selectedDashboardGoalMonth === monthKey
-    ? "今月の目標"
-    : "月間目標";
-  updateMonthNavigator(
-    selectedDashboardGoalMonth,
-    elements.dashboardGoalMonthLabel,
-    elements.dashboardGoalPreviousButton,
-    elements.dashboardGoalNextButton
-  );
-  renderDashboardGoalSummary(selectedDashboardGoalMonth);
 }
 
 
@@ -1649,6 +1678,116 @@ function getMonthlyAchievementStats(monthKey = currentMonthKey()) {
 
 function getPreviousMonthKey(monthKey) {
   return shiftMonthKey(monthKey, -1);
+}
+
+function getAvailableAchievementMonths() {
+  const current = currentMonthKey();
+  const months = [];
+  let monthKey = ACHIEVEMENT_HISTORY_START_MONTH;
+
+  while (monthKey && monthKey <= current && months.length < 240) {
+    months.push(monthKey);
+    monthKey = shiftMonthKey(monthKey, 1);
+  }
+
+  return months.reverse();
+}
+
+function normalizeAchievementMonthKey(monthKey) {
+  const months = getAvailableAchievementMonths();
+  return months.includes(monthKey) ? monthKey : currentMonthKey();
+}
+
+function renderAchievementMonthOptions() {
+  selectedAchievementMonth = normalizeAchievementMonthKey(selectedAchievementMonth);
+  renderMonthSelectOptions(
+    elements.achievementMonthSelect,
+    getAvailableAchievementMonths(),
+    selectedAchievementMonth
+  );
+}
+
+function getAchievementSnapshot(monthKey) {
+  return data.achievementSnapshots.find(snapshot => snapshot.monthKey === monthKey) || null;
+}
+
+function getSnapshotTargets(snapshot) {
+  if (!snapshot) return {};
+  return {
+    ...snapshot.metricTargets,
+    ...snapshot.tagTargets
+  };
+}
+
+function getAchievementMonthView(monthKey) {
+  const isCurrentMonth = monthKey === currentMonthKey();
+  const monthlyPostStats = getMonthlyPostStats(monthKey);
+  const liveStats = getMonthlyAchievementStats(monthKey);
+  const snapshot = isCurrentMonth ? null : getAchievementSnapshot(monthKey);
+
+  if (isCurrentMonth) {
+    return {
+      isCurrentMonth,
+      snapshot,
+      values: {
+        subscribers: data.channelStats?.subscriberCount ?? null,
+        highest_views: liveStats.highestViews,
+        posts: liveStats.posts,
+        monthly_views: liveStats.views,
+        average_views: liveStats.monthlyAverageViews,
+        likes: liveStats.likes
+      },
+      available: {
+        subscribers: data.channelStats?.subscriberCount != null,
+        highest_views: true,
+        posts: true,
+        monthly_views: true,
+        average_views: true,
+        likes: true
+      },
+      tagCounts: monthlyPostStats.tagCounts,
+      targets: getAchievementTargets(monthKey)
+    };
+  }
+
+  if (snapshot) {
+    return {
+      isCurrentMonth,
+      snapshot,
+      values: snapshot.metrics,
+      available: Object.fromEntries(
+        ACHIEVEMENT_METRIC_DEFINITIONS.map(definition => [
+          definition.key,
+          snapshot.metrics[definition.key] != null
+        ])
+      ),
+      tagCounts: snapshot.tagCounts,
+      targets: getSnapshotTargets(snapshot)
+    };
+  }
+
+  return {
+    isCurrentMonth,
+    snapshot: null,
+    values: {
+      subscribers: null,
+      highest_views: null,
+      posts: monthlyPostStats.total,
+      monthly_views: null,
+      average_views: null,
+      likes: null
+    },
+    available: {
+      subscribers: false,
+      highest_views: false,
+      posts: true,
+      monthly_views: false,
+      average_views: false,
+      likes: false
+    },
+    tagCounts: monthlyPostStats.tagCounts,
+    targets: getAchievementTargets(monthKey)
+  };
 }
 
 function getMetricComparison(currentValue, previousValue) {
@@ -1758,7 +1897,11 @@ function renderAchievementGoalFields(monthKey = currentMonthKey()) {
 }
 
 function openAchievementGoalModal(requestedMonthKey = currentMonthKey()) {
-  const monthKey = normalizeSelectableMonthKey(requestedMonthKey);
+  const monthKey = String(requestedMonthKey || "");
+  if (monthKey !== currentMonthKey()) {
+    showToast("過去月の目標は変更できません。", "error");
+    return;
+  }
   elements.achievementGoalForm.dataset.monthKey = monthKey;
   elements.achievementGoalMonthLabel.textContent = `${formatMonthLabel(monthKey)}の目標`;
   elements.achievementGoalError.textContent = "";
@@ -1785,9 +1928,7 @@ function parseAchievementTargetValue(value, label) {
 
 async function saveAchievementGoals(event) {
   event.preventDefault();
-  const monthKey = normalizeSelectableMonthKey(
-    elements.achievementGoalForm.dataset.monthKey
-  );
+  const monthKey = String(elements.achievementGoalForm.dataset.monthKey || "");
   const formData = new FormData(elements.achievementGoalForm);
   const definitions = getAchievementGoalDefinitions();
   const updatedAt = new Date().toISOString();
@@ -1795,6 +1936,10 @@ async function saveAchievementGoals(event) {
   elements.achievementGoalError.textContent = "";
 
   try {
+    if (monthKey !== currentMonthKey()) {
+      throw new Error("過去月の目標は変更できません。");
+    }
+
     const payload = definitions.map(definition => ({
       title: definition.label,
       current_value: 0,
@@ -1833,82 +1978,99 @@ async function saveAchievementGoals(event) {
 function renderAchievements() {
   if (!elements.achievementMonthLabel) return;
 
-  selectedAchievementMonth = normalizeSelectableMonthKey(selectedAchievementMonth);
+  renderAchievementMonthOptions();
   const monthKey = selectedAchievementMonth;
-  const isCurrentMonth = monthKey === currentMonthKey();
-  const stats = getMonthlyAchievementStats(monthKey);
-  const previousStats = getMonthlyAchievementStats(getPreviousMonthKey(monthKey));
-  const monthlyPostStats = getMonthlyPostStats(monthKey);
-  const targets = getAchievementTargets(monthKey);
-  const subscriberCount = data.channelStats?.subscriberCount;
+  const monthView = getAchievementMonthView(monthKey);
+  const previousMonthKey = getPreviousMonthKey(monthKey);
+  const previousMonthView = previousMonthKey >= ACHIEVEMENT_HISTORY_START_MONTH
+    ? getAchievementMonthView(previousMonthKey)
+    : null;
+  const { isCurrentMonth, snapshot, values, available, tagCounts, targets } = monthView;
   const historicalValueLabel = "履歴データなし";
+  const previousValue = key => previousMonthView?.available?.[key]
+    ? previousMonthView.values[key]
+    : null;
 
-  updateMonthNavigator(
-    monthKey,
-    elements.achievementMonthLabel,
-    elements.achievementPreviousMonthButton,
-    elements.achievementNextMonthButton,
-    "の実績"
-  );
+  elements.achievementMonthLabel.textContent = `${formatMonthLabel(monthKey)}の実績`;
+  elements.achievementMonthStatus.textContent = isCurrentMonth
+    ? "現在月・ライブ"
+    : snapshot
+      ? "確定済み・閲覧専用"
+      : "履歴未保存・閲覧専用";
+  elements.achievementMonthStatus.classList.toggle("is-finalized", !isCurrentMonth);
+  elements.achievementMonthStatus.title = snapshot?.finalizedAt
+    ? `確定日時 ${formatDateTime(snapshot.finalizedAt)}`
+    : "";
+  elements.achievementGoalButton.classList.toggle("is-hidden", !isCurrentMonth);
   elements.achievementGoalButton.textContent = Object.keys(targets).length
     ? "目標を編集"
     : "目標を設定";
-  elements.achievementDataNote.textContent = isCurrentMonth
-    ? "黄色バーは選択月目標の達成率です。"
-    : "投稿本数とタグ本数は投稿日から集計。その他は月末履歴がないため表示しません。";
   elements.achievementTagTitle.textContent = `${formatMonthLabel(monthKey)}のタグ別投稿本数`;
   elements.achievementMetricGrid.innerHTML = [
     {
       key: "subscribers",
       label: "チャンネル登録者数",
-      value: isCurrentMonth ? subscriberCount ?? 0 : 0,
+      value: values.subscribers,
       suffix: "人",
       target: targets.subscribers,
-      currentAvailable: isCurrentMonth && subscriberCount != null,
-      displayValue: isCurrentMonth
-        ? subscriberCount == null ? "未取得" : ""
-        : historicalValueLabel
+      previousValue: previousValue("subscribers"),
+      currentAvailable: available.subscribers,
+      displayValue: available.subscribers
+        ? ""
+        : isCurrentMonth ? "未取得" : historicalValueLabel
     },
     {
       key: "highest_views",
       label: isCurrentMonth ? "今月の最高再生数" : "その月の最高再生数",
-      value: isCurrentMonth ? stats.highestViews : 0,
+      value: values.highest_views,
       suffix: "回",
       target: targets.highest_views,
-      currentAvailable: isCurrentMonth,
-      displayValue: isCurrentMonth ? "" : historicalValueLabel
+      previousValue: previousValue("highest_views"),
+      currentAvailable: available.highest_views,
+      displayValue: available.highest_views ? "" : historicalValueLabel
     },
-    { key: "posts", label: "投稿本数", value: stats.posts, suffix: "本", target: targets.posts, previousValue: previousStats.posts },
+    {
+      key: "posts",
+      label: "投稿本数",
+      value: values.posts,
+      suffix: "本",
+      target: targets.posts,
+      previousValue: previousValue("posts"),
+      currentAvailable: true
+    },
     {
       key: "monthly_views",
       label: isCurrentMonth ? "今月の再生数" : "その月の再生数",
-      value: isCurrentMonth ? stats.views : 0,
+      value: values.monthly_views,
       suffix: "回",
       target: targets.monthly_views,
-      currentAvailable: isCurrentMonth,
-      displayValue: isCurrentMonth ? "" : historicalValueLabel
+      previousValue: previousValue("monthly_views"),
+      currentAvailable: available.monthly_views,
+      displayValue: available.monthly_views ? "" : historicalValueLabel
     },
     {
       key: "average_views",
       label: "平均再生",
-      value: isCurrentMonth ? stats.monthlyAverageViews : 0,
+      value: values.average_views,
       suffix: "回",
       target: targets.average_views,
-      currentAvailable: isCurrentMonth,
-      displayValue: isCurrentMonth ? "" : historicalValueLabel
+      previousValue: previousValue("average_views"),
+      currentAvailable: available.average_views,
+      displayValue: available.average_views ? "" : historicalValueLabel
     },
     {
       key: "likes",
       label: "高評価",
-      value: isCurrentMonth ? stats.likes : 0,
+      value: values.likes,
       suffix: "件",
       target: targets.likes,
-      currentAvailable: isCurrentMonth,
-      displayValue: isCurrentMonth ? "" : historicalValueLabel
+      previousValue: previousValue("likes"),
+      currentAvailable: available.likes,
+      displayValue: available.likes ? "" : historicalValueLabel
     }
   ].map(renderAchievementMetric).join("");
   elements.achievementTagBreakdown.innerHTML = renderMonthlyTagRows(
-    monthlyPostStats.tagCounts,
+    tagCounts,
     { targets }
   );
 }
@@ -3301,6 +3463,7 @@ function subscribeRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "monthly_achievement_snapshots" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "channel_stats" }, scheduleRealtimeRefresh)
     .subscribe(status => {
@@ -3335,12 +3498,12 @@ async function logout() {
 
   stopYouTubeAutoSync();
   data = createEmptyDataState();
-  selectedDashboardGoalMonth = "";
   selectedAchievementMonth = "";
   showAuthScreen();
 }
 
 async function startAuthenticatedApp(user) {
+  selectedAchievementMonth = currentMonthKey();
   showApplication(user);
   setupDate();
   renderAll();
@@ -3402,34 +3565,6 @@ function setupEventListeners() {
     if (pageButton) {
       event.preventDefault();
       switchPage(pageButton.dataset.page);
-      return;
-    }
-
-    const dashboardGoalMonthButton = event.target.closest(
-      "[data-dashboard-goal-month-shift]"
-    );
-    if (dashboardGoalMonthButton) {
-      selectedDashboardGoalMonth = normalizeSelectableMonthKey(
-        shiftMonthKey(
-          selectedDashboardGoalMonth || currentMonthKey(),
-          Number(dashboardGoalMonthButton.dataset.dashboardGoalMonthShift)
-        )
-      );
-      renderDashboard();
-      return;
-    }
-
-    const achievementMonthButton = event.target.closest(
-      "[data-achievement-month-shift]"
-    );
-    if (achievementMonthButton) {
-      selectedAchievementMonth = normalizeSelectableMonthKey(
-        shiftMonthKey(
-          selectedAchievementMonth || currentMonthKey(),
-          Number(achievementMonthButton.dataset.achievementMonthShift)
-        )
-      );
-      renderAchievements();
       return;
     }
 
@@ -3726,9 +3861,6 @@ function setupEventListeners() {
   elements.achievementGoalButton.addEventListener("click", () => {
     openAchievementGoalModal(selectedAchievementMonth);
   });
-  elements.dashboardGoalButton.addEventListener("click", () => {
-    openAchievementGoalModal(selectedDashboardGoalMonth);
-  });
 
   elements.youtubeSyncButton.addEventListener("click", () => {
     const id = elements.youtubeSyncButton.dataset.youtubeSyncId;
@@ -3739,13 +3871,11 @@ function setupEventListeners() {
   });
 
   elements.syncAllYoutubeButton.addEventListener("click", () => {
-    const candidates = getYouTubeSyncCandidates();
+    void syncAllYouTubeVideos(elements.syncAllYoutubeButton);
+  });
 
-    syncYouTubeVideos(
-      candidates.map(video => video.id),
-      elements.syncAllYoutubeButton,
-      { isBulk: true }
-    );
+  elements.dashboardYoutubeSyncButton.addEventListener("click", () => {
+    void syncAllYouTubeVideos(elements.dashboardYoutubeSyncButton);
   });
 
   elements.detailEditButton.addEventListener("click", () => {
@@ -3817,6 +3947,11 @@ function setupEventListeners() {
   elements.postStatsMonthSelect.addEventListener("change", event => {
     selectedPostStatsMonth = event.currentTarget.value;
     renderPostStats();
+  });
+
+  elements.achievementMonthSelect.addEventListener("change", event => {
+    selectedAchievementMonth = normalizeAchievementMonthKey(event.currentTarget.value);
+    renderAchievements();
   });
 
   elements.trashButton.addEventListener("click", () => {
