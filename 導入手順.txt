@@ -1,9 +1,15 @@
-競艇チャンネル管理 Ver23.23 導入手順
+競艇チャンネル管理 Ver23.24 導入手順
 
-1. 今回追加のSupabase SQL実行は不要
-2. Edge Functionの再Deployは不要
-3. Pull RequestをmainへMergeし、GitHub Pagesの反映を待つ
-4. 反映後、PCブラウザを再読み込みし、iPhone PWAを完全終了して再起動
+1. Pull RequestをmainへMerge
+2. Supabaseで sync-youtube-video と finalize-monthly-achievements を再Deploy
+   ・両Functionは supabase/functions/_shared/youtube.ts を共通利用します
+   ・既存Secret YOUTUBE_API_KEYはそのまま使用し、新しいprivate Secretは不要です
+3. Supabase SQL Editorで ver23_20_supabase.sql を1回実行
+   ・月間実績snapshot、過去月目標ロック、pg_cron/pg_net、毎日00:05 JSTのCronを追加します
+   ・SQLは既存データを削除せず、2026年7月のsnapshotも後付け作成しません
+4. Supabase Dashboard → Integrations → Cronで
+   finalize-monthly-achievements-jst が有効であることを確認
+5. GitHub Pages反映後、PCブラウザを再読み込みし、iPhone PWAを完全終了して再起動
 
 確認ポイント
 ・下ナビが「ホーム / 動画 / 企画 / 実績」の4個横一列
@@ -17,13 +23,17 @@
 ・iPhone入力欄をタップしても自動ズームしない
 ・登録動画/企画ストックのアイコンが見やすい
 ・ホームと実績ページに今月のタグ別投稿本数が表示
+・ホーム「今月の数字」のYouTube更新が動画画面の一括更新と同じ動作
 ・実績ページの6指標が「登録者 / 最高再生 / 投稿 / 再生 / 平均再生 / 高評価」の順
 ・主要6指標と固定6タグの月間目標を設定でき、再読み込み後も維持
-・ホームと実績で過去月へ切り替え、選択月の目標を表示・編集できる
+・実績の月選択が報酬確認と同じプルダウン方式
+・過去月は閲覧専用で、目標編集ボタンが表示されない
+・2026年7月は投稿/タグ本数だけ復元し、復元不能値は「履歴データなし」
+・2026年8月以降は月替わり後も確定snapshot値と当時目標が変わらない
 ・実績の年月見出しがスマートフォンでも不自然に折り返されない
-・過去月は正確な投稿・タグ本数だけを表示し、履歴のないYouTube累計値を偽表示しない
+・ホームに大きな「今月の目標 / 今月の実績」セクションが表示されない
 ・ホームに「最近投稿した動画」が表示されない
-・黄色バーが前月比ではなく選択月目標の達成率を表示
+・黄色バーが当月実績 ÷ 当月目標の達成率を表示し、幅は100%上限
 ・目標設定・変更では通知を作らない
 ・「簡単な成績分析」が表示されない
 ・レース映像タグ付き動画の報酬は0円、その他はShorts 100円・横動画 1,000円

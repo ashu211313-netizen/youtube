@@ -2659,22 +2659,16 @@ input, textarea, select { font-size: 16px !important; }
 .current-image-preview > span { display:block; padding:10px 12px 0; color:var(--muted); font-size:12px; font-weight:800; }
 .idea-status-board, .idea-item-status-choice.is-completed.active { background: var(--accent) !important; color:#1d1d1f !important; }
 .idea-status-draft { background: var(--text); color:#fff; }
-.month-navigator { display:grid; grid-template-columns:44px minmax(0,auto) 44px; align-items:center; justify-content:center; gap:10px; width:100%; }
-.month-navigator button { width:44px; height:44px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:50%; font-size:28px; line-height:1; cursor:pointer; }
-.month-navigator button:disabled { cursor:default; opacity:.34; }
-.month-navigator strong,
-.month-navigator h4 { min-width:0; margin:0; text-align:center; white-space:nowrap; }
-.month-navigator-light { max-width:440px; margin:14px auto 0; }
-.month-navigator-light button { border-color:var(--line); background:#fff; color:var(--text); }
-.month-navigator-light strong { font-size:18px; letter-spacing:-.03em; }
 .achievement-hero-card { display:grid; justify-items:center; gap:13px; margin-bottom:18px; padding:24px; border-radius:28px; background:#1d1d1f; color:#fff; text-align:center; box-shadow:0 18px 50px rgba(0,0,0,.13); }
 .achievement-hero-card > span { color:rgba(255,255,255,.65); font-size:12px; font-weight:850; }
-.achievement-hero-card h4 { font-size:clamp(19px,5.2vw,24px); letter-spacing:-.04em; }
-.month-navigator-dark { max-width:460px; }
-.month-navigator-dark button { border-color:rgba(255,255,255,.18); background:rgba(255,255,255,.1); color:#fff; }
-.achievement-hero-action { display:flex; align-items:center; justify-content:center; width:100%; }
+.achievement-month-head { width:min(100%,720px); margin:0; text-align:left; }
+.achievement-month-head h4 { margin:0; color:#fff; font-size:clamp(19px,5.2vw,24px); letter-spacing:-.04em; white-space:nowrap; }
+.achievement-month-select-wrap > span { color:rgba(255,255,255,.68); }
+.achievement-month-select-wrap select { min-width:170px; }
+.achievement-hero-action { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; width:100%; }
 .achievement-hero-action .secondary-btn { min-width:132px; min-height:44px; border-color:rgba(255,255,255,.2); background:#fff; color:var(--text); white-space:nowrap; }
-.achievement-hero-card > small { max-width:620px; color:rgba(255,255,255,.7); font-size:12px; font-weight:750; line-height:1.55; }
+.achievement-month-status { display:inline-flex; align-items:center; min-height:34px; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.12); color:rgba(255,255,255,.82); font-size:12px; font-weight:850; white-space:nowrap; }
+.achievement-month-status.is-finalized { background:rgba(255,212,0,.18); color:#ffe66f; }
 .achievement-metric-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-width:980px; margin:0 auto 18px; }
 .achievement-metric-card { min-width:0; padding:18px; border:1px solid var(--line); border-radius:22px; background:#fff; }
 .achievement-metric-head { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; }
@@ -2711,7 +2705,7 @@ input, textarea, select { font-size: 16px !important; }
 .achievement-goal-modal .form-help { margin:14px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }
 .achievement-goal-modal .form-submit { position:sticky; bottom:0; z-index:20; min-height:48px; box-shadow:0 -14px 25px 12px rgba(255,255,255,.92); }
 @media (min-width:900px){ .main{max-width:1180px;} .cards-list{gap:18px;} .item-card,.card,.kanban-column,.compact-kpi-card{border-radius:28px; box-shadow:0 14px 45px rgba(0,0,0,.055);} .video-card-layout{grid-template-columns:230px minmax(0,1fr); gap:20px;} .kanban{align-items:start; gap:18px;} }
-@media (max-width:620px){ .achievement-metric-grid,.achievement-tag-breakdown,.achievement-goal-grid{grid-template-columns:1fr;} .achievement-hero-card{padding:20px 14px; border-radius:24px;} .month-navigator{grid-template-columns:44px minmax(0,auto) 44px; gap:7px;} .achievement-metric-head strong{font-size:22px;} .tag-chip{min-height:30px;} .video-tag-options{grid-template-columns:1fr;} }
+@media (max-width:620px){ .achievement-metric-grid,.achievement-tag-breakdown,.achievement-goal-grid{grid-template-columns:1fr;} .achievement-hero-card{padding:20px 14px; border-radius:24px;} .achievement-month-head{align-items:stretch;} .achievement-month-select-wrap select{width:100%;} .achievement-metric-head strong{font-size:22px;} .tag-chip{min-height:30px;} .video-tag-options{grid-template-columns:1fr;} }
 
 
 /* =========================================================
@@ -2787,6 +2781,18 @@ select {
   text-align: right;
 }
 
+.dashboard-monthly-performance-actions {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.dashboard-monthly-performance-actions .ghost-btn {
+  min-height: 38px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+
 .dashboard-monthly-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2840,96 +2846,6 @@ select {
   background: var(--bg);
 }
 
-.dashboard-monthly-goals {
-  margin-top: 14px;
-  padding: 20px;
-  border: 1px solid rgba(29, 29, 31, 0.055);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.dashboard-monthly-goals-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.dashboard-monthly-goals-head span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.dashboard-monthly-goals-head h3 {
-  margin: 3px 0 0;
-  font-size: 20px;
-  letter-spacing: -0.03em;
-}
-
-.dashboard-monthly-goals-head .secondary-btn {
-  min-width: 74px;
-  min-height: 44px;
-  padding: 10px 18px;
-  white-space: nowrap;
-}
-
-.dashboard-goal-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 18px;
-}
-
-.dashboard-goal-group {
-  min-width: 0;
-  padding: 15px;
-  border-radius: 18px;
-  background: var(--bg);
-}
-
-.dashboard-goal-group h4 {
-  margin: 0 0 10px;
-  font-size: 13px;
-}
-
-.dashboard-goal-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.dashboard-goal-item {
-  min-width: 0;
-  min-height: 64px;
-  display: grid;
-  align-content: space-between;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid rgba(29, 29, 31, 0.055);
-  border-radius: 13px;
-  background: #fff;
-}
-
-.dashboard-goal-item span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-.dashboard-goal-item strong {
-  font-size: 14px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.dashboard-goal-item strong.is-unset {
-  color: var(--muted);
-  font-weight: 750;
-}
-
 /* Nested idea completion is intentionally yellow; draft remains black. */
 .idea-item-status-choice.is-completed.active,
 .nested-idea-card[data-status="実行済み"] .status {
@@ -2967,8 +2883,7 @@ select {
 }
 
 @media (max-width: 620px) {
-  .dashboard-monthly-performance,
-  .dashboard-monthly-goals {
+  .dashboard-monthly-performance {
     padding: 16px;
     border-radius: 22px;
   }
@@ -2979,18 +2894,6 @@ select {
 
   .dashboard-tag-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard-goal-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-goal-group {
-    padding: 13px;
-  }
-
-  .dashboard-goal-item {
-    padding: 9px;
   }
 
   .dashboard-monthly-metrics strong {
