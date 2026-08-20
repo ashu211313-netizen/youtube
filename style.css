@@ -2685,16 +2685,6 @@ input, textarea, select { font-size: 16px !important; }
 .achievement-tag-card { max-width:980px; margin-right:auto; margin-left:auto; }
 .achievement-tag-breakdown { display:grid; gap:12px; }
 .achievement-tag-breakdown { grid-template-columns:repeat(2,minmax(0,1fr)); }
-.achievement-video-goal-card { max-width:980px; margin:18px auto 0; }
-.achievement-video-goal-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.achievement-video-goal-item { min-width:0; padding:16px; border:1px solid var(--line); border-radius:18px; background:var(--bg); }
-.achievement-video-goal-head { display:grid; gap:5px; }
-.achievement-video-goal-head span { color:var(--muted); font-size:11px; font-weight:850; }
-.achievement-video-goal-head strong { font-size:15px; line-height:1.45; overflow-wrap:anywhere; }
-.achievement-video-goal-values { display:flex; align-items:center; gap:10px; margin-top:12px; color:var(--muted); font-size:12px; font-weight:800; }
-.achievement-video-goal-values strong { margin-left:auto; color:var(--text); font-size:13px; }
-.achievement-video-goal-progress { height:9px; margin-top:8px; }
-.achievement-video-goal-item > small { display:block; margin-top:8px; color:var(--muted); font-size:11px; font-weight:750; }
 .monthly-tag-row { min-width:0; }
 .monthly-tag-row > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .monthly-tag-row span { color:var(--muted); font-size:13px; font-weight:800; overflow-wrap:anywhere; }
@@ -2703,6 +2693,7 @@ input, textarea, select { font-size: 16px !important; }
 .monthly-tag-target { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:9px; }
 .monthly-tag-target strong { text-align:right; font-size:12px; }
 .monthly-tag-progress { height:9px; margin-top:8px; }
+.monthly-tag-empty { grid-column:1/-1; margin:0; padding:16px; color:var(--muted); font-size:13px; font-weight:750; text-align:center; }
 .achievement-goal-section { min-width:0; margin:0; padding:18px; border:1px solid var(--line); border-radius:22px; background:var(--bg); }
 .achievement-goal-section + .achievement-goal-section { margin-top:16px; }
 .achievement-goal-section legend { padding:0 7px; font-size:15px; font-weight:850; }
@@ -2715,7 +2706,7 @@ input, textarea, select { font-size: 16px !important; }
 .achievement-goal-modal .form-help { margin:14px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }
 .achievement-goal-modal .form-submit { position:sticky; bottom:0; z-index:20; min-height:48px; box-shadow:0 -14px 25px 12px rgba(255,255,255,.92); }
 @media (min-width:900px){ .main{max-width:1180px;} .cards-list{gap:18px;} .item-card,.card,.kanban-column,.compact-kpi-card{border-radius:28px; box-shadow:0 14px 45px rgba(0,0,0,.055);} .video-card-layout{grid-template-columns:230px minmax(0,1fr); gap:20px;} .kanban{align-items:start; gap:18px;} }
-@media (max-width:620px){ .achievement-metric-grid,.achievement-tag-breakdown,.achievement-goal-grid,.achievement-video-goal-list{grid-template-columns:1fr;} .achievement-hero-card{padding:20px 14px; border-radius:24px;} .achievement-month-head{align-items:stretch;} .achievement-month-select-wrap select{width:100%;} .achievement-metric-head strong{font-size:22px;} .tag-chip{min-height:30px;} .video-tag-options{grid-template-columns:1fr;} }
+@media (max-width:620px){ .achievement-metric-grid,.achievement-tag-breakdown,.achievement-goal-grid{grid-template-columns:1fr;} .achievement-hero-card{padding:20px 14px; border-radius:24px;} .achievement-month-head{align-items:stretch;} .achievement-month-select-wrap select{width:100%;} .achievement-metric-head strong{font-size:22px;} .tag-chip{min-height:30px;} .video-tag-options{grid-template-columns:1fr;} }
 
 
 /* =========================================================
