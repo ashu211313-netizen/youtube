@@ -21,6 +21,7 @@ const supabaseClient = window.supabase.createClient(
 );
 
 const VIDEO_STATUSES = ["編集待ち", "投稿済み"];
+const VIDEO_STATUS_LABELS = { "編集待ち": "投稿待ち", "投稿済み": "投稿済み" };
 const IDEA_STATUSES = ["アイデア", "実行済み"];
 const IDEA_STATUS_LABELS = { アイデア: "アイデア", 実行済み: "企画ボード" };
 const VIDEO_TAGS = [
@@ -29,7 +30,8 @@ const VIDEO_TAGS = [
   "用語解説",
   "競艇場解説",
   "ネット競艇",
-  "レース映像"
+  "レース映像",
+  "競艇ニュース"
 ];
 const ACHIEVEMENT_GOAL_SCOPE = "monthly";
 const ACHIEVEMENT_GOAL_MAX = 2147483647;
@@ -48,7 +50,8 @@ const ACHIEVEMENT_TAG_GOAL_KEYS = {
   "用語解説": "tag_terms",
   "競艇場解説": "tag_venue",
   "ネット競艇": "tag_online",
-  "レース映像": "tag_race"
+  "レース映像": "tag_race",
+  "競艇ニュース": "tag_news"
 };
 const IDEA_IMAGE_BUCKET = "idea-images";
 const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
@@ -85,6 +88,7 @@ let youtubeAutoSyncInFlight = false;
 let lastYoutubeAutoSyncAttemptAt = 0;
 let lockedPageScrollY = 0;
 let isRestoringDialogState = false;
+let managedDialogSequence = 0;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -151,6 +155,8 @@ const elements = {
   postStatsRewardLongAmount: document.getElementById("postStatsRewardLongAmount"),
   postStatsRewardRaceFormula: document.getElementById("postStatsRewardRaceFormula"),
   postStatsRewardRaceAmount: document.getElementById("postStatsRewardRaceAmount"),
+  postStatsRewardNewsFormula: document.getElementById("postStatsRewardNewsFormula"),
+  postStatsRewardNewsAmount: document.getElementById("postStatsRewardNewsAmount"),
   postStatsRewardTotal: document.getElementById("postStatsRewardTotal"),
   postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel"),
   dashboardMonthlyViews: document.getElementById("dashboardMonthlyViews"),
@@ -166,6 +172,8 @@ const elements = {
   achievementMetricGrid: document.getElementById("achievementMetricGrid"),
   achievementTagTitle: document.getElementById("achievementTagTitle"),
   achievementTagBreakdown: document.getElementById("achievementTagBreakdown"),
+  achievementVideoGoalCard: document.getElementById("achievementVideoGoalCard"),
+  achievementVideoGoalList: document.getElementById("achievementVideoGoalList"),
   achievementGoalModal: document.getElementById("achievementGoalModal"),
   achievementGoalForm: document.getElementById("achievementGoalForm"),
   achievementGoalMonthLabel: document.getElementById("achievementGoalMonthLabel"),
@@ -472,6 +480,7 @@ function getLatestYouTubeSyncAt() {
     : "";
 }
 
+function videoStatusLabel(status) { return VIDEO_STATUS_LABELS[status] || status || ""; }
 function ideaStatusLabel(status) { return IDEA_STATUS_LABELS[status] || status || ""; }
 function parseTags(value) {
   const source = Array.isArray(value) ? value : String(value || "").split(/[、,\n]/);
@@ -791,6 +800,24 @@ function getOpenDialogs() {
   return [...document.querySelectorAll("dialog[open]")];
 }
 
+function isDesktopDialogLayout() {
+  return window.matchMedia("(min-width: 901px)").matches;
+}
+
+function getTopOpenDialog() {
+  return getOpenDialogs().reduce((topDialog, dialog) => {
+    const sequence = Number(dialog.dataset.openSequence || 0);
+    const topSequence = Number(topDialog?.dataset.openSequence || 0);
+    return !topDialog || sequence >= topSequence ? dialog : topDialog;
+  }, null);
+}
+
+function closeManagedDialog(dialog) {
+  if (dialog?.open) {
+    dialog.close();
+  }
+}
+
 function syncDialogScrollLock() {
   const openDialogs = getOpenDialogs();
   const shouldLock = openDialogs.length > 0;
@@ -845,6 +872,8 @@ function openManagedDialog(dialog) {
   }
 
   dialog.showModal();
+  managedDialogSequence += 1;
+  dialog.dataset.openSequence = String(managedDialogSequence);
 
   requestAnimationFrame(() => {
     syncDialogScrollLock();
@@ -869,7 +898,7 @@ function restoreDialogStateAfterResume() {
   requestAnimationFrame(() => {
     syncDialogScrollLock();
 
-    const topDialog = openDialogs[openDialogs.length - 1];
+    const topDialog = getTopOpenDialog();
     if (topDialog) {
       topDialog.style.pointerEvents = "auto";
       topDialog.focus({ preventScroll: true });
@@ -988,11 +1017,19 @@ function mapIdeaItem(row) {
 
 function mapAchievementGoal(row) {
   const target = Number(row.target_value);
+  const current = Number(row.current_value);
   return {
     id: row.id,
+    title: row.title || "",
     key: row.goal_key || "",
     monthKey: row.goal_month || "",
-    target: Number.isFinite(target) && target > 0 ? Math.floor(target) : null
+    scope: row.goal_scope || "",
+    current: Number.isFinite(current) ? Math.max(0, Math.floor(current)) : 0,
+    target: Number.isFinite(target) && target > 0 ? Math.floor(target) : null,
+    deadline: row.deadline || "",
+    achieved: Boolean(row.achieved),
+    createdAt: row.created_at || "",
+    deletedAt: row.deleted_at || ""
   };
 }
 
@@ -1165,9 +1202,8 @@ async function loadAllData({ silent = false } = {}) {
     supabaseClient
       .from("goals")
       .select("*")
-      .eq("goal_scope", ACHIEVEMENT_GOAL_SCOPE)
       .is("deleted_at", null)
-      .order("goal_month", { ascending: false }),
+      .order("created_at", { ascending: false }),
     supabaseClient
       .from("monthly_achievement_snapshots")
       .select("*")
@@ -1351,7 +1387,9 @@ function formatYen(value) {
 }
 
 function getVideoReward(video) {
-  if (parseVideoTags(video?.tags).includes("レース映像")) return 0;
+  const tags = parseVideoTags(video?.tags);
+  if (tags.includes("レース映像")) return 0;
+  if (tags.includes("競艇ニュース")) return 100;
   if (video?.type === "Shorts") return 100;
   if (video?.type === "横動画") return 1000;
   return 0;
@@ -1362,22 +1400,31 @@ function calculateMonthlyReward(stats) {
   const raceVideos = videos.filter(video =>
     parseVideoTags(video.tags).includes("レース映像")
   );
+  const newsVideos = videos.filter(video => {
+    const tags = parseVideoTags(video.tags);
+    return !tags.includes("レース映像") && tags.includes("競艇ニュース");
+  });
   const paidShorts = videos.filter(video =>
-    video.type === "Shorts" && getVideoReward(video) === 100
+    video.type === "Shorts" &&
+    !parseVideoTags(video.tags).includes("競艇ニュース") &&
+    getVideoReward(video) === 100
   );
   const paidLong = videos.filter(video =>
     video.type === "横動画" && getVideoReward(video) === 1000
   );
   const shortsAmount = paidShorts.length * 100;
   const longAmount = paidLong.length * 1000;
+  const newsAmount = newsVideos.length * 100;
 
   return {
     paidShortsCount: paidShorts.length,
     paidLongCount: paidLong.length,
     raceVideoCount: raceVideos.length,
+    newsVideoCount: newsVideos.length,
     shortsAmount,
     longAmount,
-    totalAmount: shortsAmount + longAmount
+    newsAmount,
+    totalAmount: shortsAmount + longAmount + newsAmount
   };
 }
 
@@ -1477,6 +1524,11 @@ function renderPostStats() {
   elements.postStatsRewardRaceFormula.textContent =
     `${selectedReward.raceVideoCount}本 × 0円`;
   elements.postStatsRewardRaceAmount.textContent = formatYen(0);
+
+  elements.postStatsRewardNewsFormula.textContent =
+    `${selectedReward.newsVideoCount}本 × 100円`;
+  elements.postStatsRewardNewsAmount.textContent =
+    formatYen(selectedReward.newsAmount);
 
   elements.postStatsRewardTotal.textContent =
     formatYen(selectedReward.totalAmount);
@@ -1804,9 +1856,52 @@ function getMetricComparison(currentValue, previousValue) {
 function getAchievementTargets(monthKey = currentMonthKey()) {
   return Object.fromEntries(
     data.achievementGoals
-      .filter(goal => goal.monthKey === monthKey && goal.key && goal.target)
+      .filter(goal =>
+        goal.scope === ACHIEVEMENT_GOAL_SCOPE &&
+        goal.monthKey === monthKey &&
+        goal.key &&
+        goal.target
+      )
       .map(goal => [goal.key, goal.target])
   );
+}
+
+function getRegisteredVideoGoals() {
+  return sortByCreatedAtDesc(
+    data.achievementGoals.filter(goal =>
+      goal.scope === "long" &&
+      !goal.deletedAt &&
+      Boolean(goal.title.trim()) &&
+      Number.isFinite(Number(goal.target)) &&
+      Number(goal.target) > 0
+    )
+  );
+}
+
+function renderRegisteredVideoGoals() {
+  const goals = getRegisteredVideoGoals();
+  elements.achievementVideoGoalCard.classList.toggle("is-hidden", goals.length === 0);
+  elements.achievementVideoGoalList.innerHTML = goals.map(goal => {
+    const progress = getAchievementProgress(goal.current, goal.target);
+    const percentage = formatAchievementPercentage(progress.percentage);
+    return `
+      <article class="achievement-video-goal-item">
+        <div class="achievement-video-goal-head">
+          <span>${goal.achieved ? "達成済み" : "登録済み"}</span>
+          <strong>${escapeHtml(goal.title)}</strong>
+        </div>
+        <div class="achievement-video-goal-values">
+          <span>現在 ${formatNumber(goal.current)}</span>
+          <span>目標 ${formatNumber(goal.target)}</span>
+          <strong>${percentage}%</strong>
+        </div>
+        <div class="progress achievement-video-goal-progress" aria-label="${escapeHtml(goal.title)} 達成率 ${percentage}%">
+          <span style="width:${progress.width}%"></span>
+        </div>
+        ${goal.deadline ? `<small>期限 ${formatDate(goal.deadline)}</small>` : ""}
+      </article>
+    `;
+  }).join("");
 }
 
 function renderAchievementMetric({
@@ -2073,6 +2168,7 @@ function renderAchievements() {
     tagCounts,
     { targets }
   );
+  renderRegisteredVideoGoals();
 }
 
 function renderVideoFilterCounts() {
@@ -2141,7 +2237,7 @@ function renderVideos() {
                 aria-label="${escapeHtml(video.title)}のステータス"
               >
                 ${VIDEO_STATUSES.map(status => `
-                  <option value="${status}" ${status === video.status ? "selected" : ""}>${status}</option>
+                  <option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>
                 `).join("")}
               </select>
             </div>
@@ -2433,7 +2529,7 @@ function openForm(type, id = "") {
         </label>
         <label>ステータス
           <select name="status">
-            ${VIDEO_STATUSES.map(status => `<option ${optionSelected(video.status, status)}>${status}</option>`).join("")}
+            ${VIDEO_STATUSES.map(status => `<option value="${status}" ${optionSelected(video.status, status)}>${videoStatusLabel(status)}</option>`).join("")}
           </select>
         </label>
         <label>投稿日<input type="date" name="postDate" value="${formValue(video.postDate)}" /></label>
@@ -3122,7 +3218,7 @@ function renderVideoDetail(video) {
     </div>
 
     <div class="detail-summary">
-      <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(video.status)}</strong></div>
+      <div class="detail-field"><span>ステータス</span><strong>${escapeHtml(videoStatusLabel(video.status))}</strong></div>
       <div class="detail-field"><span>動画形式</span><strong>${escapeHtml(video.type)}</strong></div>
       <div class="detail-field"><span>投稿日</span><strong>${formatDate(getVideoPublishedDateKey(video))}</strong></div>
       <div class="detail-field"><span>YouTube</span><strong>${youtubeUrl ? `<a class="detail-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">動画を開く</a>` : "未設定"}</strong></div>
@@ -3578,7 +3674,7 @@ function setupEventListeners() {
     const closeButton = event.target.closest("[data-close]");
     if (closeButton) {
       event.preventDefault();
-      closeButton.closest("dialog")?.close();
+      closeManagedDialog(closeButton.closest("dialog"));
       return;
     }
 
@@ -3750,6 +3846,15 @@ function setupEventListeners() {
   });
 
   document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && isDesktopDialogLayout()) {
+      const topDialog = getTopOpenDialog();
+      if (topDialog) {
+        event.preventDefault();
+        closeManagedDialog(topDialog);
+      }
+      return;
+    }
+
     if (event.key !== "Enter" && event.key !== " ") return;
 
     if (event.target.matches("[data-open-notification-target]")) {
@@ -3971,16 +4076,23 @@ function setupEventListeners() {
 
   [elements.formModal, elements.achievementGoalModal, elements.videoDetailModal, elements.ideaDetailModal, elements.ideaItemDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
     dialog.addEventListener("click", event => {
-      if (event.target === dialog) {
-        dialog.close();
+      if (event.target === dialog && !isDesktopDialogLayout()) {
+        closeManagedDialog(dialog);
       }
     });
 
     dialog.addEventListener("close", () => {
+      delete dialog.dataset.openSequence;
       requestAnimationFrame(syncDialogScrollLock);
     });
 
-    dialog.addEventListener("cancel", () => {
+    dialog.addEventListener("cancel", event => {
+      if (isDesktopDialogLayout()) {
+        event.preventDefault();
+        if (dialog === getTopOpenDialog()) {
+          closeManagedDialog(dialog);
+        }
+      }
       requestAnimationFrame(syncDialogScrollLock);
     });
   });
