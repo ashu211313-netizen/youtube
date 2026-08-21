@@ -155,8 +155,6 @@ const elements = {
   postStatsRewardLongAmount: document.getElementById("postStatsRewardLongAmount"),
   postStatsRewardRaceFormula: document.getElementById("postStatsRewardRaceFormula"),
   postStatsRewardRaceAmount: document.getElementById("postStatsRewardRaceAmount"),
-  postStatsRewardNewsFormula: document.getElementById("postStatsRewardNewsFormula"),
-  postStatsRewardNewsAmount: document.getElementById("postStatsRewardNewsAmount"),
   postStatsRewardTotal: document.getElementById("postStatsRewardTotal"),
   postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel"),
   dashboardMonthlyViews: document.getElementById("dashboardMonthlyViews"),
@@ -172,8 +170,6 @@ const elements = {
   achievementMetricGrid: document.getElementById("achievementMetricGrid"),
   achievementTagTitle: document.getElementById("achievementTagTitle"),
   achievementTagBreakdown: document.getElementById("achievementTagBreakdown"),
-  achievementVideoGoalCard: document.getElementById("achievementVideoGoalCard"),
-  achievementVideoGoalList: document.getElementById("achievementVideoGoalList"),
   achievementGoalModal: document.getElementById("achievementGoalModal"),
   achievementGoalForm: document.getElementById("achievementGoalForm"),
   achievementGoalMonthLabel: document.getElementById("achievementGoalMonthLabel"),
@@ -1017,19 +1013,11 @@ function mapIdeaItem(row) {
 
 function mapAchievementGoal(row) {
   const target = Number(row.target_value);
-  const current = Number(row.current_value);
   return {
     id: row.id,
-    title: row.title || "",
     key: row.goal_key || "",
     monthKey: row.goal_month || "",
-    scope: row.goal_scope || "",
-    current: Number.isFinite(current) ? Math.max(0, Math.floor(current)) : 0,
-    target: Number.isFinite(target) && target > 0 ? Math.floor(target) : null,
-    deadline: row.deadline || "",
-    achieved: Boolean(row.achieved),
-    createdAt: row.created_at || "",
-    deletedAt: row.deleted_at || ""
+    target: Number.isFinite(target) && target > 0 ? Math.floor(target) : null
   };
 }
 
@@ -1202,8 +1190,9 @@ async function loadAllData({ silent = false } = {}) {
     supabaseClient
       .from("goals")
       .select("*")
+      .eq("goal_scope", ACHIEVEMENT_GOAL_SCOPE)
       .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
+      .order("goal_month", { ascending: false }),
     supabaseClient
       .from("monthly_achievement_snapshots")
       .select("*")
@@ -1400,31 +1389,20 @@ function calculateMonthlyReward(stats) {
   const raceVideos = videos.filter(video =>
     parseVideoTags(video.tags).includes("レース映像")
   );
-  const newsVideos = videos.filter(video => {
-    const tags = parseVideoTags(video.tags);
-    return !tags.includes("レース映像") && tags.includes("競艇ニュース");
-  });
-  const paidShorts = videos.filter(video =>
-    video.type === "Shorts" &&
-    !parseVideoTags(video.tags).includes("競艇ニュース") &&
-    getVideoReward(video) === 100
-  );
+  const paidShorts = videos.filter(video => getVideoReward(video) === 100);
   const paidLong = videos.filter(video =>
     video.type === "横動画" && getVideoReward(video) === 1000
   );
   const shortsAmount = paidShorts.length * 100;
   const longAmount = paidLong.length * 1000;
-  const newsAmount = newsVideos.length * 100;
 
   return {
     paidShortsCount: paidShorts.length,
     paidLongCount: paidLong.length,
     raceVideoCount: raceVideos.length,
-    newsVideoCount: newsVideos.length,
     shortsAmount,
     longAmount,
-    newsAmount,
-    totalAmount: shortsAmount + longAmount + newsAmount
+    totalAmount: shortsAmount + longAmount
   };
 }
 
@@ -1524,11 +1502,6 @@ function renderPostStats() {
   elements.postStatsRewardRaceFormula.textContent =
     `${selectedReward.raceVideoCount}本 × 0円`;
   elements.postStatsRewardRaceAmount.textContent = formatYen(0);
-
-  elements.postStatsRewardNewsFormula.textContent =
-    `${selectedReward.newsVideoCount}本 × 100円`;
-  elements.postStatsRewardNewsAmount.textContent =
-    formatYen(selectedReward.newsAmount);
 
   elements.postStatsRewardTotal.textContent =
     formatYen(selectedReward.totalAmount);
@@ -1631,9 +1604,20 @@ function getAchievementProgress(currentValue, targetValue, currentAvailable = tr
 }
 
 function renderMonthlyTagRows(tagCounts, { targets = null } = {}) {
-  return VIDEO_TAGS.map(tag => {
+  const hasTargets = targets !== null;
+  const visibleTags = hasTargets
+    ? VIDEO_TAGS.filter(tag => {
+        const target = Number(targets?.[ACHIEVEMENT_TAG_GOAL_KEYS[tag]]);
+        return Number.isFinite(target) && target > 0;
+      })
+    : VIDEO_TAGS;
+
+  if (!visibleTags.length) {
+    return '<p class="monthly-tag-empty">この月のタグ目標は設定されていません。</p>';
+  }
+
+  return visibleTags.map(tag => {
     const count = Math.max(0, Number(tagCounts?.[tag] || 0));
-    const hasTargets = targets !== null;
     const target = hasTargets ? targets?.[ACHIEVEMENT_TAG_GOAL_KEYS[tag]] : null;
     const progress = getAchievementProgress(count, target);
     const targetLabel = progress.isSet
@@ -1856,52 +1840,9 @@ function getMetricComparison(currentValue, previousValue) {
 function getAchievementTargets(monthKey = currentMonthKey()) {
   return Object.fromEntries(
     data.achievementGoals
-      .filter(goal =>
-        goal.scope === ACHIEVEMENT_GOAL_SCOPE &&
-        goal.monthKey === monthKey &&
-        goal.key &&
-        goal.target
-      )
+      .filter(goal => goal.monthKey === monthKey && goal.key && goal.target)
       .map(goal => [goal.key, goal.target])
   );
-}
-
-function getRegisteredVideoGoals() {
-  return sortByCreatedAtDesc(
-    data.achievementGoals.filter(goal =>
-      goal.scope === "long" &&
-      !goal.deletedAt &&
-      Boolean(goal.title.trim()) &&
-      Number.isFinite(Number(goal.target)) &&
-      Number(goal.target) > 0
-    )
-  );
-}
-
-function renderRegisteredVideoGoals() {
-  const goals = getRegisteredVideoGoals();
-  elements.achievementVideoGoalCard.classList.toggle("is-hidden", goals.length === 0);
-  elements.achievementVideoGoalList.innerHTML = goals.map(goal => {
-    const progress = getAchievementProgress(goal.current, goal.target);
-    const percentage = formatAchievementPercentage(progress.percentage);
-    return `
-      <article class="achievement-video-goal-item">
-        <div class="achievement-video-goal-head">
-          <span>${goal.achieved ? "達成済み" : "登録済み"}</span>
-          <strong>${escapeHtml(goal.title)}</strong>
-        </div>
-        <div class="achievement-video-goal-values">
-          <span>現在 ${formatNumber(goal.current)}</span>
-          <span>目標 ${formatNumber(goal.target)}</span>
-          <strong>${percentage}%</strong>
-        </div>
-        <div class="progress achievement-video-goal-progress" aria-label="${escapeHtml(goal.title)} 達成率 ${percentage}%">
-          <span style="width:${progress.width}%"></span>
-        </div>
-        ${goal.deadline ? `<small>期限 ${formatDate(goal.deadline)}</small>` : ""}
-      </article>
-    `;
-  }).join("");
 }
 
 function renderAchievementMetric({
@@ -2168,7 +2109,6 @@ function renderAchievements() {
     tagCounts,
     { targets }
   );
-  renderRegisteredVideoGoals();
 }
 
 function renderVideoFilterCounts() {
