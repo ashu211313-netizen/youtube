@@ -3,6 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
+const APP_VERSION = "23.27";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -57,6 +58,11 @@ const IDEA_IMAGE_BUCKET = "idea-images";
 const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
 const YOUTUBE_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const YOUTUBE_SYNC_STALE_MS = 55 * 60 * 1000;
+const AUTH_EXPIRY_SKEW_SECONDS = 60;
+const AUTH_RECOVERY_MAX_ATTEMPTS = 1;
+const AUTH_RECOVERY_DELAY_MS = 800;
+const APP_RESUME_DEBOUNCE_MS = 250;
+const APP_DATA_STALE_MS = 60 * 1000;
 
 function createEmptyDataState() {
   return {
@@ -76,6 +82,8 @@ let data = createEmptyDataState();
 
 let activeVideoFilter = "all";
 let realtimeChannel = null;
+let realtimeStatus = "CLOSED";
+let realtimeSubscribeInFlight = null;
 let toastTimer = null;
 let refreshTimer = null;
 let selectedPostStatsMonth = "";
@@ -89,6 +97,17 @@ let lastYoutubeAutoSyncAttemptAt = 0;
 let lockedPageScrollY = 0;
 let isRestoringDialogState = false;
 let managedDialogSequence = 0;
+let dataLoadInFlight = null;
+let authValidationInFlight = null;
+let appStartInFlight = null;
+let appResumeInFlight = null;
+let appResumeTimer = null;
+let authStateSubscription = null;
+let eventListenersReady = false;
+let authenticatedUserId = "";
+let lastSuccessfulDataLoadAt = 0;
+let lastDataLoadError = null;
+let versionMismatchDetected = false;
 
 const elements = {
   authScreen: document.getElementById("authScreen"),
@@ -99,9 +118,13 @@ const elements = {
   loginPassword: document.getElementById("loginPassword"),
   loginButton: document.getElementById("loginButton"),
   loginMessage: document.getElementById("loginMessage"),
+  authRetryButton: document.getElementById("authRetryButton"),
   loginUserLabel: document.getElementById("loginUserLabel"),
   logoutButton: document.getElementById("logoutButton"),
   syncStatus: document.getElementById("syncStatus"),
+  appLoadError: document.getElementById("appLoadError"),
+  appLoadErrorMessage: document.getElementById("appLoadErrorMessage"),
+  retryAppLoadButton: document.getElementById("retryAppLoadButton"),
   toast: document.getElementById("toast"),
   formModal: document.getElementById("formModal"),
   formEyebrow: document.getElementById("formEyebrow"),
@@ -224,6 +247,135 @@ function setLoading(button, loading, loadingText = "保存中...") {
   button.disabled = false;
   button.textContent = button.dataset.originalText || button.textContent;
   delete button.dataset.originalText;
+}
+
+function wait(milliseconds) {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+}
+
+function isRecoverableAuthError(error) {
+  const text = [
+    error?.code,
+    error?.name,
+    error?.message,
+    error?.details,
+    error?.hint
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return Number(error?.status) === 401 || [
+    "jwt issued at future",
+    "jwt expired",
+    "invalid jwt",
+    "invalid claim",
+    "auth session missing",
+    "refresh token",
+    "pgrst301"
+  ].some(fragment => text.includes(fragment));
+}
+
+function getSessionTiming(session) {
+  let issuedAt = null;
+  let tokenExpiresAt = null;
+
+  try {
+    const encodedPayload = String(session?.access_token || "").split(".")[1];
+    if (encodedPayload) {
+      const normalized = encodedPayload
+        .replaceAll("-", "+")
+        .replaceAll("_", "/")
+        .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+      const payload = JSON.parse(window.atob(normalized));
+      issuedAt = Number.isFinite(Number(payload?.iat))
+        ? new Date(Number(payload.iat) * 1000).toISOString()
+        : null;
+      tokenExpiresAt = Number.isFinite(Number(payload?.exp))
+        ? new Date(Number(payload.exp) * 1000).toISOString()
+        : null;
+    }
+  } catch {
+    // 診断情報を取得できなくても認証処理は継続する。
+  }
+
+  const sessionExpiresAt = Number(session?.expires_at);
+
+  return {
+    issuedAt,
+    expiresAt: Number.isFinite(sessionExpiresAt) && sessionExpiresAt > 0
+      ? new Date(sessionExpiresAt * 1000).toISOString()
+      : tokenExpiresAt
+  };
+}
+
+function logAuthDiagnostic(stage, { session = null, error = null, attempt = 0 } = {}) {
+  const timing = getSessionTiming(session);
+  console.debug("[auth]", stage, {
+    currentTime: new Date().toISOString(),
+    issuedAt: timing.issuedAt,
+    expiresAt: timing.expiresAt,
+    visibilityState: document.visibilityState,
+    online: navigator.onLine,
+    recoveryAttempt: attempt,
+    errorCode: error?.code || null,
+    errorStatus: error?.status || null,
+    errorMessage: error ? getErrorMessage(error) : null
+  });
+}
+
+function hideAppLoadError() {
+  lastDataLoadError = null;
+  elements.appLoadError?.classList.add("is-hidden");
+}
+
+function showAppLoadError(error) {
+  lastDataLoadError = error;
+  if (elements.appLoadErrorMessage) {
+    elements.appLoadErrorMessage.textContent = isRecoverableAuthError(error)
+      ? "ログイン状態を安全に再確認しましたが、データを取得できませんでした。通信状態を確認して再試行してください。"
+      : "データを取得できませんでした。表示済みの内容は保持しています。通信状態を確認して再試行してください。";
+  }
+  elements.appLoadError?.classList.remove("is-hidden");
+}
+
+function hideAuthRecovery() {
+  elements.authRetryButton?.classList.add("is-hidden");
+}
+
+function showAuthRecovery(error) {
+  elements.loginMessage.textContent = isRecoverableAuthError(error)
+    ? "ログイン状態を確認できませんでした。再確認するか、必要な場合はログインし直してください。"
+    : `ログイン状態を確認できませんでした：${getErrorMessage(error)}`;
+  elements.authRetryButton?.classList.remove("is-hidden");
+}
+
+function ensureAppVersionMatch() {
+  const htmlVersion = document.querySelector('meta[name="app-version"]')?.content || "";
+  if (!htmlVersion || htmlVersion === APP_VERSION) {
+    return true;
+  }
+
+  versionMismatchDetected = true;
+  const reloadKey = `boat-manager-version-reload:${APP_VERSION}`;
+
+  try {
+    if (window.sessionStorage.getItem(reloadKey) !== "1") {
+      window.sessionStorage.setItem(reloadKey, "1");
+      const reloadUrl = new URL(window.location.href);
+      reloadUrl.searchParams.set("app_version", APP_VERSION);
+      window.location.replace(reloadUrl.href);
+      return false;
+    }
+  } catch {
+    // Storageが利用できない場合は手動更新へ切り替える。
+  }
+
+  showAuthScreen();
+  elements.loginMessage.textContent = "アプリの更新が完了していません。最新版を再読み込みしてください。";
+  elements.authRetryButton.textContent = "最新版を再読み込み";
+  elements.authRetryButton.classList.remove("is-hidden");
+  return false;
 }
 
 function todayString() {
@@ -740,7 +892,12 @@ function needsYouTubeAutoSync(video, now = Date.now()) {
 }
 
 async function runAutoYouTubeSync({ force = false } = {}) {
-  if (youtubeAutoSyncInFlight || document.visibilityState === "hidden") {
+  if (
+    youtubeAutoSyncInFlight ||
+    !authenticatedUserId ||
+    !navigator.onLine ||
+    document.visibilityState === "hidden"
+  ) {
     return;
   }
 
@@ -914,6 +1071,8 @@ function showApplication(user) {
   elements.authScreen.classList.add("is-hidden");
   elements.appRoot.classList.remove("is-hidden");
   elements.mobileNav.classList.remove("is-hidden");
+  elements.loginMessage.textContent = "";
+  hideAuthRecovery();
   elements.loginUserLabel.textContent = user?.email || "ログイン中";
 }
 
@@ -1169,24 +1328,24 @@ function isMissingSnapshotRelation(error) {
   return code === "42P01" || code === "PGRST205";
 }
 
-async function loadAllData({ silent = false } = {}) {
-  if (!silent) {
-    setSyncStatus("同期中");
-  }
+function renderLoadedDataViews() {
+  renderAll();
+  renderNotifications();
+  renderTrash();
+  refreshOpenDetailViews();
 
-  const [
-    videosResult,
-    ideasResult,
-    ideaItemsResult,
-    achievementGoalsResult,
-    achievementSnapshotsResult,
-    monthlyPaymentsResult,
-    notificationsResult,
-    channelStatsResult
-  ] = await Promise.all([
+  if (elements.postStatsModal.open) {
+    renderPostStats();
+  }
+}
+
+async function fetchAllDataOnce() {
+  const coreResultsPromise = Promise.all([
     selectNewestRows("videos"),
     selectNewestRows("ideas"),
-    selectNewestRows("idea_items"),
+    selectNewestRows("idea_items")
+  ]);
+  const optionalResultsPromise = Promise.allSettled([
     supabaseClient
       .from("goals")
       .select("*")
@@ -1213,29 +1372,22 @@ async function loadAllData({ silent = false } = {}) {
       .limit(1)
       .maybeSingle()
   ]);
+  const coreResults = await coreResultsPromise;
+  const [videosResult, ideasResult, ideaItemsResult] = coreResults;
 
-  const firstError =
+  const coreAuthError = coreResults
+    .map(result => result?.error)
+    .find(isRecoverableAuthError);
+  if (coreAuthError) {
+    return { ok: false, error: coreAuthError };
+  }
+
+  const coreError =
     videosResult.error ||
     ideasResult.error ||
-    ideaItemsResult.error ||
-    achievementGoalsResult.error ||
-    (isMissingSnapshotRelation(achievementSnapshotsResult.error)
-      ? null
-      : achievementSnapshotsResult.error) ||
-    monthlyPaymentsResult.error ||
-    notificationsResult.error ||
-    channelStatsResult.error;
-
-  if (firstError) {
-    console.error(firstError);
-    setSyncStatus("同期エラー", "error");
-    if (!silent) {
-      showToast(
-        `読み込みに失敗しました：${getErrorMessage(firstError)}`,
-        "error"
-      );
-    }
-    return false;
+    ideaItemsResult.error;
+  if (coreError) {
+    return { ok: false, error: coreError };
   }
 
   const allVideos = (videosResult.data || []).map(mapVideo);
@@ -1243,6 +1395,7 @@ async function loadAllData({ silent = false } = {}) {
   const allIdeaItems = (ideaItemsResult.data || []).map(mapIdeaItem);
 
   data = {
+    ...data,
     videos: sortByPostedAtDesc(
       allVideos.filter(item => !item.deletedAt)
     ),
@@ -1250,15 +1403,6 @@ async function loadAllData({ silent = false } = {}) {
       allIdeas.filter(item => !item.deletedAt)
     ),
     ideaItems: sortByCreatedAtDesc(allIdeaItems),
-    achievementGoals: (achievementGoalsResult.data || []).map(mapAchievementGoal),
-    achievementSnapshots: (achievementSnapshotsResult.data || []).map(mapAchievementSnapshot),
-    monthlyPayments: sortPaymentsByMonthDesc(
-      (monthlyPaymentsResult.data || []).map(mapMonthlyPayment)
-    ),
-    notifications: sortByCreatedAtDesc(
-      (notificationsResult.data || []).map(mapNotification)
-    ),
-    channelStats: mapChannelStats(channelStatsResult.data),
     trash: sortByDeletedAtDesc([
       ...allVideos
         .filter(item => item.deletedAt)
@@ -1269,17 +1413,171 @@ async function loadAllData({ silent = false } = {}) {
     ])
   };
 
-  renderAll();
-  renderNotifications();
-  renderTrash();
-  refreshOpenDetailViews();
+  renderLoadedDataViews();
+  lastSuccessfulDataLoadAt = Date.now();
 
-  if (elements.postStatsModal.open) {
-    renderPostStats();
+  const optionalSettledResults = await optionalResultsPromise;
+  const [
+    achievementGoalsResult,
+    achievementSnapshotsResult,
+    monthlyPaymentsResult,
+    notificationsResult,
+    channelStatsResult
+  ] = optionalSettledResults.map(result =>
+    result.status === "fulfilled"
+      ? result.value
+      : { data: null, error: result.reason }
+  );
+
+  const optionalQueryResults = [
+    achievementGoalsResult,
+    achievementSnapshotsResult,
+    monthlyPaymentsResult,
+    notificationsResult,
+    channelStatsResult
+  ];
+  const authError = optionalQueryResults
+    .map(result => result?.error)
+    .find(isRecoverableAuthError);
+
+  if (authError) {
+    return { ok: false, error: authError };
   }
 
-  setSyncStatus("同期済み", "online");
+  const optionalErrors = [
+    ["月間目標", achievementGoalsResult.error],
+    [
+      "月次実績",
+      isMissingSnapshotRelation(achievementSnapshotsResult.error)
+        ? null
+        : achievementSnapshotsResult.error
+    ],
+    ["支払い情報", monthlyPaymentsResult.error],
+    ["通知", notificationsResult.error],
+    ["YouTubeチャンネル統計", channelStatsResult.error]
+  ]
+    .filter(([, error]) => Boolean(error))
+    .map(([label, error]) => ({ label, error }));
+
+  data = {
+    ...data,
+    achievementGoals: achievementGoalsResult.error
+      ? data.achievementGoals
+      : (achievementGoalsResult.data || []).map(mapAchievementGoal),
+    achievementSnapshots: isMissingSnapshotRelation(achievementSnapshotsResult.error)
+      ? []
+      : achievementSnapshotsResult.error
+        ? data.achievementSnapshots
+        : (achievementSnapshotsResult.data || []).map(mapAchievementSnapshot),
+    monthlyPayments: monthlyPaymentsResult.error
+      ? data.monthlyPayments
+      : sortPaymentsByMonthDesc(
+          (monthlyPaymentsResult.data || []).map(mapMonthlyPayment)
+        ),
+    notifications: notificationsResult.error
+      ? data.notifications
+      : sortByCreatedAtDesc(
+          (notificationsResult.data || []).map(mapNotification)
+        ),
+    channelStats: channelStatsResult.error
+      ? data.channelStats
+      : mapChannelStats(channelStatsResult.data)
+  };
+
+  renderLoadedDataViews();
+
+  return { ok: true, optionalErrors };
+}
+
+async function performDataLoad({ silent = false } = {}) {
+  if (!silent) {
+    setSyncStatus("同期中");
+  }
+
+  let result;
+
+  for (let attempt = 0; attempt <= AUTH_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      result = await fetchAllDataOnce();
+    } catch (error) {
+      result = { ok: false, error };
+    }
+
+    if (result.ok || !isRecoverableAuthError(result.error)) {
+      break;
+    }
+
+    if (attempt >= AUTH_RECOVERY_MAX_ATTEMPTS) {
+      break;
+    }
+
+    logAuthDiagnostic("data-load-recovery", {
+      error: result.error,
+      attempt: attempt + 1
+    });
+
+    try {
+      const authState = await validateAuthenticatedSession({
+        forceRefresh: true,
+        reason: "data-load-recovery",
+        recoveryAttempt: attempt + 1
+      });
+
+      if (!authState?.user) {
+        result = {
+          ok: false,
+          error: new Error("有効なログインセッションがありません。")
+        };
+        break;
+      }
+
+      await wait(AUTH_RECOVERY_DELAY_MS);
+    } catch (error) {
+      result = { ok: false, error };
+      break;
+    }
+  }
+
+  if (!result?.ok) {
+    const error = result?.error || new Error("データを取得できませんでした。");
+    console.error("データ読み込み:", error);
+    setSyncStatus(navigator.onLine ? "同期エラー" : "オフライン", "error");
+    showAppLoadError(error);
+    if (!silent) {
+      showToast("データを読み込めませんでした。再試行してください。", "error");
+    }
+    return false;
+  }
+
+  hideAppLoadError();
+
+  if (result.optionalErrors.length) {
+    console.warn("一部データの読み込み:", result.optionalErrors);
+    setSyncStatus("一部同期エラー", "error");
+    if (!silent) {
+      showToast(
+        "一部データを取得できませんでした。取得済みの画面は利用できます。",
+        "error"
+      );
+    }
+  } else {
+    setSyncStatus("同期済み", "online");
+  }
+
   return true;
+}
+
+function loadAllData(options = {}) {
+  if (dataLoadInFlight) {
+    return dataLoadInFlight;
+  }
+
+  dataLoadInFlight = performDataLoad(options)
+    .finally(() => {
+      dataLoadInFlight = null;
+    });
+
+  return dataLoadInFlight;
 }
 
 // ============================================================
@@ -3484,33 +3782,187 @@ function openIdeaDetail(id) {
 // ============================================================
 function scheduleRealtimeRefresh() {
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => loadAllData({ silent: true }), 200);
+  refreshTimer = setTimeout(() => void loadAllData({ silent: true }), 200);
 }
 
-function subscribeRealtime() {
-  if (realtimeChannel) {
-    supabaseClient.removeChannel(realtimeChannel);
+async function unsubscribeRealtime() {
+  clearTimeout(refreshTimer);
+  refreshTimer = null;
+
+  const channel = realtimeChannel;
+  realtimeChannel = null;
+  realtimeStatus = "CLOSED";
+
+  if (channel) {
+    await supabaseClient.removeChannel(channel);
+  }
+}
+
+function subscribeRealtime({ force = false } = {}) {
+  if (
+    !force &&
+    realtimeChannel &&
+    (realtimeStatus === "CONNECTING" || realtimeStatus === "SUBSCRIBED")
+  ) {
+    return Promise.resolve();
   }
 
-  realtimeChannel = supabaseClient
-    .channel("boat-manager-shared-data")
-    .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "monthly_achievement_snapshots" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "channel_stats" }, scheduleRealtimeRefresh)
-    .subscribe(status => {
+  if (realtimeSubscribeInFlight) {
+    return realtimeSubscribeInFlight;
+  }
+
+  realtimeSubscribeInFlight = (async () => {
+    await unsubscribeRealtime();
+
+    const channel = supabaseClient
+      .channel("boat-manager-shared-data")
+      .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ideas" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "idea_items" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "goals" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "monthly_payments" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "monthly_achievement_snapshots" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, scheduleRealtimeRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "channel_stats" }, scheduleRealtimeRefresh);
+
+    realtimeChannel = channel;
+    realtimeStatus = "CONNECTING";
+
+    channel.subscribe(status => {
+      if (realtimeChannel !== channel) {
+        return;
+      }
+
+      realtimeStatus = status;
+
       if (status === "SUBSCRIBED") {
         setSyncStatus("リアルタイム同期中", "online");
       }
 
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+      if (
+        status === "CHANNEL_ERROR" ||
+        status === "TIMED_OUT" ||
+        (status === "CLOSED" && authenticatedUserId)
+      ) {
         setSyncStatus("同期接続エラー", "error");
       }
     });
+
+  })().finally(() => {
+    realtimeSubscribeInFlight = null;
+  });
+
+  return realtimeSubscribeInFlight;
+}
+
+function sessionNeedsRefresh(session) {
+  const expiresAt = Number(session?.expires_at || 0);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+    return true;
+  }
+
+  return expiresAt <= Math.floor(Date.now() / 1000) + AUTH_EXPIRY_SKEW_SECONDS;
+}
+
+async function performSessionValidation({
+  forceRefresh = false,
+  reason = "startup",
+  recoveryAttempt = 0
+} = {}) {
+  const sessionResult = await supabaseClient.auth.getSession();
+  if (sessionResult.error) {
+    logAuthDiagnostic(`${reason}:get-session-error`, {
+      error: sessionResult.error,
+      attempt: recoveryAttempt
+    });
+    throw sessionResult.error;
+  }
+
+  let session = sessionResult.data.session;
+  if (!session) {
+    logAuthDiagnostic(`${reason}:no-session`, { attempt: recoveryAttempt });
+    return null;
+  }
+
+  logAuthDiagnostic(`${reason}:session-found`, {
+    session,
+    attempt: recoveryAttempt
+  });
+
+  let refreshed = false;
+
+  const refreshCurrentSession = async () => {
+    const refreshResult = await supabaseClient.auth.refreshSession();
+    if (refreshResult.error) {
+      logAuthDiagnostic(`${reason}:refresh-error`, {
+        session,
+        error: refreshResult.error,
+        attempt: recoveryAttempt
+      });
+      throw refreshResult.error;
+    }
+
+    if (!refreshResult.data.session) {
+      throw new Error("セッションを更新できませんでした。");
+    }
+
+    session = refreshResult.data.session;
+    refreshed = true;
+    logAuthDiagnostic(`${reason}:session-refreshed`, {
+      session,
+      attempt: recoveryAttempt
+    });
+  };
+
+  if (forceRefresh || sessionNeedsRefresh(session)) {
+    await refreshCurrentSession();
+  }
+
+  let userResult = await supabaseClient.auth.getUser();
+
+  if (userResult.error && isRecoverableAuthError(userResult.error) && !refreshed) {
+    logAuthDiagnostic(`${reason}:verify-recovery`, {
+      session,
+      error: userResult.error,
+      attempt: recoveryAttempt + 1
+    });
+    await refreshCurrentSession();
+    await wait(AUTH_RECOVERY_DELAY_MS);
+    userResult = await supabaseClient.auth.getUser();
+  }
+
+  if (userResult.error) {
+    logAuthDiagnostic(`${reason}:verify-error`, {
+      session,
+      error: userResult.error,
+      attempt: recoveryAttempt
+    });
+    throw userResult.error;
+  }
+
+  if (!userResult.data.user) {
+    return null;
+  }
+
+  logAuthDiagnostic(`${reason}:verified`, {
+    session,
+    attempt: recoveryAttempt
+  });
+
+  return { session, user: userResult.data.user };
+}
+
+function validateAuthenticatedSession(options = {}) {
+  if (authValidationInFlight) {
+    return authValidationInFlight;
+  }
+
+  authValidationInFlight = performSessionValidation(options)
+    .finally(() => {
+      authValidationInFlight = null;
+    });
+
+  return authValidationInFlight;
 }
 
 async function login(email, password) {
@@ -3527,59 +3979,220 @@ async function logout() {
     return;
   }
 
-  if (realtimeChannel) {
-    await supabaseClient.removeChannel(realtimeChannel);
-    realtimeChannel = null;
-  }
+  await resetAuthenticatedApp();
+}
 
+async function resetAuthenticatedApp({ message = "" } = {}) {
+  authenticatedUserId = "";
+  lastSuccessfulDataLoadAt = 0;
+  clearTimeout(appResumeTimer);
+  appResumeTimer = null;
+  await unsubscribeRealtime();
   stopYouTubeAutoSync();
   data = createEmptyDataState();
   selectedAchievementMonth = "";
+  hideAppLoadError();
   showAuthScreen();
+  elements.loginMessage.textContent = message;
 }
 
-async function startAuthenticatedApp(user) {
-  selectedAchievementMonth = currentMonthKey();
-  showApplication(user);
-  setupDate();
-  renderAll();
-  await loadAllData();
-  subscribeRealtime();
-  startYouTubeAutoSync();
+function startAuthenticatedApp(user) {
+  if (appStartInFlight) {
+    return appStartInFlight;
+  }
+
+  appStartInFlight = (async () => {
+    const isNewUser = authenticatedUserId !== String(user?.id || "");
+    authenticatedUserId = String(user?.id || "");
+
+    if (isNewUser || !selectedAchievementMonth) {
+      selectedAchievementMonth = currentMonthKey();
+    }
+
+    showApplication(user);
+    setupDate();
+    renderAll();
+
+    const loaded = await loadAllData();
+    if (!loaded) {
+      return false;
+    }
+
+    await subscribeRealtime();
+    startYouTubeAutoSync();
+    return true;
+  })().finally(() => {
+    appStartInFlight = null;
+  });
+
+  return appStartInFlight;
+}
+
+async function performAppResume({
+  reason = "resume",
+  forceDataReload = false,
+  forceAuthRefresh = false
+} = {}) {
+  if (document.visibilityState === "hidden") {
+    return false;
+  }
+
+  if (!navigator.onLine) {
+    if (authenticatedUserId) {
+      setSyncStatus("オフライン", "error");
+    }
+    return false;
+  }
+
+  try {
+    const authState = await validateAuthenticatedSession({
+      forceRefresh: forceAuthRefresh,
+      reason
+    });
+
+    if (!authState?.user) {
+      await resetAuthenticatedApp({
+        message: "ログインの有効期限が切れています。もう一度ログインしてください。"
+      });
+      return false;
+    }
+
+    if (
+      authenticatedUserId !== String(authState.user.id || "") ||
+      elements.appRoot.classList.contains("is-hidden")
+    ) {
+      return startAuthenticatedApp(authState.user);
+    }
+
+    const dataIsStale =
+      !lastSuccessfulDataLoadAt ||
+      Date.now() - lastSuccessfulDataLoadAt >= APP_DATA_STALE_MS;
+    const loaded = forceDataReload || dataIsStale
+      ? await loadAllData({ silent: true })
+      : true;
+
+    await subscribeRealtime();
+
+    if (loaded) {
+      void runAutoYouTubeSync();
+    }
+
+    return loaded;
+  } catch (error) {
+    console.error("アプリ再開:", error);
+    logAuthDiagnostic(`${reason}:failed`, { error });
+
+    if (authenticatedUserId) {
+      setSyncStatus(navigator.onLine ? "認証確認エラー" : "オフライン", "error");
+      showAppLoadError(error);
+    } else {
+      showAuthScreen();
+      showAuthRecovery(error);
+    }
+
+    return false;
+  }
+}
+
+function resumeAuthenticatedApp(options = {}) {
+  if (appResumeInFlight) {
+    return appResumeInFlight;
+  }
+
+  appResumeInFlight = performAppResume(options)
+    .finally(() => {
+      appResumeInFlight = null;
+    });
+
+  return appResumeInFlight;
+}
+
+function scheduleAppResume(reason) {
+  restoreDialogStateAfterResume();
+
+  if (document.visibilityState === "hidden") {
+    return;
+  }
+
+  clearTimeout(appResumeTimer);
+  appResumeTimer = setTimeout(() => {
+    appResumeTimer = null;
+    void resumeAuthenticatedApp({ reason });
+  }, APP_RESUME_DEBOUNCE_MS);
+}
+
+function setupAuthStateListener() {
+  if (authStateSubscription) {
+    return;
+  }
+
+  const { data: listenerData } = supabaseClient.auth.onAuthStateChange(
+    (event, sessionData) => {
+      if (event === "TOKEN_REFRESHED") {
+        logAuthDiagnostic("auth-event:token-refreshed", {
+          session: sessionData
+        });
+        return;
+      }
+
+      window.setTimeout(() => {
+        if (event === "SIGNED_OUT") {
+          void resetAuthenticatedApp();
+          return;
+        }
+
+        if (
+          event === "SIGNED_IN" &&
+          sessionData.user &&
+          authenticatedUserId !== String(sessionData.user.id || "")
+        ) {
+          void startAuthenticatedApp(sessionData.user);
+        }
+      }, 0);
+    }
+  );
+
+  authStateSubscription = listenerData.subscription;
 }
 
 async function initialize() {
   setupEventListeners();
 
-  const { data: { session }, error } = await supabaseClient.auth.getSession();
-
-  if (error) {
-    console.error(error);
-    showAuthScreen();
-    elements.loginMessage.textContent = `ログイン状態を確認できませんでした：${getErrorMessage(error)}`;
+  if (!ensureAppVersionMatch()) {
     return;
   }
 
-  if (session?.user) {
-    await startAuthenticatedApp(session.user);
-  } else {
-    showAuthScreen();
-  }
+  setupAuthStateListener();
 
-  supabaseClient.auth.onAuthStateChange((event, sessionData) => {
-    if (event === "SIGNED_OUT" || !sessionData) {
+  try {
+    const authState = await validateAuthenticatedSession({ reason: "startup" });
+
+    if (authState?.user) {
+      await startAuthenticatedApp(authState.user);
+    } else {
+      hideAuthRecovery();
       showAuthScreen();
     }
-  });
+  } catch (error) {
+    console.error(error);
+    showAuthScreen();
+    showAuthRecovery(error);
+  }
 }
 
 // ============================================================
 // Event wiring / application start
 // ============================================================
 function setupEventListeners() {
+  if (eventListenersReady) {
+    return;
+  }
+  eventListenersReady = true;
+
   elements.loginForm.addEventListener("submit", async event => {
     event.preventDefault();
     elements.loginMessage.textContent = "";
+    hideAuthRecovery();
     setLoading(elements.loginButton, true, "ログイン中...");
 
     try {
@@ -3591,6 +4204,52 @@ function setupEventListeners() {
       elements.loginMessage.textContent = `ログインできませんでした：${getErrorMessage(error)}`;
     } finally {
       setLoading(elements.loginButton, false);
+    }
+  });
+
+  elements.authRetryButton.addEventListener("click", async () => {
+    if (versionMismatchDetected) {
+      window.location.reload();
+      return;
+    }
+
+    elements.loginMessage.textContent = "";
+    setLoading(elements.authRetryButton, true, "確認中...");
+
+    try {
+      const authState = await validateAuthenticatedSession({
+        forceRefresh: true,
+        reason: "manual-auth-retry",
+        recoveryAttempt: 1
+      });
+
+      if (!authState?.user) {
+        hideAuthRecovery();
+        elements.loginMessage.textContent = "ログイン情報を入力してください。";
+        return;
+      }
+
+      await startAuthenticatedApp(authState.user);
+    } catch (error) {
+      console.error(error);
+      showAuthRecovery(error);
+    } finally {
+      setLoading(elements.authRetryButton, false);
+    }
+  });
+
+  elements.retryAppLoadButton.addEventListener("click", async () => {
+    const shouldRefreshAuth = isRecoverableAuthError(lastDataLoadError);
+    setLoading(elements.retryAppLoadButton, true, "再確認中...");
+
+    try {
+      await resumeAuthenticatedApp({
+        reason: "manual-data-retry",
+        forceDataReload: true,
+        forceAuthRefresh: shouldRefreshAuth
+      });
+    } finally {
+      setLoading(elements.retryAppLoadButton, false);
     }
   });
 
@@ -4051,18 +4710,25 @@ function setupEventListeners() {
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      restoreDialogStateAfterResume();
-      void runAutoYouTubeSync();
+      scheduleAppResume("visibilitychange");
     }
   });
 
-  window.addEventListener("pageshow", () => {
-    restoreDialogStateAfterResume();
-    void runAutoYouTubeSync();
+  window.addEventListener("pageshow", event => {
+    if (event.persisted) {
+      scheduleAppResume("pageshow-cache");
+    }
   });
   window.addEventListener("focus", () => {
-    restoreDialogStateAfterResume();
-    void runAutoYouTubeSync();
+    scheduleAppResume("focus");
+  });
+  window.addEventListener("online", () => {
+    scheduleAppResume("online");
+  });
+  window.addEventListener("offline", () => {
+    if (authenticatedUserId) {
+      setSyncStatus("オフライン", "error");
+    }
   });
 }
 
