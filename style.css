@@ -2709,6 +2709,24 @@ input, textarea, select { font-size: 16px !important; }
 .idea-image-card img, .current-image-preview img { display:block; width:auto; height:auto; max-width:100%; max-height:240px; margin:0 auto; object-fit:contain; }
 .detail-body > .idea-image-card { margin-top:0; }
 .detail-body > .idea-image-card img { max-height:min(560px,50vh); }
+.idea-image-gallery { display:grid; min-width:0; max-width:100%; gap:10px; }
+.idea-image-gallery.is-preview { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:12px; }
+.idea-image-gallery .idea-image-card { margin:0; }
+.idea-image-gallery.is-preview .idea-image-card { display:flex; align-items:center; justify-content:center; height:120px; }
+.idea-image-gallery.is-preview img { max-height:100%; }
+.idea-image-more { display:grid; place-items:center; height:120px; border-radius:18px; background:var(--bg); color:var(--muted); font-size:24px; font-weight:800; }
+.idea-image-gallery.is-detail img { max-height:min(560px,50vh); }
+.idea-image-editor { min-width:0; padding:0; margin:0; border:0; }
+.idea-image-editor legend { padding:0; margin-bottom:10px; font-size:13px; font-weight:800; }
+.idea-image-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+.idea-image-edit-grid:empty, .idea-image-error:empty { display:none; }
+.idea-image-edit-item { position:relative; min-width:0; display:flex; align-items:center; justify-content:center; height:160px; padding:38px 10px 28px; border-radius:16px; background:var(--bg); }
+.idea-image-edit-item img { display:block; width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; }
+.idea-image-kind { position:absolute; bottom:7px; left:10px; color:var(--muted); font-size:11px; font-weight:700; }
+.idea-image-remove { position:absolute; top:3px; right:3px; width:44px; height:44px; border:0; border-radius:50%; background:#fff; color:var(--text); font-size:22px; }
+.idea-image-picker { display:grid; min-width:0; gap:8px; font-size:13px; font-weight:700; }
+.idea-image-picker input { min-width:0; max-width:100%; }
+.idea-image-error { margin:10px 0 0; color:#b91c1c; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .current-image-preview > span { display:block; padding:10px 12px 0; color:var(--muted); font-size:12px; font-weight:800; }
 .idea-status-board, .idea-item-status-choice.is-completed.active { background: var(--accent) !important; color:#1d1d1f !important; }
 .idea-status-draft { background: var(--text); color:#fff; }
