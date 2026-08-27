@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.28";
+const APP_VERSION = "23.30";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -55,6 +55,10 @@ const ACHIEVEMENT_TAG_GOAL_KEYS = {
   "競艇ニュース": "tag_news"
 };
 const IDEA_IMAGE_BUCKET = "idea-images";
+const IDEA_IMAGE_LIMIT = 10;
+const ideaImageEditors = new WeakMap();
+const pendingIdeaImageCleanup = new Set();
+let ideaImagesAvailable = true;
 const YOUTUBE_SYNC_FUNCTION = "sync-youtube-video";
 const YOUTUBE_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const YOUTUBE_SYNC_STALE_MS = 55 * 60 * 1000;
@@ -666,14 +670,207 @@ async function uploadIdeaImage(file, prefix = "idea") {
   if (!isUploadableImage(file)) return "";
   if (!String(file.type || "").startsWith("image/")) throw new Error("画像ファイルを選択してください。");
   const path = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2)}.${getFileExt(file.name)}`;
-  const { error } = await supabaseClient.storage.from(IDEA_IMAGE_BUCKET).upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type || "image/jpeg" });
-  if (error) throw error;
-  const { data: publicData } = supabaseClient.storage.from(IDEA_IMAGE_BUCKET).getPublicUrl(path);
-  return publicData?.publicUrl || "";
+  const bucket = supabaseClient.storage.from(IDEA_IMAGE_BUCKET);
+  const { data: publicData } = bucket.getPublicUrl(path);
+  if (!publicData?.publicUrl) throw new Error("画像URLを取得できませんでした。");
+  try {
+    const { error } = await bucket.upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type || "image/jpeg" });
+    if (error) throw error;
+    return publicData.publicUrl;
+  } catch (error) {
+    await cleanupIdeaImages([publicData.publicUrl]);
+    throw error;
+  }
 }
 function renderIdeaImage(imageUrl, label = "添付画像") {
   const safeUrl = safeExternalUrl(imageUrl);
   return safeUrl ? `<figure class="idea-image-card"><img src="${escapeHtml(safeUrl)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async" /></figure>` : "";
+}
+function normalizeIdeaImageUrls(legacyUrl, images = []) {
+  const urls = [...images]
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    .map(image => typeof image === "string" ? image : image.image_url)
+    .filter(url => typeof url === "string" && url);
+  if (legacyUrl && !urls.includes(legacyUrl)) urls.unshift(legacyUrl);
+  return [...new Set(urls)];
+}
+function getIdeaImageUrls(entity) {
+  return normalizeIdeaImageUrls(entity?.imageUrl, entity?.imageUrls || []);
+}
+function renderIdeaImages(entity, label, detail = false) {
+  const urls = getIdeaImageUrls(entity).filter(safeExternalUrl);
+  if (urls.length < 2) return renderIdeaImage(urls[0], label);
+  const visible = detail ? urls : urls.slice(0, urls.length > 4 ? 3 : 4);
+  return `<div class="idea-image-gallery ${detail ? "is-detail" : "is-preview"}">
+    ${visible.map((url, index) => renderIdeaImage(url, `${label} ${index + 1}`)).join("")}
+    ${!detail && urls.length > 4 ? `<span class="idea-image-more" aria-label="ほか${urls.length - 3}枚">+${urls.length - 3}</span>` : ""}
+  </div>`;
+}
+function renderIdeaImageEditorItems(entries) {
+  return entries.map((entry, index) => `<div class="idea-image-edit-item">
+    <img src="${escapeHtml(entry.previewUrl || entry.url)}" alt="添付画像 ${index + 1}" loading="lazy" decoding="async" />
+    <span class="idea-image-kind">${entry.file ? "追加予定" : "保存済み"}</span>
+    <button type="button" class="idea-image-remove" data-remove-idea-image="${index}" aria-label="画像${index + 1}を取り除く">×</button>
+  </div>`).join("");
+}
+function renderIdeaImageEditor(entity = null) {
+  const urls = getIdeaImageUrls(entity);
+  return `<fieldset class="idea-image-editor" data-image-editor
+    data-image-initial="${escapeHtml(JSON.stringify({ urls, updatedAt: entity?.updatedAt || null }))}">
+    <legend>添付画像（最大${IDEA_IMAGE_LIMIT}枚）</legend>
+    <p class="idea-image-selection-count" data-image-count aria-live="polite">保存予定 ${urls.length}枚</p>
+    <div class="idea-image-edit-grid" data-image-previews>${renderIdeaImageEditorItems(urls.map(url => ({ url })))}</div>
+    <label class="idea-image-picker">画像を追加
+      <input type="file" name="imageFiles" accept="image/*" multiple data-idea-image-input />
+    </label>
+    <p class="idea-image-error" data-image-error role="status" aria-live="polite"></p>
+  </fieldset>`;
+}
+function getIdeaImageEditorState(editor) {
+  if (!editor) throw new Error("画像フォームが見つかりません。画面を開き直してください。");
+  if (!ideaImageEditors.has(editor)) {
+    const initial = JSON.parse(editor.dataset.imageInitial);
+    ideaImageEditors.set(editor, {
+      existingImages: initial.urls, pendingImages: [], removedImages: new Set(),
+      updatedAt: initial.updatedAt, saving: false, cancelled: false
+    });
+  }
+  return ideaImageEditors.get(editor);
+}
+function getIdeaImageEditorEntries(state) {
+  return state.existingImages.filter(url => !state.removedImages.has(url))
+    .map(url => ({ url })).concat(state.pendingImages);
+}
+function refreshIdeaImageEditor(editor) {
+  const state = getIdeaImageEditorState(editor);
+  const entries = getIdeaImageEditorEntries(state);
+  editor.querySelector("[data-image-previews]").innerHTML = renderIdeaImageEditorItems(entries);
+  editor.querySelector("[data-image-count]").textContent = `保存予定 ${entries.length}枚（追加 ${state.pendingImages.length}枚・削除 ${state.removedImages.size}枚）`;
+}
+function removeIdeaImage(editor, index) {
+  const state = getIdeaImageEditorState(editor);
+  if (state.saving) return;
+  const entry = getIdeaImageEditorEntries(state)[index];
+  if (!entry) return;
+  if (entry.file) {
+    state.pendingImages.splice(state.pendingImages.indexOf(entry), 1);
+    URL.revokeObjectURL(entry.previewUrl);
+  } else state.removedImages.add(entry.url);
+  editor.querySelector("[data-image-error]").textContent = "";
+  refreshIdeaImageEditor(editor);
+}
+function releaseIdeaImageEditors(root) {
+  root.querySelectorAll("[data-image-editor]").forEach(editor => {
+    const state = ideaImageEditors.get(editor);
+    if (!state) return;
+    state.cancelled = true;
+    state.pendingImages.forEach(entry => URL.revokeObjectURL(entry.previewUrl));
+    ideaImageEditors.delete(editor);
+  });
+}
+function selectIdeaImages(input) {
+  const editor = input.closest("[data-image-editor]");
+  const state = getIdeaImageEditorState(editor);
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if (state.saving || !files.length) return;
+  const error = editor.querySelector("[data-image-error]");
+  error.textContent = "";
+  if (files.some(file => !isUploadableImage(file) || !file.type.startsWith("image/"))) {
+    error.textContent = "画像ファイルを選択してください。";
+    return;
+  }
+  const fingerprint = file => JSON.stringify([file.name, file.size, file.lastModified, file.type]);
+  const seen = new Set(state.pendingImages.map(entry => fingerprint(entry.file)));
+  let duplicates = 0;
+  const uniqueFiles = files.filter(file => {
+    const key = fingerprint(file);
+    if (seen.has(key)) { duplicates++; return false; }
+    seen.add(key);
+    return true;
+  });
+  const available = Math.max(0, IDEA_IMAGE_LIMIT - getIdeaImageEditorEntries(state).length);
+  const accepted = uniqueFiles.slice(0, available);
+  state.pendingImages.push(...accepted.map(file => ({ file, previewUrl: URL.createObjectURL(file) })));
+  error.textContent = [
+    duplicates ? `選択済みの同じ画像${duplicates}枚は追加しませんでした。` : "",
+    uniqueFiles.length > available ? `最大${IDEA_IMAGE_LIMIT}枚のため、超過${uniqueFiles.length - available}枚は追加しませんでした。` : ""
+  ].filter(Boolean).join(" ");
+  refreshIdeaImageEditor(editor);
+}
+function getIdeaImageStoragePath(url) {
+  try {
+    const parsed = new URL(url);
+    const prefix = `/storage/v1/object/public/${IDEA_IMAGE_BUCKET}/`;
+    if (parsed.origin !== new URL(SUPABASE_URL).origin || !parsed.pathname.startsWith(prefix)) return "";
+    const path = parsed.pathname.slice(prefix.length);
+    return /^(ideas|idea-items|idea)\/[A-Za-z0-9._-]+$/.test(path) ? path : "";
+  } catch { return ""; }
+}
+async function cleanupIdeaImages(urls = []) {
+  const key = `boat-manager:idea-image-cleanup:${SUPABASE_URL}`;
+  const validPath = path => typeof path === "string" && /^(ideas|idea-items|idea)\/[A-Za-z0-9._-]+$/.test(path);
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "[]");
+    if (Array.isArray(saved)) saved.filter(validPath).forEach(path => pendingIdeaImageCleanup.add(path));
+  } catch { /* Storage may be unavailable in private mode. */ }
+  urls.map(getIdeaImageStoragePath).filter(Boolean).forEach(path => pendingIdeaImageCleanup.add(path));
+  const persist = () => {
+    try { localStorage.setItem(key, JSON.stringify([...pendingIdeaImageCleanup])); } catch { /* Keep in memory. */ }
+  };
+  persist();
+  try {
+    const paths = [...pendingIdeaImageCleanup];
+    for (let offset = 0; offset < paths.length; offset += 100) {
+      const batch = paths.slice(offset, offset + 100);
+      const { error } = await supabaseClient.storage.from(IDEA_IMAGE_BUCKET).remove(batch);
+      if (error) break;
+      // RLS refuses to delete objects still referenced anywhere, including trash.
+      batch.forEach(path => pendingIdeaImageCleanup.delete(path));
+    }
+  } catch { /* A successful DB save must not be reported as failed by cleanup. */ }
+  persist();
+}
+function showIdeaSaveToast(message) {
+  showToast(pendingIdeaImageCleanup.size
+    ? `${message}。画像の後処理が残っています。次回保存時に再試行します。`
+    : message, pendingIdeaImageCleanup.size ? "error" : "success");
+}
+async function saveIdeaImageRecord(kind, id, values, editor) {
+  if (!ideaImagesAvailable) throw new Error("複数画像用SQLが未適用です。適用後に画面を再読み込みしてください。");
+  const state = getIdeaImageEditorState(editor);
+  if (state.saving) throw new Error("画像を保存中です。");
+  state.saving = true;
+  editor.disabled = true;
+  const uploaded = [];
+  let uploading = true;
+  try {
+    await cleanupIdeaImages();
+    for (const entry of state.pendingImages) {
+      if (state.cancelled) throw new Error("画像の保存をキャンセルしました。");
+      const url = await uploadIdeaImage(entry.file, kind === "idea" ? "ideas" : "idea-items");
+      if (!url) throw new Error("画像URLを取得できませんでした。");
+      uploaded.push(url);
+    }
+    if (state.cancelled) throw new Error("画像の保存をキャンセルしました。");
+    uploading = false;
+    const { data: row, error } = await supabaseClient.rpc("save_idea_with_images", {
+      p_kind: kind, p_id: id ? String(id) : null, p_values: values,
+      p_added_image_urls: uploaded, p_removed_image_urls: [...state.removedImages],
+      p_expected_image_urls: state.existingImages, p_expected_updated_at: state.updatedAt
+    });
+    if (error) throw error;
+    await cleanupIdeaImages([...state.removedImages]);
+    state.pendingImages.forEach(entry => URL.revokeObjectURL(entry.previewUrl));
+    ideaImageEditors.delete(editor);
+    return row;
+  } catch (error) {
+    await cleanupIdeaImages(uploaded);
+    throw new Error(`${uploading ? "画像のアップロードに失敗しました" : "企画と画像を保存できませんでした"}：${getErrorMessage(error)}`);
+  } finally {
+    state.saving = false;
+    editor.disabled = false;
+  }
 }
 function getJstDateParts(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
@@ -1151,6 +1348,7 @@ function mapIdea(row) {
     note: row.note || "",
     tags: row.tags || "",
     imageUrl: row.image_url || "",
+    imageUrls: normalizeIdeaImageUrls(row.image_url, row.idea_images || []),
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
     deletedAt: row.deleted_at || ""
@@ -1165,6 +1363,7 @@ function mapIdeaItem(row) {
     note: row.note || "",
     status: row.status === "実行済み" ? "実行済み" : "アイデア",
     imageUrl: row.image_url || "",
+    imageUrls: normalizeIdeaImageUrls(row.image_url, row.idea_images || []),
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || ""
   };
@@ -1309,18 +1508,22 @@ function refreshOpenDetailViews() {
 
   if (elements.ideaItemDetailModal.open && currentDetailIdeaItemId) {
     const ideaItem = getIdeaItemById(currentDetailIdeaItemId);
-    ideaItem
-      ? renderIdeaItemDetail(ideaItem)
-      : elements.ideaItemDetailModal.close();
+    if (!ideaItem) elements.ideaItemDetailModal.close();
+    else if (!elements.ideaItemDetailBody.querySelector("[data-idea-item-detail-edit-form]")) renderIdeaItemDetail(ideaItem);
   }
 
 }
 
-function selectNewestRows(tableName) {
-  return supabaseClient
-    .from(tableName)
-    .select("*")
+async function selectNewestRows(tableName) {
+  const withImages = ideaImagesAvailable && ["ideas", "idea_items"].includes(tableName);
+  const result = await supabaseClient.from(tableName)
+    .select(withImages ? "*, idea_images(*)" : "*")
     .order("created_at", { ascending: false });
+  if (withImages && ["PGRST200", "PGRST205", "42P01"].includes(result.error?.code)) {
+    ideaImagesAvailable = false;
+    return supabaseClient.from(tableName).select("*").order("created_at", { ascending: false });
+  }
+  return result;
 }
 
 function isMissingSnapshotRelation(error) {
@@ -2562,7 +2765,7 @@ function renderIdeas() {
                   <span>追加 ${formatDate(idea.createdAt?.slice(0,10))}</span>
                 </div>
 
-                ${renderIdeaImage(idea.imageUrl, `${idea.title}の企画画像`)}
+                ${renderIdeaImages(idea, `${idea.title}の企画画像`)}
                 ${renderTagChips(idea.tags)}
                 ${progress.total ? `
                   <div class="idea-item-progress-summary">
@@ -2792,8 +2995,7 @@ function openForm(type, id = "") {
         </label>
         <label>企画内容・メモ<textarea name="note">${formValue(idea.note)}</textarea></label>
         <label>タグ<input name="tags" value="${formValue(idea.tags)}" placeholder="選手紹介, 横動画 など" /></label>
-        ${idea.imageUrl ? `<div class="current-image-preview"><span>現在の画像</span><img src="${escapeHtml(idea.imageUrl)}" alt="現在の企画画像" /></div>` : ""}
-        <label>画像を添付<input type="file" name="imageFile" accept="image/*" /></label>
+        ${renderIdeaImageEditor(idea)}
       </div>
       <button class="form-submit" type="submit">${isEdit ? "変更を保存" : "追加する"}</button>
     `;
@@ -2990,20 +3192,14 @@ async function saveVideo(values, mode, id) {
 
 async function saveIdea(values, mode, id) {
   const existing = mode === "edit" ? getEntity("idea", id) : null;
-  const imageUrl = await uploadIdeaImage(values.imageFile, "ideas");
   const payload = {
     title: validateTitle(values.title, "企画名"),
     status: values.status,
     note: values.note || "",
-    tags: serializeTags(values.tags),
-    updated_at: new Date().toISOString()
+    tags: serializeTags(values.tags)
   };
-  if (imageUrl) payload.image_url = imageUrl;
-  const query = mode === "edit"
-    ? supabaseClient.from("ideas").update(payload).eq("id", id).select().single()
-    : supabaseClient.from("ideas").insert(payload).select().single();
-  const { data: row, error } = await query;
-  if (error) throw error;
+  const row = await saveIdeaImageRecord("idea", mode === "edit" ? id : null, payload,
+    elements.dynamicForm.querySelector("[data-image-editor]"));
   const details = existing && existing.status !== values.status ? `${existing.status} → ${values.status}` : "";
   await addActivityLog("idea", row.id, row.title, mode === "edit" ? "企画を編集" : "企画を追加", details);
   return row;
@@ -3043,7 +3239,7 @@ async function handleSubmit(event) {
     elements.formModal.close();
     await loadAllData({ silent: true });
 
-    showToast(
+    (type === "idea" ? showIdeaSaveToast : showToast)(
       moveResult
         ? `「${moveResult.targetIdea.title}」へ移動しました`
         : (mode === "edit" ? "変更を保存しました" : "追加しました")
@@ -3120,6 +3316,7 @@ async function permanentDeleteItem(type, id, button) {
   const { error } = await supabaseClient.from(table).delete().eq("id", id);
   if (error) showToast(`完全削除できませんでした：${getErrorMessage(error)}`, "error");
   else {
+    if (type === "idea") await cleanupIdeaImages(getIdeaImageUrls(item));
     await addActivityLog(type, id, item.title, `${entityLabel(type)}を完全削除`);
     await loadAllData({ silent: true });
     showToast("完全に削除しました");
@@ -3212,17 +3409,11 @@ async function addIdeaItem(parentIdeaId, values, submitButton) {
 
   try {
     const title = validateTitle(values.title, "アイデア名");
-    const imageUrl = await uploadIdeaImage(values.imageFile, "idea-items");
-    const insertPayload = { parent_idea_id: String(parentIdeaId), title, note: values.note || "", status: "アイデア", updated_at: new Date().toISOString() };
-    if (imageUrl) insertPayload.image_url = imageUrl;
-
-    const { data: row, error } = await supabaseClient
-      .from("idea_items")
-      .insert(insertPayload)
-      .select()
-      .single();
-
-    if (error) throw error;
+    const form = submitButton.closest("form");
+    const row = await saveIdeaImageRecord("idea_item", null, {
+      parent_idea_id: String(parentIdeaId), title, note: values.note || "", status: "アイデア"
+    }, form.querySelector("[data-image-editor]"));
+    form.reset();
 
     await addActivityLog(
       "idea",
@@ -3233,7 +3424,7 @@ async function addIdeaItem(parentIdeaId, values, submitButton) {
     );
 
     await loadAllData({ silent: true });
-    showToast("企画内アイデアを追加しました");
+    showIdeaSaveToast("企画内アイデアを追加しました");
   } catch (error) {
     console.error(error);
     showToast(`追加できませんでした：${getErrorMessage(error)}`, "error");
@@ -3255,23 +3446,15 @@ async function updateIdeaItem(itemId, values, submitButton) {
   setLoading(submitButton, true, "保存中...");
 
   try {
-    const imageUrl = await uploadIdeaImage(values.imageFile, "idea-items");
     const payload = {
       title: validateTitle(values.title, "アイデア名"),
       note: values.note || "",
       status: IDEA_STATUSES.includes(values.status)
         ? values.status
-        : "アイデア",
-      updated_at: new Date().toISOString()
+        : "アイデア"
     };
-    if (imageUrl) payload.image_url = imageUrl;
-
-    const { error } = await supabaseClient
-      .from("idea_items")
-      .update(payload)
-      .eq("id", itemId);
-
-    if (error) throw error;
+    await saveIdeaImageRecord("idea_item", itemId, payload,
+      submitButton.closest("form").querySelector("[data-image-editor]"));
 
     if (parentIdea) {
       await addActivityLog(
@@ -3291,7 +3474,7 @@ async function updateIdeaItem(itemId, values, submitButton) {
       renderIdeaItemDetail(updatedItem);
     }
 
-    showToast("企画内アイデアを更新しました");
+    showIdeaSaveToast("企画内アイデアを更新しました");
   } catch (error) {
     console.error(error);
     showToast(`更新できませんでした：${getErrorMessage(error)}`, "error");
@@ -3377,6 +3560,8 @@ async function deleteIdeaItem(itemId, button) {
       .eq("id", itemId);
 
     if (error) throw error;
+
+    await cleanupIdeaImages(getIdeaImageUrls(item));
 
     const parentIdea = findById(data.ideas, item.parentIdeaId);
 
@@ -3564,7 +3749,7 @@ function renderIdeaItemsSection(idea) {
             placeholder="必要な場合だけ入力"
           ></textarea>
         </label>
-        <label>画像を添付<input type="file" name="imageFile" accept="image/*" /></label>
+        ${renderIdeaImageEditor()}
 
         <button type="submit" class="primary-btn">＋ アイデアを追加</button>
       </form>
@@ -3600,7 +3785,7 @@ function renderIdeaItemsSection(idea) {
                   追加 ${formatDate(item.createdAt?.slice(0, 10))}
                 </span>
               </div>
-              ${renderIdeaImage(item.imageUrl, `${item.title}の画像`)}
+              ${renderIdeaImages(item, `${item.title}の画像`)}
               ${item.note ? `
                 <p class="nested-idea-note-preview">${escapeHtml(item.note)}</p>
               ` : ""}
@@ -3624,9 +3809,10 @@ function getIdeaItemById(id) {
 function renderIdeaItemDetail(item) {
   const parentIdea = findById(data.ideas, item.parentIdeaId);
 
+  releaseIdeaImageEditors(elements.ideaItemDetailBody);
   elements.ideaItemDetailTitle.textContent = item.title;
   elements.ideaItemDetailBody.innerHTML = `
-    ${renderIdeaImage(item.imageUrl, `${item.title}の画像`)}
+    ${renderIdeaImages(item, `${item.title}の画像`, true)}
 
     <div class="detail-summary">
       <div class="detail-field">
@@ -3659,6 +3845,7 @@ function renderIdeaItemDetail(item) {
 }
 
 function renderIdeaItemDetailEdit(item) {
+  releaseIdeaImageEditors(elements.ideaItemDetailBody);
   elements.ideaItemDetailTitle.textContent = "企画内アイデアを編集";
   elements.ideaItemDetailActions.classList.add("is-hidden");
 
@@ -3682,8 +3869,7 @@ function renderIdeaItemDetailEdit(item) {
         メモ
         <textarea name="note" rows="7">${formValue(item.note)}</textarea>
       </label>
-      ${item.imageUrl ? `<div class="current-image-preview"><span>現在の画像</span><img src="${escapeHtml(item.imageUrl)}" alt="現在の画像" /></div>` : ""}
-      <label>画像を添付<input type="file" name="imageFile" accept="image/*" /></label>
+      ${renderIdeaImageEditor(item)}
 
       <label>
         ステータス
@@ -3722,6 +3908,10 @@ function openIdeaItemDetail(id) {
 }
 
 function renderIdeaDetail(idea) {
+  const draftEditor = elements.ideaDetailBody.querySelector("[data-image-editor]");
+  const draftState = draftEditor && ideaImageEditors.get(draftEditor);
+  if (draftState?.pendingImages.length && !draftState.cancelled) return;
+  releaseIdeaImageEditors(elements.ideaDetailBody);
   elements.ideaDetailTitle.textContent = idea.title;
 
   const statusSection = idea.status === "実行済み"
@@ -3736,7 +3926,7 @@ function renderIdeaDetail(idea) {
     `;
 
   elements.ideaDetailBody.innerHTML = `
-    ${renderIdeaImage(idea.imageUrl, `${idea.title}の企画画像`)}
+    ${renderIdeaImages(idea, `${idea.title}の企画画像`, true)}
     ${statusSection}
     ${renderTagChips(idea.tags)}
 
@@ -4257,6 +4447,14 @@ function setupEventListeners() {
   elements.logoutButton.addEventListener("click", logout);
 
   document.addEventListener("click", event => {
+    const removeImageButton = event.target.closest("[data-remove-idea-image]");
+    if (removeImageButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const editor = removeImageButton.closest("[data-image-editor]");
+      removeIdeaImage(editor, Number(removeImageButton.dataset.removeIdeaImage));
+      return;
+    }
     const pageButton = event.target.closest("[data-page]");
     if (pageButton) {
       event.preventDefault();
@@ -4508,6 +4706,11 @@ function setupEventListeners() {
   );
 
   document.addEventListener("change", event => {
+    const imageInput = event.target.closest("[data-idea-image-input]");
+    if (imageInput) {
+      selectIdeaImages(imageInput);
+      return;
+    }
     const videoSelect = event.target.closest("[data-video-status-id]");
     if (videoSelect) {
       updateVideoStatus(videoSelect.dataset.videoStatusId, videoSelect.value, videoSelect);
@@ -4682,6 +4885,7 @@ function setupEventListeners() {
     });
 
     dialog.addEventListener("close", () => {
+      releaseIdeaImageEditors(dialog);
       delete dialog.dataset.openSequence;
       requestAnimationFrame(syncDialogScrollLock);
     });
