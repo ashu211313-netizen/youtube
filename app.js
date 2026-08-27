@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.29";
+const APP_VERSION = "23.30";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -718,6 +718,7 @@ function renderIdeaImageEditor(entity = null) {
   return `<fieldset class="idea-image-editor" data-image-editor
     data-image-initial="${escapeHtml(JSON.stringify({ urls, updatedAt: entity?.updatedAt || null }))}">
     <legend>添付画像（最大${IDEA_IMAGE_LIMIT}枚）</legend>
+    <p class="idea-image-selection-count" data-image-count aria-live="polite">保存予定 ${urls.length}枚</p>
     <div class="idea-image-edit-grid" data-image-previews>${renderIdeaImageEditorItems(urls.map(url => ({ url })))}</div>
     <label class="idea-image-picker">画像を追加
       <input type="file" name="imageFiles" accept="image/*" multiple data-idea-image-input />
@@ -730,22 +731,40 @@ function getIdeaImageEditorState(editor) {
   if (!ideaImageEditors.has(editor)) {
     const initial = JSON.parse(editor.dataset.imageInitial);
     ideaImageEditors.set(editor, {
-      originalUrls: initial.urls, updatedAt: initial.updatedAt,
-      entries: initial.urls.map(url => ({ url })), saving: false, cancelled: false
+      existingImages: initial.urls, pendingImages: [], removedImages: new Set(),
+      updatedAt: initial.updatedAt, saving: false, cancelled: false
     });
   }
   return ideaImageEditors.get(editor);
 }
+function getIdeaImageEditorEntries(state) {
+  return state.existingImages.filter(url => !state.removedImages.has(url))
+    .map(url => ({ url })).concat(state.pendingImages);
+}
 function refreshIdeaImageEditor(editor) {
   const state = getIdeaImageEditorState(editor);
-  editor.querySelector("[data-image-previews]").innerHTML = renderIdeaImageEditorItems(state.entries);
+  const entries = getIdeaImageEditorEntries(state);
+  editor.querySelector("[data-image-previews]").innerHTML = renderIdeaImageEditorItems(entries);
+  editor.querySelector("[data-image-count]").textContent = `保存予定 ${entries.length}枚（追加 ${state.pendingImages.length}枚・削除 ${state.removedImages.size}枚）`;
+}
+function removeIdeaImage(editor, index) {
+  const state = getIdeaImageEditorState(editor);
+  if (state.saving) return;
+  const entry = getIdeaImageEditorEntries(state)[index];
+  if (!entry) return;
+  if (entry.file) {
+    state.pendingImages.splice(state.pendingImages.indexOf(entry), 1);
+    URL.revokeObjectURL(entry.previewUrl);
+  } else state.removedImages.add(entry.url);
+  editor.querySelector("[data-image-error]").textContent = "";
+  refreshIdeaImageEditor(editor);
 }
 function releaseIdeaImageEditors(root) {
   root.querySelectorAll("[data-image-editor]").forEach(editor => {
     const state = ideaImageEditors.get(editor);
     if (!state) return;
     state.cancelled = true;
-    state.entries.forEach(entry => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
+    state.pendingImages.forEach(entry => URL.revokeObjectURL(entry.previewUrl));
     ideaImageEditors.delete(editor);
   });
 }
@@ -757,15 +776,26 @@ function selectIdeaImages(input) {
   if (state.saving || !files.length) return;
   const error = editor.querySelector("[data-image-error]");
   error.textContent = "";
-  if (state.entries.length + files.length > IDEA_IMAGE_LIMIT) {
-    error.textContent = `画像は最大${IDEA_IMAGE_LIMIT}枚です。不要な画像を取り除いてください。`;
-    return;
-  }
   if (files.some(file => !isUploadableImage(file) || !file.type.startsWith("image/"))) {
     error.textContent = "画像ファイルを選択してください。";
     return;
   }
-  state.entries.push(...files.map(file => ({ file, previewUrl: URL.createObjectURL(file) })));
+  const fingerprint = file => JSON.stringify([file.name, file.size, file.lastModified, file.type]);
+  const seen = new Set(state.pendingImages.map(entry => fingerprint(entry.file)));
+  let duplicates = 0;
+  const uniqueFiles = files.filter(file => {
+    const key = fingerprint(file);
+    if (seen.has(key)) { duplicates++; return false; }
+    seen.add(key);
+    return true;
+  });
+  const available = Math.max(0, IDEA_IMAGE_LIMIT - getIdeaImageEditorEntries(state).length);
+  const accepted = uniqueFiles.slice(0, available);
+  state.pendingImages.push(...accepted.map(file => ({ file, previewUrl: URL.createObjectURL(file) })));
+  error.textContent = [
+    duplicates ? `選択済みの同じ画像${duplicates}枚は追加しませんでした。` : "",
+    uniqueFiles.length > available ? `最大${IDEA_IMAGE_LIMIT}枚のため、超過${uniqueFiles.length - available}枚は追加しませんでした。` : ""
+  ].filter(Boolean).join(" ");
   refreshIdeaImageEditor(editor);
 }
 function getIdeaImageStoragePath(url) {
@@ -816,25 +846,22 @@ async function saveIdeaImageRecord(kind, id, values, editor) {
   let uploading = true;
   try {
     await cleanupIdeaImages();
-    const urls = [];
-    for (const entry of state.entries) {
+    for (const entry of state.pendingImages) {
       if (state.cancelled) throw new Error("画像の保存をキャンセルしました。");
-      if (entry.file) {
-        const url = await uploadIdeaImage(entry.file, kind === "idea" ? "ideas" : "idea-items");
-        if (!url) throw new Error("画像URLを取得できませんでした。");
-        uploaded.push(url);
-        urls.push(url);
-      } else urls.push(entry.url);
+      const url = await uploadIdeaImage(entry.file, kind === "idea" ? "ideas" : "idea-items");
+      if (!url) throw new Error("画像URLを取得できませんでした。");
+      uploaded.push(url);
     }
     if (state.cancelled) throw new Error("画像の保存をキャンセルしました。");
     uploading = false;
     const { data: row, error } = await supabaseClient.rpc("save_idea_with_images", {
-      p_kind: kind, p_id: id ? String(id) : null, p_values: values, p_image_urls: urls,
-      p_expected_image_urls: state.originalUrls, p_expected_updated_at: state.updatedAt
+      p_kind: kind, p_id: id ? String(id) : null, p_values: values,
+      p_added_image_urls: uploaded, p_removed_image_urls: [...state.removedImages],
+      p_expected_image_urls: state.existingImages, p_expected_updated_at: state.updatedAt
     });
     if (error) throw error;
-    await cleanupIdeaImages(state.originalUrls.filter(url => !urls.includes(url)));
-    state.entries.forEach(entry => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
+    await cleanupIdeaImages([...state.removedImages]);
+    state.pendingImages.forEach(entry => URL.revokeObjectURL(entry.previewUrl));
     ideaImageEditors.delete(editor);
     return row;
   } catch (error) {
@@ -3883,7 +3910,7 @@ function openIdeaItemDetail(id) {
 function renderIdeaDetail(idea) {
   const draftEditor = elements.ideaDetailBody.querySelector("[data-image-editor]");
   const draftState = draftEditor && ideaImageEditors.get(draftEditor);
-  if (draftState?.entries.some(entry => entry.file) && !draftState.cancelled) return;
+  if (draftState?.pendingImages.length && !draftState.cancelled) return;
   releaseIdeaImageEditors(elements.ideaDetailBody);
   elements.ideaDetailTitle.textContent = idea.title;
 
@@ -4425,12 +4452,7 @@ function setupEventListeners() {
       event.preventDefault();
       event.stopPropagation();
       const editor = removeImageButton.closest("[data-image-editor]");
-      const state = getIdeaImageEditorState(editor);
-      if (state.saving) return;
-      const [removed] = state.entries.splice(Number(removeImageButton.dataset.removeIdeaImage), 1);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-      editor.querySelector("[data-image-error]").textContent = "";
-      refreshIdeaImageEditor(editor);
+      removeIdeaImage(editor, Number(removeImageButton.dataset.removeIdeaImage));
       return;
     }
     const pageButton = event.target.closest("[data-page]");

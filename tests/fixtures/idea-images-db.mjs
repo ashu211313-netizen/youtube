@@ -8,6 +8,8 @@ export async function createDatabase() {
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
+    -- Match the live project's explicit anonymous function default grant.
+    alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;
     create schema auth; create schema storage;
     grant usage on schema public,auth,storage to authenticated,anon,service_role;
     create function auth.uid() returns uuid language sql stable as $$
@@ -36,5 +38,8 @@ export async function createDatabase() {
   return db;
 }
 export async function save(db, kind, id, values, urls, oldUrls=[], oldTime=null) {
-  return (await db.query('select public.save_idea_with_images($1,$2,$3,$4,$5,$6) result',[kind,id,JSON.stringify(values),urls,oldUrls,oldTime])).rows[0].result;
+  return appendImages(db,kind,id,values,urls.filter(url=>!oldUrls.includes(url)),oldUrls.filter(url=>!urls.includes(url)),oldUrls,oldTime);
+}
+export async function appendImages(db,kind,id,values,added=[],removed=[],oldUrls=[],oldTime=null) {
+  return (await db.query('select public.save_idea_with_images($1,$2,$3,$4,$5,$6,$7) result',[kind,id,JSON.stringify(values),added,removed,oldUrls,oldTime])).rows[0].result;
 }

@@ -16,7 +16,7 @@ function fixture(initial = []) {
   const mock = { objects: new Map(initial.map(u => [u.slice(base.length), true])), dbUrls: [...initial], uploaded: 0, rpcCalls: 0, removed: [], failUpload: 0, failDb: false, lostResponse: false, failCleanup: false };
   const stored = new Map();
   const nodes = new Map();
-  const editorNodes = { '[data-image-error]': { textContent: '' }, '[data-image-previews]': { innerHTML: '' } };
+  const editorNodes = { '[data-image-error]': { textContent: '' }, '[data-image-previews]': { innerHTML: '' }, '[data-image-count]': { textContent: '' } };
   const editor = { disabled: false, dataset: { imageInitial: JSON.stringify({ urls: initial, updatedAt: null }) }, querySelector: selector => editorNodes[selector] };
   const client = {
     storage: { from() { return {
@@ -37,7 +37,8 @@ function fixture(initial = []) {
     async rpc(name, payload) {
       assert.equal(name, 'save_idea_with_images'); mock.rpcCalls++; mock.payload = payload;
       if (mock.failDb) return { error: new Error('database rejected save') };
-      mock.dbUrls = [...payload.p_image_urls];
+      assert(!Object.hasOwn(payload,'p_image_urls'),'client must not send a replacement image list');
+      mock.dbUrls = mock.dbUrls.filter(url=>!payload.p_removed_image_urls.includes(url)).concat(payload.p_added_image_urls);
       if (mock.lostResponse) return { error: new Error('response lost after commit') };
       return { data: { id: 'saved', image_url: mock.dbUrls[0] || null }, error: null };
     }
@@ -50,7 +51,7 @@ function fixture(initial = []) {
   });
   vm.runInContext(source.slice(0, source.lastIndexOf('\ninitialize().catch')), context);
   const run = code => vm.runInContext(code, context);
-  const files = count => run(`getIdeaImageEditorState(editor).entries.push(...Array.from({length:${count}},(_,i)=>({file:{name:'file'+i+'.png',size:100,type:'image/png'}})));`);
+  const files = count => run(`getIdeaImageEditorState(editor).pendingImages.push(...Array.from({length:${count}},(_,i)=>({file:{name:'file'+i+'.png',size:100,type:'image/png'},previewUrl:'blob:fixture-'+i})));`);
   const save = () => run(`saveIdeaImageRecord('idea','fixture',{title:'テスト',status:'アイデア'},editor)`);
   return { mock, run, files, save, editor };
 }
@@ -87,36 +88,63 @@ function fixture(initial = []) {
     assert.equal(f.mock.dbUrls.length,3); assert.equal(f.mock.dbUrls[0],url('legacy')); assert.equal(f.mock.uploaded,2);
   });
   await test('remove B + add D/E keeps A/C and deletes B only after commit', async () => {
-    const f=fixture([url('A'),url('B'),url('C')]); f.run('getIdeaImageEditorState(editor).entries.splice(1,1)'); f.files(2);
+    const f=fixture([url('A'),url('B'),url('C')]); f.run('removeIdeaImage(editor,1)'); f.files(2);
     assert(f.mock.objects.has('ideas/B.png')); await f.save();
     assert.deepEqual(f.mock.dbUrls.slice(0,2),[url('A'),url('C')]); assert.equal(f.mock.dbUrls.length,4);
     assert(!f.mock.objects.has('ideas/B.png')); assert(f.mock.objects.has('ideas/A.png')); assert(f.mock.objects.has('ideas/C.png'));
   });
   await test('remove all images is an explicit empty save', async () => {
-    const f=fixture([url('A')]); f.run('getIdeaImageEditorState(editor).entries=[]'); await f.save();
+    const f=fixture([url('A')]); f.run('removeIdeaImage(editor,0)'); await f.save();
     assert.equal(f.mock.dbUrls.length,0); assert.equal(f.mock.objects.size,0);
   });
   await test('cancel before save keeps existing Storage images', async () => {
     const f=fixture([url('A')]); f.run('getIdeaImageEditorState(editor).cancelled=true');
     await assert.rejects(f.save(),/キャンセル/); assert(f.mock.objects.has('ideas/A.png')); assert.equal(f.mock.rpcCalls,0);
   });
-  await test('file selection appends previews; limit/non-images keep the previous selection', () => {
+  await test('repeated FileList selections append; duplicates/overflow are skipped without replacing images', () => {
     const f=fixture([url('A')]);
     f.run(`var input = {files:[],value:'',closest:()=>editor};
-      var file = Object.assign(new Blob(['image'],{type:'image/png'}),{name:'test.png'});
-      input.files=[file,file]; selectIdeaImages(input);`);
-    assert.equal(f.run('getIdeaImageEditorState(editor).entries.length'),3);
+      var file = Object.assign(new Blob(['image'],{type:'image/png'}),{name:'test.png',lastModified:1});
+      var file2 = Object.assign(new Blob(['image'],{type:'image/png'}),{name:'test.png',lastModified:2});
+      input.files=[file]; selectIdeaImages(input); input.files=[file2]; selectIdeaImages(input);`);
+    assert.equal(f.run('getIdeaImageEditorEntries(getIdeaImageEditorState(editor)).length'),3);
     assert(f.run('editor.querySelector("[data-image-previews]").innerHTML').includes('追加予定'));
-    f.run('input.files=Array(8).fill(file); selectIdeaImages(input)');
-    assert.equal(f.run('getIdeaImageEditorState(editor).entries.length'),3);
-    assert.match(f.run('editor.querySelector("[data-image-error]").textContent'),/最大10枚/);
+    f.run('input.files=[file,file2]; selectIdeaImages(input)');
+    assert.equal(f.run('getIdeaImageEditorEntries(getIdeaImageEditorState(editor)).length'),3);
+    assert.match(f.run('editor.querySelector("[data-image-error]").textContent'),/同じ画像2枚/);
+    f.run(`input.files=Array.from({length:9},(_,i)=>Object.assign(new Blob(['image'],{type:'image/png'}),{name:'extra'+i+'.png',lastModified:3})); selectIdeaImages(input)`);
+    assert.equal(f.run('getIdeaImageEditorEntries(getIdeaImageEditorState(editor)).length'),10);
+    assert.match(f.run('editor.querySelector("[data-image-error]").textContent'),/超過2枚/);
     f.run(`input.files=[{name:'wrong.txt',size:1,type:'text/plain'}]; selectIdeaImages(input)`);
-    assert.equal(f.run('getIdeaImageEditorState(editor).entries.length'),3);
+    assert.equal(f.run('getIdeaImageEditorEntries(getIdeaImageEditorState(editor)).length'),10);
     assert.match(f.run('editor.querySelector("[data-image-error]").textContent'),/画像ファイル/);
     f.run('var beforeClose = getIdeaImageEditorState(editor); releaseIdeaImageEditors({querySelectorAll:()=>[editor]})');
     assert.equal(f.run('beforeClose.cancelled'),true);
     assert.equal(f.mock.rpcCalls,0); assert.equal(f.mock.uploaded,0);
     assert(f.mock.objects.has('ideas/A.png'));
+  });
+  await test('three separate selections persist all files once, not only the last FileList', async () => {
+    const f=fixture();
+    f.run(`var input = {files:[],value:'',closest:()=>editor};
+      for (const name of ['A','B','C']) {
+        input.files=[Object.assign(new Blob([name],{type:'image/png'}),{name:name+'.png',lastModified:1})];
+        selectIdeaImages(input);
+      }`);
+    assert.match(f.run('editor.querySelector("[data-image-count]").textContent'),/保存予定 3枚/);
+    await f.save();
+    assert.equal(f.mock.uploaded,3); assert.equal(f.mock.dbUrls.length,3);
+    assert.equal(new Set(f.mock.dbUrls).size,3); assert.equal(f.mock.objects.size,3);
+  });
+  await test('8 existing + 5 selected accepts 2 and reports 3 skipped; existing images are never reuploaded', async () => {
+    const existing=Array.from({length:8},(_,i)=>url('existing'+i));
+    const f=fixture(existing);
+    f.run(`var input = {value:'',closest:()=>editor,
+      files:Array.from({length:5},(_,i)=>Object.assign(new Blob(['image'],{type:'image/png'}),{name:'new'+i+'.png',lastModified:1}))};
+      selectIdeaImages(input);`);
+    assert.match(f.run('editor.querySelector("[data-image-error]").textContent'),/超過3枚/);
+    await f.save();
+    assert.equal(f.mock.dbUrls.length,10); assert.equal(f.mock.uploaded,2);
+    assert.deepEqual(f.mock.dbUrls.slice(0,8),existing);
   });
   await test('partial upload failure cleans successful/ambiguous new uploads and keeps old images', async () => {
     const f=fixture([url('old')]); f.files(5); f.mock.failUpload=3;
@@ -132,7 +160,7 @@ function fixture(initial = []) {
     await assert.rejects(f.save(),/保存できません/); assert.equal(f.mock.objects.size,3);
   });
   await test('cleanup failure is queued; subsequent attempt retries', async () => {
-    const f=fixture([url('A'),url('B')]); f.run('getIdeaImageEditorState(editor).entries.splice(1,1)'); f.mock.failCleanup=true;
+    const f=fixture([url('A'),url('B')]); f.run('removeIdeaImage(editor,1)'); f.mock.failCleanup=true;
     await f.save(); assert.equal(f.mock.dbUrls.length,1); assert(f.mock.objects.has('ideas/B.png'));
     assert.equal(f.run('pendingIdeaImageCleanup.size'),1); f.mock.failCleanup=false;
     await f.run('cleanupIdeaImages()'); assert(!f.mock.objects.has('ideas/B.png')); assert.equal(f.run('pendingIdeaImageCleanup.size'),0);

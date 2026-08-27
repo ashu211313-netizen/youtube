@@ -8,6 +8,17 @@ let checks = 0;
 const ok = (name, condition) => { assert(condition,name); checks++; console.log(`PASS ${name}`); };
 const url = n => `https://project.supabase.co/storage/v1/object/public/idea-images/ideas/${n}.png`;
 const values = { title:'画像テスト',status:'アイデア',note:'メモ',tags:'テスト' };
+try {
+  await db.exec(await readFile(new URL('./fixtures/idea-images-append-check.sql',import.meta.url),'utf8'));
+  assert.fail('Append test must roll back');
+} catch (error) {
+  assert.match(error.message,/IDEA_IMAGES_QA_OK:/);
+  const result=JSON.parse(error.message.split('IDEA_IMAGES_QA_OK:')[1]);
+  for(const item of result) {
+    assert.deepEqual(item.counts,[1,2,3,2,4]);
+    ok(`${item.kind}: A → AB → ABC → AC → ACDE freshly queried; retained row ID; second-user read`,item.retained_id&&item.second_user_count===4);
+  }
+}
 ok('new attachment table has RLS enabled',(await db.query("select relrowsecurity from pg_class where oid='public.idea_images'::regclass")).rows[0].relrowsecurity);
 ok('save RPC uses invoker rights and a fixed search path',(await db.query("select not prosecdef and proconfig @> array['search_path=\"\"'] as safe from pg_proc where proname='save_idea_with_images'")).rows[0].safe);
 const legacy = (await db.query('insert into public.ideas(title,image_url) values($1,$2) returning *',['旧画像',url('legacy')])).rows[0];

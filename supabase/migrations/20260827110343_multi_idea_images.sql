@@ -47,7 +47,7 @@ returns boolean language sql stable security invoker set search_path = '' as $$
     and not exists (select 1 from public.idea_items i
       where public.idea_image_object_path(i.image_url) = p_path);
 $$;
-revoke all on function public.idea_image_object_path(text), public.idea_image_is_unreferenced(text) from public;
+revoke all on function public.idea_image_object_path(text), public.idea_image_is_unreferenced(text) from public, anon;
 grant execute on function public.idea_image_object_path(text), public.idea_image_is_unreferenced(text) to authenticated, service_role;
 
 -- Storage API performs the physical deletion; SQL never deletes storage.objects.
@@ -63,13 +63,15 @@ do $$ begin
 end $$;
 
 -- Parent fields, legacy first-image mirror and ordered attachments commit together.
+-- The client sends additions and explicit removals, never a replacement image list.
 -- Invoker rights preserve existing table RLS. The expected snapshot prevents a
 -- stale editor from removing images added by another user while editing.
 create or replace function public.save_idea_with_images(
   p_kind text,
   p_id text,
   p_values jsonb,
-  p_image_urls text[],
+  p_added_image_urls text[],
+  p_removed_image_urls text[],
   p_expected_image_urls text[],
   p_expected_updated_at timestamptz
 )
@@ -81,7 +83,8 @@ declare
   v_item_id bigint;
   v_legacy text;
   v_updated_at timestamptz;
-  v_current_urls text[];
+  v_current_urls text[] := array[]::text[];
+  v_image_urls text[];
   v_url text;
   v_position integer := 0;
   v_result jsonb;
@@ -90,9 +93,9 @@ begin
   if p_kind not in ('idea', 'idea_item') or p_kind is null then raise exception '画像の保存先が不正です。'; end if;
   if nullif(btrim(p_values->>'title'), '') is null then raise exception '企画名を入力してください。'; end if;
   if coalesce(p_values->>'status', '') not in ('アイデア', '実行済み') then raise exception 'ステータスが不正です。'; end if;
-  if p_image_urls is null or cardinality(p_image_urls) > 10 then raise exception '画像は最大10枚です。'; end if;
-  if exists (select 1 from unnest(p_image_urls) u where u is null or u !~* '^https?://' or length(u) > 4096)
-    or cardinality(p_image_urls) <> (select count(distinct u) from unnest(p_image_urls) u) then
+  if p_added_image_urls is null or p_removed_image_urls is null then raise exception '画像の追加・削除指定が不正です。'; end if;
+  if exists (select 1 from unnest(p_added_image_urls) u where u is null or u !~* '^https?://' or length(u) > 4096)
+    or cardinality(p_added_image_urls) <> (select count(distinct u) from unnest(p_added_image_urls) u) then
     raise exception '画像URLが不正、または重複しています。';
   end if;
 
@@ -118,17 +121,29 @@ begin
     end if;
   end if;
 
+  if exists (select 1 from unnest(p_removed_image_urls) u where u is null or not (u = any(v_current_urls))) then
+    raise exception '保存済みでない画像は削除できません。';
+  end if;
+  if exists (select 1 from unnest(p_added_image_urls) u where u = any(v_current_urls)) then
+    raise exception '保存済み画像を再追加することはできません。';
+  end if;
+  select coalesce(array_agg(u order by position), array[]::text[]) into v_image_urls
+    from unnest(v_current_urls) with ordinality as images(u, position)
+    where not (u = any(p_removed_image_urls));
+  v_image_urls := v_image_urls || p_added_image_urls;
+  if cardinality(v_image_urls) > 10 then raise exception '画像は最大10枚です。'; end if;
+
   if p_kind = 'idea' then
     if p_id is null then
       insert into public.ideas(title, status, note, tags, image_url, updated_at)
         values (btrim(p_values->>'title'), p_values->>'status', coalesce(p_values->>'note',''),
-          coalesce(p_values->>'tags',''), p_image_urls[1], clock_timestamp())
+          coalesce(p_values->>'tags',''), v_image_urls[1], clock_timestamp())
         returning * into v_idea;
       v_idea_id := v_idea.id;
     else
       update public.ideas set title = btrim(p_values->>'title'), status = p_values->>'status',
         note = coalesce(p_values->>'note',''), tags = coalesce(p_values->>'tags',''),
-        image_url = p_image_urls[1], updated_at = clock_timestamp()
+        image_url = v_image_urls[1], updated_at = clock_timestamp()
         where id = v_idea_id returning * into v_idea;
       if not found then raise exception '企画を更新できません。' using errcode = '42501'; end if;
     end if;
@@ -140,21 +155,21 @@ begin
       if not found then raise exception '追加先の企画ボードが見つかりません。'; end if;
       insert into public.idea_items(parent_idea_id, title, status, note, image_url, updated_at)
         values (p_values->>'parent_idea_id', btrim(p_values->>'title'), p_values->>'status',
-          coalesce(p_values->>'note',''), p_image_urls[1], clock_timestamp()) returning * into v_item;
+          coalesce(p_values->>'note',''), v_image_urls[1], clock_timestamp()) returning * into v_item;
       v_item_id := v_item.id;
     else
       update public.idea_items set title = btrim(p_values->>'title'), status = p_values->>'status',
-        note = coalesce(p_values->>'note',''), image_url = p_image_urls[1], updated_at = clock_timestamp()
+        note = coalesce(p_values->>'note',''), image_url = v_image_urls[1], updated_at = clock_timestamp()
         where id = v_item_id returning * into v_item;
       if not found then raise exception '企画内アイデアを更新できません。' using errcode = '42501'; end if;
     end if;
     v_result := to_jsonb(v_item);
   end if;
 
-  -- Only attachments removed from this explicitly saved record are detached.
+  -- A missing client file is never interpreted as a deletion.
   delete from public.idea_images where (idea_id = v_idea_id or idea_item_id = v_item_id)
-    and not (image_url = any(p_image_urls));
-  foreach v_url in array p_image_urls loop
+    and image_url = any(p_removed_image_urls);
+  foreach v_url in array v_image_urls loop
     if p_kind = 'idea' then
       insert into public.idea_images(idea_id, image_url, storage_path, sort_order)
         values (v_idea_id, v_url, public.idea_image_object_path(v_url), v_position)
@@ -169,8 +184,8 @@ begin
   return v_result;
 end;
 $$;
-revoke all on function public.save_idea_with_images(text,text,jsonb,text[],text[],timestamptz) from public;
-grant execute on function public.save_idea_with_images(text,text,jsonb,text[],text[],timestamptz) to authenticated;
+revoke all on function public.save_idea_with_images(text,text,jsonb,text[],text[],text[],timestamptz) from public, anon;
+grant execute on function public.save_idea_with_images(text,text,jsonb,text[],text[],text[],timestamptz) to authenticated;
 
 -- Keep the existing explicit move behavior, transferring all attachments before
 -- the source record is removed. No move or deletion is executed by this migration.
@@ -201,7 +216,7 @@ begin
   return jsonb_build_object('item_id',v_new_item_id,'parent_idea_id',p_target_idea_id,'title',v_source.title);
 end;
 $$;
-revoke all on function public.move_idea_to_completed_parent(text,text) from public;
+revoke all on function public.move_idea_to_completed_parent(text,text) from public, anon;
 grant execute on function public.move_idea_to_completed_parent(text,text) to authenticated;
 
 -- Existing parent UPDATE/INSERT events carry the attachment transaction through
