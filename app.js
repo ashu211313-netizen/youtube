@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.27";
+const APP_VERSION = "23.28";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -3626,6 +3626,8 @@ function renderIdeaItemDetail(item) {
 
   elements.ideaItemDetailTitle.textContent = item.title;
   elements.ideaItemDetailBody.innerHTML = `
+    ${renderIdeaImage(item.imageUrl, `${item.title}の画像`)}
+
     <div class="detail-summary">
       <div class="detail-field">
         <span>ステータス</span>
@@ -3734,9 +3736,8 @@ function renderIdeaDetail(idea) {
     `;
 
   elements.ideaDetailBody.innerHTML = `
-    ${statusSection}
-
     ${renderIdeaImage(idea.imageUrl, `${idea.title}の企画画像`)}
+    ${statusSection}
     ${renderTagChips(idea.tags)}
 
     <section class="detail-section">
