@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.30";
+const APP_VERSION = "23.31";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -34,6 +34,30 @@ const VIDEO_TAGS = [
   "レース映像",
   "競艇ニュース"
 ];
+// Fixed editorial guidance: independent of videos, goals and Supabase availability.
+const WEEKLY_UPLOAD_SCHEDULE = Object.freeze({
+  daily: "昨日の競艇ニュース",
+  days: Object.freeze([
+    { weekday: 1, label: "月曜日", feature: "選手紹介" },
+    { weekday: 2, label: "火曜日", feature: "用語解説" },
+    { weekday: 3, label: "水曜日", feature: "競艇場紹介" },
+    { weekday: 4, label: "木曜日", feature: "疑問解決Shorts" },
+    { weekday: 5, label: "金曜日", feature: "横動画の切り抜き投稿" },
+    { weekday: 6, label: "土曜日", feature: "横動画の切り抜き投稿" },
+    { weekday: 0, label: "日曜日", feature: "横動画の切り抜き投稿" }
+  ].map(Object.freeze)),
+  rules: Object.freeze([
+    "「昨日の競艇ニュース」は毎日投稿する。",
+    "月〜木は曜日ごとに固定企画を投稿する。",
+    "金・土・日は横動画の切り抜きをShortsとして投稿する。",
+    "良いレースがあった日は、レースShortsも追加で投稿する。",
+    "レースShortsは無理に毎日出さず、動画にする価値があるレースだけ投稿する。",
+    "学校、勉強、編集を両立できることを最優先にする。",
+    "投稿本数を埋めるために質の低い動画は出さない。",
+    "選手紹介、用語解説、競艇場紹介、疑問解決は可能な限り事前にストックしておく。",
+    "Shortsで反応が良かったテーマは、今後の横動画企画として深掘りする。"
+  ])
+});
 const ACHIEVEMENT_GOAL_SCOPE = "monthly";
 const ACHIEVEMENT_GOAL_MAX = 2147483647;
 const ACHIEVEMENT_HISTORY_START_MONTH = "2026-07";
@@ -96,6 +120,8 @@ let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailIdeaItemId = null;
 let youtubeAutoSyncTimer = null;
+let youtubeAutoSyncStartupTimer = null;
+// Only the running request's finally may release this lock, not timer teardown.
 let youtubeAutoSyncInFlight = false;
 let lastYoutubeAutoSyncAttemptAt = 0;
 let lockedPageScrollY = 0;
@@ -109,6 +135,9 @@ let appResumeTimer = null;
 let authStateSubscription = null;
 let eventListenersReady = false;
 let authenticatedUserId = "";
+// A session generation owns async reads/startup/resume. Old completions cannot
+// repopulate cleared data or subscribe after logout / an account switch.
+let appSessionGeneration = 0;
 let lastSuccessfulDataLoadAt = 0;
 let lastDataLoadError = null;
 let versionMismatchDetected = false;
@@ -116,6 +145,9 @@ let versionMismatchDetected = false;
 const elements = {
   authScreen: document.getElementById("authScreen"),
   appRoot: document.getElementById("appRoot"),
+  todayLabel: document.getElementById("todayLabel"),
+  weeklyScheduleList: document.getElementById("weeklyScheduleList"),
+  weeklyScheduleRules: document.getElementById("weeklyScheduleRules"),
   mobileNav: document.getElementById("mobileNav"),
   loginForm: document.getElementById("loginForm"),
   loginEmail: document.getElementById("loginEmail"),
@@ -407,8 +439,9 @@ function formatDate(date) {
 }
 
 function setupDate() {
-  document.getElementById("todayLabel").textContent =
+  elements.todayLabel.textContent =
     new Intl.DateTimeFormat("ja-JP", {
+      timeZone: "Asia/Tokyo",
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -931,6 +964,7 @@ async function syncYouTubeVideos(
   triggerButton,
   { isBulk = false, silent = false } = {}
 ) {
+  const generation = appSessionGeneration;
   const ids = [...new Set(
     (videoRecordIds || [])
       .map(id => String(id || "").trim())
@@ -971,8 +1005,10 @@ async function syncYouTubeVideos(
 
     const updated = Array.isArray(result?.updated) ? result.updated : [];
     const failed = Array.isArray(result?.failed) ? result.failed : [];
+    if (generation !== appSessionGeneration) return { updated, failed };
 
     await loadAllData({ silent: true });
+    if (generation !== appSessionGeneration) return { updated, failed };
 
     if (silent && failed.length) {
       setSyncStatus(
@@ -1006,6 +1042,7 @@ async function syncYouTubeVideos(
 
     return { updated, failed };
   } catch (error) {
+    if (generation !== appSessionGeneration) return { updated: [], failed: [] };
     console.error(error);
     setSyncStatus("YouTube更新エラー", "error");
     if (!silent) {
@@ -1128,7 +1165,10 @@ async function runAutoYouTubeSync({ force = false } = {}) {
 
 function startYouTubeAutoSync() {
   stopYouTubeAutoSync();
-  window.setTimeout(() => void runAutoYouTubeSync(), 1400);
+  youtubeAutoSyncStartupTimer = window.setTimeout(() => {
+    youtubeAutoSyncStartupTimer = null;
+    void runAutoYouTubeSync();
+  }, 1400);
   youtubeAutoSyncTimer = window.setInterval(
     () => void runAutoYouTubeSync(),
     YOUTUBE_AUTO_SYNC_INTERVAL_MS
@@ -1136,11 +1176,14 @@ function startYouTubeAutoSync() {
 }
 
 function stopYouTubeAutoSync() {
+  if (youtubeAutoSyncStartupTimer !== null) {
+    window.clearTimeout(youtubeAutoSyncStartupTimer);
+    youtubeAutoSyncStartupTimer = null;
+  }
   if (youtubeAutoSyncTimer) {
     window.clearInterval(youtubeAutoSyncTimer);
     youtubeAutoSyncTimer = null;
   }
-  youtubeAutoSyncInFlight = false;
 }
 
 // ============================================================
@@ -1279,6 +1322,7 @@ function switchPage(pageId) {
   if (!targetPage) {
     return;
   }
+  if (pageId === "dashboard") renderWeeklyUploadSchedule();
 
   document.querySelectorAll(".page").forEach(page => {
     page.classList.remove("active");
@@ -1390,6 +1434,7 @@ function mapAchievementSnapshot(row) {
     ? row.tag_counts
     : {};
   const toNumber = value => {
+    if (value === null || value === undefined || value === "") return null;
     const number = Number(value);
     return Number.isFinite(number) ? Math.max(0, number) : null;
   };
@@ -1542,7 +1587,7 @@ function renderLoadedDataViews() {
   }
 }
 
-async function fetchAllDataOnce() {
+async function fetchAllDataOnce(generation = appSessionGeneration) {
   const coreResultsPromise = Promise.all([
     selectNewestRows("videos"),
     selectNewestRows("ideas"),
@@ -1576,6 +1621,7 @@ async function fetchAllDataOnce() {
       .maybeSingle()
   ]);
   const coreResults = await coreResultsPromise;
+  if (generation !== appSessionGeneration) return { ok: false, cancelled: true };
   const [videosResult, ideasResult, ideaItemsResult] = coreResults;
 
   const coreAuthError = coreResults
@@ -1620,6 +1666,7 @@ async function fetchAllDataOnce() {
   lastSuccessfulDataLoadAt = Date.now();
 
   const optionalSettledResults = await optionalResultsPromise;
+  if (generation !== appSessionGeneration) return { ok: false, cancelled: true };
   const [
     achievementGoalsResult,
     achievementSnapshotsResult,
@@ -1693,6 +1740,7 @@ async function fetchAllDataOnce() {
 }
 
 async function performDataLoad({ silent = false } = {}) {
+  const generation = appSessionGeneration;
   if (!silent) {
     setSyncStatus("同期中");
   }
@@ -1700,12 +1748,14 @@ async function performDataLoad({ silent = false } = {}) {
   let result;
 
   for (let attempt = 0; attempt <= AUTH_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
+    if (generation !== appSessionGeneration) return false;
     try {
-      result = await fetchAllDataOnce();
+      result = await fetchAllDataOnce(generation);
     } catch (error) {
       result = { ok: false, error };
     }
 
+    if (generation !== appSessionGeneration || result.cancelled) return false;
     if (result.ok || !isRecoverableAuthError(result.error)) {
       break;
     }
@@ -1725,6 +1775,7 @@ async function performDataLoad({ silent = false } = {}) {
         reason: "data-load-recovery",
         recoveryAttempt: attempt + 1
       });
+      if (generation !== appSessionGeneration) return false;
 
       if (!authState?.user) {
         result = {
@@ -1741,6 +1792,7 @@ async function performDataLoad({ silent = false } = {}) {
     }
   }
 
+  if (generation !== appSessionGeneration) return false;
   if (!result?.ok) {
     const error = result?.error || new Error("データを取得できませんでした。");
     console.error("データ読み込み:", error);
@@ -1771,15 +1823,16 @@ async function performDataLoad({ silent = false } = {}) {
 }
 
 function loadAllData(options = {}) {
+  if (!authenticatedUserId) return Promise.resolve(false);
   if (dataLoadInFlight) {
     return dataLoadInFlight;
   }
 
-  dataLoadInFlight = performDataLoad(options)
+  const flight = performDataLoad(options)
     .finally(() => {
-      dataLoadInFlight = null;
+      if (dataLoadInFlight === flight) dataLoadInFlight = null;
     });
-
+  dataLoadInFlight = flight;
   return dataLoadInFlight;
 }
 
@@ -2142,7 +2195,37 @@ function renderMonthlyTagRows(tagCounts, { targets = null } = {}) {
   }).join("");
 }
 
+// ============================================================
+// Home / fixed weekly schedule (JST; no DB reads or extra timers)
+// ============================================================
+function getWeeklyScheduleDay(now = new Date()) {
+  const parts = getJstDateParts(now);
+  return parts
+    ? new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`).getUTCDay()
+    : null;
+}
+
+function renderWeeklyUploadSchedule(now = new Date()) {
+  const list = elements.weeklyScheduleList;
+  const rules = elements.weeklyScheduleRules;
+  if (!list || !rules) return;
+  const weekday = getWeeklyScheduleDay(now);
+  // Keep <details> and focus intact across Realtime redraws / foreground resume.
+  if (list.dataset.weekday === String(weekday)) return;
+  list.innerHTML = WEEKLY_UPLOAD_SCHEDULE.days.map(day => {
+    const isToday = day.weekday === weekday;
+    return `<li class="weekly-schedule-day${isToday ? " is-today" : ""}"${isToday ? ' aria-current="date"' : ""}>
+      <div class="weekly-schedule-day-head"><h4>${escapeHtml(day.label)}</h4>${isToday ? '<span class="weekly-schedule-today">今日</span>' : ""}</div>
+      <p class="weekly-schedule-daily"><span>毎日</span>${escapeHtml(WEEKLY_UPLOAD_SCHEDULE.daily)}</p>
+      <p class="weekly-schedule-feature">${escapeHtml(day.feature)}</p>
+    </li>`;
+  }).join("");
+  rules.innerHTML = WEEKLY_UPLOAD_SCHEDULE.rules.map(rule => `<li>${escapeHtml(rule)}</li>`).join("");
+  list.dataset.weekday = String(weekday);
+}
+
 function renderDashboard() {
+  renderWeeklyUploadSchedule();
   const monthKey = currentMonthKey();
   const monthlyPostStats = getMonthlyPostStats(monthKey);
   document.getElementById("monthlyPosts").textContent = monthlyPostStats.total;
@@ -2543,69 +2626,21 @@ function renderAchievements() {
     ? "目標を編集"
     : "目標を設定";
   elements.achievementTagTitle.textContent = `${formatMonthLabel(monthKey)}のタグ別投稿本数`;
-  elements.achievementMetricGrid.innerHTML = [
-    {
-      key: "subscribers",
-      label: "チャンネル登録者数",
-      value: values.subscribers,
-      suffix: "人",
-      target: targets.subscribers,
-      previousValue: previousValue("subscribers"),
-      currentAvailable: available.subscribers,
-      displayValue: available.subscribers
-        ? ""
-        : isCurrentMonth ? "未取得" : historicalValueLabel
-    },
-    {
-      key: "highest_views",
-      label: isCurrentMonth ? "今月の最高再生数" : "その月の最高再生数",
-      value: values.highest_views,
-      suffix: "回",
-      target: targets.highest_views,
-      previousValue: previousValue("highest_views"),
-      currentAvailable: available.highest_views,
-      displayValue: available.highest_views ? "" : historicalValueLabel
-    },
-    {
-      key: "posts",
-      label: "投稿本数",
-      value: values.posts,
-      suffix: "本",
-      target: targets.posts,
-      previousValue: previousValue("posts"),
-      currentAvailable: true
-    },
-    {
-      key: "monthly_views",
-      label: isCurrentMonth ? "今月の再生数" : "その月の再生数",
-      value: values.monthly_views,
-      suffix: "回",
-      target: targets.monthly_views,
-      previousValue: previousValue("monthly_views"),
-      currentAvailable: available.monthly_views,
-      displayValue: available.monthly_views ? "" : historicalValueLabel
-    },
-    {
-      key: "average_views",
-      label: "平均再生",
-      value: values.average_views,
-      suffix: "回",
-      target: targets.average_views,
-      previousValue: previousValue("average_views"),
-      currentAvailable: available.average_views,
-      displayValue: available.average_views ? "" : historicalValueLabel
-    },
-    {
-      key: "likes",
-      label: "高評価",
-      value: values.likes,
-      suffix: "件",
-      target: targets.likes,
-      previousValue: previousValue("likes"),
-      currentAvailable: available.likes,
-      displayValue: available.likes ? "" : historicalValueLabel
-    }
-  ].map(renderAchievementMetric).join("");
+  elements.achievementMetricGrid.innerHTML = ACHIEVEMENT_METRIC_DEFINITIONS.map(definition => {
+    const { key, label, suffix } = definition;
+    const currentAvailable = key === "posts" || available[key];
+    return renderAchievementMetric({
+      key,
+      label: isCurrentMonth ? label : label.replace(/^今月の/, "その月の"),
+      value: values[key],
+      suffix,
+      target: targets[key],
+      previousValue: previousValue(key),
+      currentAvailable,
+      displayValue: currentAvailable ? "" : key === "subscribers" && isCurrentMonth
+        ? "未取得" : historicalValueLabel
+    });
+  }).join("");
   elements.achievementTagBreakdown.innerHTML = renderMonthlyTagRows(
     tagCounts,
     { targets }
@@ -3990,6 +4025,7 @@ async function unsubscribeRealtime() {
 }
 
 function subscribeRealtime({ force = false } = {}) {
+  if (!authenticatedUserId) return Promise.resolve();
   if (
     !force &&
     realtimeChannel &&
@@ -4002,8 +4038,10 @@ function subscribeRealtime({ force = false } = {}) {
     return realtimeSubscribeInFlight;
   }
 
-  realtimeSubscribeInFlight = (async () => {
+  const generation = appSessionGeneration;
+  const flight = (async () => {
     await unsubscribeRealtime();
+    if (generation !== appSessionGeneration || !authenticatedUserId) return;
 
     const channel = supabaseClient
       .channel("boat-manager-shared-data")
@@ -4040,9 +4078,9 @@ function subscribeRealtime({ force = false } = {}) {
     });
 
   })().finally(() => {
-    realtimeSubscribeInFlight = null;
+    if (realtimeSubscribeInFlight === flight) realtimeSubscribeInFlight = null;
   });
-
+  realtimeSubscribeInFlight = flight;
   return realtimeSubscribeInFlight;
 }
 
@@ -4148,11 +4186,13 @@ function validateAuthenticatedSession(options = {}) {
     return authValidationInFlight;
   }
 
-  authValidationInFlight = performSessionValidation(options)
+  const generation = appSessionGeneration;
+  const flight = performSessionValidation(options)
+    .then(result => generation === appSessionGeneration ? result : null)
     .finally(() => {
-      authValidationInFlight = null;
+      if (authValidationInFlight === flight) authValidationInFlight = null;
     });
-
+  authValidationInFlight = flight;
   return authValidationInFlight;
 }
 
@@ -4173,29 +4213,49 @@ async function logout() {
   await resetAuthenticatedApp();
 }
 
+function invalidateAppSessionWork() {
+  appSessionGeneration += 1;
+  dataLoadInFlight = null;
+  authValidationInFlight = null;
+  appStartInFlight = null;
+  appResumeInFlight = null;
+  realtimeSubscribeInFlight = null;
+}
+
 async function resetAuthenticatedApp({ message = "" } = {}) {
+  invalidateAppSessionWork();
   authenticatedUserId = "";
   lastSuccessfulDataLoadAt = 0;
   clearTimeout(appResumeTimer);
   appResumeTimer = null;
-  await unsubscribeRealtime();
   stopYouTubeAutoSync();
+  getOpenDialogs().forEach(closeManagedDialog);
   data = createEmptyDataState();
   selectedAchievementMonth = "";
   hideAppLoadError();
   showAuthScreen();
   elements.loginMessage.textContent = message;
+  // Clear visible state synchronously; a slow removal must not erase a new login.
+  await unsubscribeRealtime();
 }
 
 function startAuthenticatedApp(user) {
+  const userId = String(user?.id || "");
+  if (!userId) return Promise.resolve(false);
+  const isNewUser = authenticatedUserId !== userId;
+  if (isNewUser) {
+    invalidateAppSessionWork();
+    stopYouTubeAutoSync();
+    data = createEmptyDataState();
+    lastSuccessfulDataLoadAt = 0;
+    authenticatedUserId = userId;
+  }
   if (appStartInFlight) {
     return appStartInFlight;
   }
 
-  appStartInFlight = (async () => {
-    const isNewUser = authenticatedUserId !== String(user?.id || "");
-    authenticatedUserId = String(user?.id || "");
-
+  const generation = appSessionGeneration;
+  const flight = (async () => {
     if (isNewUser || !selectedAchievementMonth) {
       selectedAchievementMonth = currentMonthKey();
     }
@@ -4205,17 +4265,18 @@ function startAuthenticatedApp(user) {
     renderAll();
 
     const loaded = await loadAllData();
-    if (!loaded) {
+    if (!loaded || generation !== appSessionGeneration) {
       return false;
     }
 
     await subscribeRealtime();
+    if (generation !== appSessionGeneration) return false;
     startYouTubeAutoSync();
     return true;
   })().finally(() => {
-    appStartInFlight = null;
+    if (appStartInFlight === flight) appStartInFlight = null;
   });
-
+  appStartInFlight = flight;
   return appStartInFlight;
 }
 
@@ -4224,6 +4285,7 @@ async function performAppResume({
   forceDataReload = false,
   forceAuthRefresh = false
 } = {}) {
+  const generation = appSessionGeneration;
   if (document.visibilityState === "hidden") {
     return false;
   }
@@ -4240,6 +4302,7 @@ async function performAppResume({
       forceRefresh: forceAuthRefresh,
       reason
     });
+    if (generation !== appSessionGeneration) return false;
 
     if (!authState?.user) {
       await resetAuthenticatedApp({
@@ -4261,8 +4324,10 @@ async function performAppResume({
     const loaded = forceDataReload || dataIsStale
       ? await loadAllData({ silent: true })
       : true;
+    if (generation !== appSessionGeneration) return false;
 
     await subscribeRealtime();
+    if (generation !== appSessionGeneration) return false;
 
     if (loaded) {
       void runAutoYouTubeSync();
@@ -4270,6 +4335,7 @@ async function performAppResume({
 
     return loaded;
   } catch (error) {
+    if (generation !== appSessionGeneration) return false;
     console.error("アプリ再開:", error);
     logAuthDiagnostic(`${reason}:failed`, { error });
 
@@ -4290,11 +4356,11 @@ function resumeAuthenticatedApp(options = {}) {
     return appResumeInFlight;
   }
 
-  appResumeInFlight = performAppResume(options)
+  const flight = performAppResume(options)
     .finally(() => {
-      appResumeInFlight = null;
+      if (appResumeInFlight === flight) appResumeInFlight = null;
     });
-
+  appResumeInFlight = flight;
   return appResumeInFlight;
 }
 
@@ -4304,6 +4370,8 @@ function scheduleAppResume(reason) {
   if (document.visibilityState === "hidden") {
     return;
   }
+  setupDate();
+  renderWeeklyUploadSchedule();
 
   clearTimeout(appResumeTimer);
   appResumeTimer = setTimeout(() => {
@@ -4347,6 +4415,7 @@ function setupAuthStateListener() {
 }
 
 async function initialize() {
+  const generation = appSessionGeneration;
   setupEventListeners();
 
   if (!ensureAppVersionMatch()) {
@@ -4357,6 +4426,7 @@ async function initialize() {
 
   try {
     const authState = await validateAuthenticatedSession({ reason: "startup" });
+    if (generation !== appSessionGeneration) return;
 
     if (authState?.user) {
       await startAuthenticatedApp(authState.user);
@@ -4365,6 +4435,7 @@ async function initialize() {
       showAuthScreen();
     }
   } catch (error) {
+    if (generation !== appSessionGeneration) return;
     console.error(error);
     showAuthScreen();
     showAuthRecovery(error);

@@ -1,17 +1,17 @@
-競艇チャンネル管理 Ver23.26 導入手順
+競艇チャンネル管理 Ver23.31 更新手順
 
 1. Pull RequestをmainへMerge
-2. Supabaseで sync-youtube-video と finalize-monthly-achievements を再Deploy
-   ・両Functionは supabase/functions/_shared/youtube.ts を共通利用します
-   ・既存Secret YOUTUBE_API_KEYはそのまま使用し、新しいprivate Secretは不要です
-3. Supabase SQL Editorで ver23_20_supabase.sql を1回実行
-   ・月間実績snapshot、過去月目標ロック、pg_cron/pg_net、毎日00:05 JSTのCronを追加します
-   ・SQLは既存データを削除せず、2026年7月のsnapshotも後付け作成しません
-4. Supabase Dashboard → Integrations → Cronで
-   finalize-monthly-achievements-jst が有効であることを確認
-5. GitHub Pages反映後、PCブラウザを再読み込みし、iPhone PWAを完全終了して再起動
+2. 既存のGitHub Pages公開への反映後、PCを再読み込みし、iPhone PWAを完全終了して再起動
+
+今回はSQL実行不要、Edge Function再Deploy不要、Cron・Storage・RLS・Secret設定不要です。
+既存baseline SQLを無条件に再実行しないでください。
+本番には前回の複数画像テーブル/RPCが存在することを読み取り確認済みです。
+別の未導入環境を構築する場合はdocs/ARCHITECTURE.mdとdocs/multi-idea-images.mdを参照してください。
 
 確認ポイント
+・ホーム「今月の数字」の下に「ぐっさん YouTube 週間投稿スケジュール」が表示
+・JSTの今日が強調され、「基本ルールを見る」で9項目を開閉できる
+・ログアウト後の通信完了で旧データや購読が復活しない
 ・下ナビが「ホーム / 動画 / 企画 / 実績」の4個横一列
 ・動画タグは固定7種類から複数選択でき、再読み込み後も維持
 ・動画一覧はYouTube公開日時（未取得時は入力した投稿日）の新しい順
