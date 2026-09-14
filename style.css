@@ -2851,7 +2851,7 @@ select {
 
 .weekly-schedule-grid {
   display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   padding: 0;
   margin: 0;
@@ -2860,16 +2860,28 @@ select {
 
 .weekly-schedule-day {
   min-width: 0;
-  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--bg);
 }
 
-.weekly-schedule-day.is-today {
+.weekly-schedule-hero {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(150px, .75fr) repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 14px 24px;
+  padding: 19px 22px;
   border: 2px solid #b78a00;
-  padding: 13px;
-  background: #fffae0;
+  background: linear-gradient(135deg, #fff8ce 0%, #fffdf3 100%);
+  box-shadow: 0 12px 30px rgba(183, 138, 0, .1);
+}
+
+.weekly-schedule-compact {
+  display: flex;
+  min-height: 132px;
+  padding: 12px;
+  flex-direction: column;
 }
 
 .weekly-schedule-day-head {
@@ -2885,6 +2897,11 @@ select {
   margin: 0;
   font-size: 15px;
   white-space: nowrap;
+}
+
+.weekly-schedule-hero .weekly-schedule-day-head h4 {
+  font-size: clamp(20px, 3vw, 27px);
+  letter-spacing: -.04em;
 }
 
 .weekly-schedule-today {
@@ -2904,6 +2921,14 @@ select {
   line-height: 1.7;
 }
 
+.weekly-schedule-hero .weekly-schedule-daily,
+.weekly-schedule-hero .weekly-schedule-feature {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .74);
+}
+
 .weekly-schedule-daily > span {
   display: block;
   font-size: 10px;
@@ -2918,54 +2943,55 @@ select {
   overflow-wrap: anywhere;
 }
 
-.weekly-schedule-rules {
-  margin-top: 16px;
-  border-top: 1px solid var(--line);
+.weekly-schedule-compact .weekly-schedule-feature {
+  margin-top: auto;
+  font-size: 12px;
 }
 
-.weekly-schedule-rules summary {
-  min-height: 48px;
-  padding: 15px 0 8px;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.weekly-schedule-rules summary:focus-visible {
-  outline: 3px solid #0a78e8;
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-
-.weekly-schedule-rules ol {
-  margin: 8px 0 0;
-  padding-left: 1.6em;
-  font-size: 13px;
-  line-height: 1.8;
-}
-
-.weekly-schedule-rules li + li {
-  margin-top: 8px;
-}
-
-@media (max-width:900px) {
+@media (max-width: 900px) {
   .weekly-schedule-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (max-width:620px) {
+@media (max-width: 620px) {
   .weekly-schedule {
-    padding: 16px;
+    padding: 14px;
   }
+
   .weekly-schedule-grid {
+    gap: 8px;
+  }
+
+  .weekly-schedule-hero {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    padding: 15px;
   }
-  .weekly-schedule-day {
-    padding: 12px;
+
+  .weekly-schedule-hero .weekly-schedule-day-head {
+    grid-column: 1 / -1;
   }
-  .weekly-schedule-day.is-today {
-    padding: 11px;
+
+  .weekly-schedule-hero .weekly-schedule-daily,
+  .weekly-schedule-hero .weekly-schedule-feature {
+    padding: 10px;
+  }
+
+  .weekly-schedule-compact {
+    min-height: 124px;
+    padding: 9px;
+    border-radius: 15px;
+  }
+
+  .weekly-schedule-compact .weekly-schedule-day-head h4 {
+    font-size: 13px;
+  }
+
+  .weekly-schedule-compact .weekly-schedule-daily,
+  .weekly-schedule-compact .weekly-schedule-feature {
+    font-size: 10px;
+    line-height: 1.55;
   }
 }
 
@@ -2978,11 +3004,19 @@ select {
 }
 
 .dashboard-monthly-performance-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, auto) auto;
   align-items: flex-end;
-  justify-content: space-between;
   gap: 14px;
   margin-bottom: 14px;
+}
+
+.dashboard-monthly-heading {
+  min-width: 0;
+}
+
+.dashboard-month-select-wrap {
+  min-width: 150px;
 }
 
 .dashboard-monthly-performance-head span,
@@ -3107,6 +3141,29 @@ select {
   .dashboard-monthly-performance {
     padding: 16px;
     border-radius: 22px;
+  }
+
+  .dashboard-monthly-performance-head {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 11px;
+  }
+
+  .dashboard-month-select-wrap {
+    width: 100%;
+  }
+
+  .dashboard-monthly-performance-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .dashboard-monthly-performance-head small {
+    min-width: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
   }
 
   .dashboard-monthly-metrics {

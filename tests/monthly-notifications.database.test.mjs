@@ -26,14 +26,21 @@ const month=(await db.query('select public.current_jst_month_key() as month_key'
 await db.exec('set role authenticated');
 await db.query("insert into goals(title,goal_scope,goal_month,goal_key,target_value) values('current','monthly',$1,'posts',10)",[month]);
 ok('current-month target can be saved',true);
+await db.query("insert into goals(title,goal_scope,goal_month,goal_key,target_value) values('legacy online','monthly',$1,'tag_online',3),('active news','monthly',$1,'tag_news',5)",[month]);
+ok('saving active goals does not delete the legacy tag_online goal',(await db.query("select count(*)::int n from goals where goal_month=$1 and goal_key='tag_online'",[month])).rows[0].n===1);
 await assert.rejects(db.query("insert into goals(title,goal_scope,goal_month,goal_key,target_value) values('past','monthly','2020-01','posts',10)"),/過去月/);
 ok('past-month target insert is rejected by existing trigger',true);
 await assert.rejects(db.query("update goals set target_value=99 where goal_month='2020-01'"),/過去月/);
 ok('saved past-month target update is rejected',true);
 await assert.rejects(db.query("delete from goals where goal_month='2020-01'"),/過去月/);
 ok('saved past-month target deletion is rejected',true);
-await db.exec("reset role; insert into monthly_achievement_snapshots(month_key,subscriber_count,post_count) values('2020-01',null,3); set role authenticated;");
+await db.exec(`reset role;
+  insert into monthly_achievement_snapshots(month_key,subscriber_count,post_count,tag_counts,tag_targets)
+  values('2020-01',null,3,'{"ネット競艇":2}'::jsonb,'{"tag_online":3}'::jsonb);
+  set role authenticated;
+`);
 ok('authenticated snapshot read keeps nullable subscriber count',(await db.query('select subscriber_count from monthly_achievement_snapshots')).rows[0].subscriber_count===null);
+ok('legacy online values remain in the immutable snapshot raw data',(await db.query("select tag_counts ? 'ネット競艇' as has_count, tag_targets ? 'tag_online' as has_target from monthly_achievement_snapshots")).rows[0].has_count===true);
 await assert.rejects(db.query("update monthly_achievement_snapshots set post_count=100"),/permission denied/);
 ok('authenticated snapshot write denied',true);
 await db.exec('reset role');
