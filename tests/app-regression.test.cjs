@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { harness } = require('./fixtures/app-harness.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
+const { harness, root } = require('./fixtures/app-harness.cjs');
 test('nullable snapshot metrics stay unknown, not a fabricated zero',()=>{
   const h=harness();
   for(const value of [null,undefined,'']) {h.context.value=value;assert.equal(h.run(`mapAchievementSnapshot({month_key:'2026-08',subscriber_count:value}).metrics.subscribers`),null);}
@@ -21,12 +23,27 @@ test('JST seven weekdays and 23:59 → 00:00, invalid date',()=>{
   assert.equal(h.run(`getWeeklyScheduleDay(new Date('2026-08-24T15:00:00Z'))`),2);
   assert.equal(h.run(`getWeeklyScheduleDay(new Date('invalid'))`),null);
 });
-test('schedule and all nine exact rules use one immutable configuration',()=>{
+test('schedule uses one immutable source and renders one hero plus six compact days',()=>{
   const h=harness();h.run('renderWeeklyUploadSchedule()');
   const config=JSON.parse(h.run('JSON.stringify(WEEKLY_UPLOAD_SCHEDULE)'));
   assert.deepEqual(config.days.map(d=>d.feature),['選手紹介','用語解説','競艇場紹介','疑問解決Shorts','横動画の切り抜き投稿','横動画の切り抜き投稿','横動画の切り抜き投稿']);
-  assert.equal(config.rules.length,9);assert.equal((h.node('weeklyScheduleRules').innerHTML.match(/<li>/g)||[]).length,9);
-  assert(config.rules.includes('学校、勉強、編集を両立できることを最優先にする。'));
+  const html=h.node('weeklyScheduleList').innerHTML;
+  assert.equal((html.match(/weekly-schedule-hero/g)||[]).length,1);
+  assert.equal((html.match(/weekly-schedule-compact/g)||[]).length,6);
+  assert.equal((html.match(/aria-current="date"/g)||[]).length,1);
+  assert(!h.source.includes('weeklyScheduleRules'));
+  assert(!h.source.includes('WEEKLY_UPLOAD_SCHEDULE.rules'));
+  const page=fs.readFileSync(path.join(root,'index.html'),'utf8');
+  assert(!page.includes('基本ルールを見る'));
+  assert(!page.includes('weeklyScheduleRules'));
+  assert(!fs.readFileSync(path.join(root,'style.css'),'utf8').includes('.weekly-schedule-rules'));
+  for(let weekday=0;weekday<7;weekday++) {
+    const day=23+weekday;
+    h.run(`renderWeeklyUploadSchedule(new Date('2026-08-${day}T03:00:00Z'))`);
+    const rendered=h.node('weeklyScheduleList').innerHTML;
+    assert.match(rendered,new RegExp(`^<li class="weekly-schedule-day weekly-schedule-hero" data-weekday="${weekday}" aria-current="date">`));
+    assert.equal((rendered.match(/weekly-schedule-compact/g)||[]).length,6);
+  }
   assert.equal(h.run('Object.isFrozen(WEEKLY_UPLOAD_SCHEDULE) && Object.isFrozen(WEEKLY_UPLOAD_SCHEDULE.days[0])'),true);
   assert.equal(h.timers.size,0);
 });
@@ -54,12 +71,52 @@ test('progress 0 / 50 / 100 / 125 and absent/invalid values never overflow or sh
     assert(!/NaN|Infinity|undefined/.test(html));
   }
 });
-test('seven tags; targets alone control achievement cards (zero counts included)',()=>{
-  const h=harness();assert.equal(h.run('VIDEO_TAGS.length'),7);
+test('six active tags exclude retired online tag from choices and summaries',()=>{
+  const h=harness();assert.equal(h.run('ACTIVE_VIDEO_TAGS.length'),6);
+  assert.equal(h.run(`ACTIVE_VIDEO_TAGS.includes('ネット競艇')`),false);
   const html=h.run(`renderMonthlyTagRows({'横動画':0,'選手解説':5,'競艇ニュース':2},{targets:{tag_horizontal:10,tag_news:3}})`);
   assert(html.includes('横動画'));assert(html.includes('競艇ニュース'));assert(!html.includes('選手解説'));
   assert(html.includes('0本'));
-  assert(h.run(`renderVideoTagChoices('競艇ニュース')`).includes('競艇ニュース'));
+  assert(h.run(`renderVideoTagChoices('競艇ニュース、ネット競艇')`).includes('競艇ニュース'));
+  assert(!h.run(`renderVideoTagChoices('競艇ニュース、ネット競艇')`).includes('ネット競艇'));
+  assert(!h.run(`renderMonthlyTagRows({'ネット競艇':5})`).includes('ネット競艇'));
+  assert(!h.run(`renderVideoTagChips('選手解説、ネット競艇')`).includes('ネット競艇'));
+});
+test('dashboard month selector shows current live video values while past achievement stays frozen',()=>{
+  const h=harness();h.run(`currentMonthKey=()=> '2026-09';
+    data.videos=[
+      {id:'old',status:'投稿済み',postDate:'2026-06-10',youtubeViews:50,tags:'ネット競艇'},
+      {id:'a',status:'投稿済み',youtubePublishedAt:'2026-08-10T03:00:00Z',youtubeViews:1000,youtubeLikes:10,youtubeComments:2,tags:'選手解説、ネット競艇'},
+      {id:'b',status:'投稿済み',postDate:'2026-08-20',youtubeViews:2000,youtubeLikes:20,youtubeComments:3,tags:'競艇ニュース'},
+      {id:'future',status:'投稿済み',postDate:'2026-10-01',youtubeViews:9999,tags:'横動画'}
+    ];
+    data.achievementSnapshots=[mapAchievementSnapshot({month_key:'2026-08',post_count:2,monthly_views:3000,average_views:1500,likes:30,tag_counts:{'選手解説':1,'ネット競艇':2},tag_targets:{tag_player:2,tag_online:3}})];
+    selectedDashboardMetricsMonth='2026-08';renderDashboard();`);
+  assert.deepEqual(Array.from(h.run('getAvailableDashboardMonths()')),['2026-09','2026-08','2026-07','2026-06']);
+  assert.equal(h.node('dashboardMetricsMonthSelect').value,'2026-08');
+  assert.equal(h.node('dashboardMonthlyViews').textContent,'3,000');
+  assert.equal(h.node('dashboardMonthlyAverageViews').textContent,'1,500');
+  assert.equal(h.node('dashboardMonthlyPerformanceTitle').textContent,'2026年8月の数字');
+  assert.equal(h.node('dashboardMonthlyEyebrow').textContent,'2026年8月に投稿した動画');
+  assert(!h.node('dashboardTagSummary').innerHTML.includes('ネット競艇'));
+  assert.equal(h.run(`getMonthlyPostStats('2026-08').total`),2);
+  const snapshotBefore=h.run('JSON.stringify(data.achievementSnapshots)');
+  h.run(`data.videos[1].youtubeViews=1500;data.videos[2].youtubeViews=3000;renderDashboard()`);
+  assert.equal(h.run('selectedDashboardMetricsMonth'),'2026-08');
+  assert.equal(h.node('dashboardMonthlyViews').textContent,'4,500');
+  assert.equal(h.node('dashboardMonthlyAverageViews').textContent,'2,250');
+  assert.equal(h.run(`getAchievementMonthView('2026-08').values.monthly_views`),3000);
+  assert.equal(h.run('JSON.stringify(data.achievementSnapshots)'),snapshotBefore);
+  h.run(`selectedDashboardMetricsMonth='2026-07';renderDashboard()`);
+  for(const id of ['dashboardMonthlyViews','dashboardMonthlyLikes','dashboardMonthlyComments','dashboardMonthlyAverageViews']) assert.equal(h.node(id).textContent,'0');
+});
+test('editing active tags preserves hidden legacy online tag in the DB payload',async()=>{
+  const writes=[];
+  const client={from:()=>{const q={update:payload=>{writes.push(payload);return q;},eq:()=>q,select:()=>q,single:async()=>({data:{id:'legacy',title:'更新'},error:null})};return q;}};
+  const h=harness({client});h.run(`data.videos=[mapVideo({id:'legacy',title:'旧動画',video_type:'Shorts',status:'投稿済み',tags:'用語解説、ネット競艇'})];addActivityLog=async()=>{}`);
+  await h.run(`saveVideo({title:'更新',type:'Shorts',status:'投稿済み',postDate:'2026-08-10',youtubeUrl:'',tags:['競艇ニュース'],legacyVideoTags:'ネット競艇',memo:''},'edit','legacy')`);
+  assert.deepEqual(writes[0].tags.split(/,\s*/),['競艇ニュース','ネット競艇']);
+  assert.equal(h.run(`getAchievementGoalDefinitions().some(item=>item.key==='tag_online')`),false);
 });
 test('past snapshot is immutable input, not supplemented with current targets or current views',()=>{
   const h=harness(); h.run(`currentMonthKey=()=> '2026-09';

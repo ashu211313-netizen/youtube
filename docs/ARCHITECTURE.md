@@ -1,4 +1,4 @@
-# 構成・変更時の入口（23.31）
+# 構成・変更時の入口（23.32）
 
 ## 実行構成
 
@@ -23,13 +23,13 @@
 
 | 入口 | 内容・不変条件 |
 | --- | --- |
-| 定数 / `elements` | ステータス、7タグ、目標キー、DOM参照。DB内部値と表示名を区別 |
+| 定数 / `elements` | ステータス、active 6タグ、legacyタグ、目標キー、DOM参照。DB内部値と表示名を区別 |
 | `createEmptyDataState`, `mapVideo`, `mapIdea`, `mapAchievementSnapshot` | DB snake_case → UIデータ。未取得を0と混同しない |
 | `selectNewestRows`, `fetchAllDataOnce`, `loadAllData` | videos/ideas/idea_itemsが必須。目標・実績履歴・支払い・通知・channel_statsは任意取得。既存画像へのfallbackあり |
-| `getMonthlyPostStats`, `getMonthlyAchievementStats` | ホーム/実績の月間集計。updated_atを投稿日時に使わない |
+| `getMonthlyPostStats`, `getMonthlyAchievementStats` | 投稿日月ごとのLIVE集計。Dashboardは選択月の最新video統計に利用し、実績snapshotとは分離 |
 | `getVideoReward`, `calculateMonthlyReward`, `calculateOutstandingBalance` | 報酬優先順位・表示カテゴリ・未払い合計 |
 | `renderAll`, `renderDashboard`, `renderVideos`, `renderIdeas`, `renderAchievements` | 状態から表示を生成。取得/保存は別関数 |
-| `WEEKLY_UPLOAD_SCHEDULE`, `renderWeeklyUploadSchedule` | 固定週間予定と9ルールの唯一の定義。DBも新規タイマーも不要 |
+| `WEEKLY_UPLOAD_SCHEDULE`, `renderWeeklyUploadSchedule` | 固定週間予定の唯一の定義。JSTの今日をhero、残り6日をcompact表示。DBも新規タイマーも不要 |
 | `openForm`, `saveVideo`, `saveIdeaImageRecord` | フォーム/明示保存。画像追加・削除は完成一覧の置換ではない |
 | `openManagedDialog`, `closeManagedDialog`, `restoreDialogStateAfterResume` | モーダル階層、背景スクロールロック、復帰 |
 | `initialize`, `startAuthenticatedApp`, `resetAuthenticatedApp`, `resumeAuthenticatedApp` | ログイン・終了・PWA復帰 |
@@ -38,7 +38,7 @@
 ### 状態の所有者
 
 - `data` はサーバーから取得した画面用状態。フォーム編集中の値はフォーム側で保持する。
-- `selectedAchievementMonth` / `selectedPostStatsMonth` / `activeVideoFilter` は表示選択。
+- `selectedDashboardMetricsMonth` / `selectedAchievementMonth` / `selectedPostStatsMonth` / `activeVideoFilter` は互いに独立した表示選択。
 - `ideaImageEditors` は各エディタの既存・追加予定・明示削除予定を保持するWeakMap。保存/キャンセル後にObject URLを解放する。
 - `pendingIdeaImageCleanup` は参照のなくなった画像の掃除再試行。`localStorage`への保存不能時はメモリ内。認証の保存はsupabase-jsが担当する。
 - `dataLoadInFlight` / `authValidationInFlight` / `appStartInFlight` / `appResumeInFlight` / `realtimeSubscribeInFlight` は各処理の同時実行をまとめる。
@@ -47,22 +47,22 @@
 
 ### 日付・表示ルール
 
-- 週間予定は既存 `getJstDateParts` を再利用してJST曜日を判定。ホーム表示、通常再描画、foreground復帰で更新する。24時間常駐の追加タイマーはない。
-- 本文は月〜日。今日だけ色・枠・「今日」・`aria-current="date"` を付ける。`details/summary` の開閉を再描画で失わない。
+- 週間予定は既存 `getJstDateParts` を再利用してJST曜日を判定。今日を先頭hero、残りを元の月〜日順の6枚として描画する。24時間常駐の追加タイマーはない。
 - 動画投稿日は `youtubePublishedAt` 優先、未取得時は `postDate`。同日だけcreatedAt/idで安定化。日時未取得は後方。
-- 月間集計はYouTube公開日時のJST月、手入力日はdate-only。既存の登録日表示など端末ローカルDateは今回変更していない。
+- 月間集計はYouTube公開日時のJST月、手入力日はdate-only。Dashboardは最古の動画月〜現在月を選択でき、動画の現在のviews/likes/commentsをLIVE集計する。未来月は選択肢に出さない。
+- 過去月実績は確定snapshot、Dashboard過去月は現在のvideo値。Dashboardの再描画・YouTube更新・Realtime更新で選択月をリセットしない。
 - 実績6指標は `ACHIEVEMENT_METRIC_DEFINITIONS` をフォームと描画で共有する。過去月の文言だけ「その月」に変える。
 - 過去月は保存済みsnapshotを優先。なければ投稿本数・当月保存目標だけを利用し、復元不能なYouTube値は「履歴データなし」。現在月の目標を補完しない。
 - タグ目標カードは選択月に正の目標があるタグだけ。目標あり・実績0は表示する。
 - 報酬はレース映像0円 → 競艇ニュース100円 → Shorts100円 → 横動画1000円。ニュース100円対象はShorts報酬欄に一度だけ加算。動画タイプと「横動画」タグを混同しない。
 
-## Supabase（2026-08-29 読み取り監査）
+## Supabase（2026-09-14 読み取り監査）
 
 接続先は `jyxrrnfnypqaecfojsle`。UIは認証済みユーザーによる共有チャンネル管理で、所有者別privateアプリではない。
 
 | テーブル | 用途 |
 | --- | --- |
-| videos | 動画、投稿日時、7タグ（TEXT）、YouTube現在統計。旧views_24系は残存するがアプリ未使用 |
+| videos | 動画、投稿日時、タグ（TEXT）、YouTube現在統計。active選択肢は6タグ。旧「ネット競艇」は保存値を維持するlegacyタグ。旧views_24系は残存するがアプリ未使用 |
 | ideas / idea_items | 企画・企画内アイデア。親IDはUUID、子IDはbigint、parent_idea_idはTEXT |
 | idea_images | UUID/関連親FK/URL/path/並び順。旧image_urlは互換用先頭画像 |
 | goals | 実績ページ内の月別目標。旧目標タブは復活させない |

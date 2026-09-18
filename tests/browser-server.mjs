@@ -20,11 +20,15 @@ await db.exec(`reset role;
   set role authenticated;
 `);
 const thisMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit'}).format(new Date());
+const [thisYear,thisMonthNumber]=thisMonth.split('-').map(Number);
+const previousMonth=new Date(Date.UTC(thisYear,thisMonthNumber-2,1)).toISOString().slice(0,7);
 for (const [title,type,tags,day,status] of [['最新Shorts','Shorts','競艇ニュース',14,'投稿済み'],['長い動画タイトル・表示確認のために改行してもカードからはみ出さない競艇選手紹介動画','横動画','横動画、選手解説',12,'投稿済み'],['レース動画','Shorts','競艇ニュース、レース映像',10,'投稿済み'],['投稿待ち動画','Shorts','用語解説',9,'編集待ち']]) {
   await db.query('insert into videos(title,video_type,tags,post_date,status,youtube_video_id,youtube_views,youtube_likes,youtube_comments,youtube_synced_at) values($1,$2,$3,$4,$5,$6,12500,200,30,now())',[title,type,tags,`${thisMonth}-${day}`,status,'abcdefghijk']);
 }
+await db.query('insert into videos(title,video_type,tags,post_date,status,youtube_video_id,youtube_views,youtube_likes,youtube_comments,youtube_synced_at) values($1,$2,$3,$4,$5,$6,3000,30,4,now())',['過去月のlegacy動画','Shorts','選手解説、ネット競艇',`${previousMonth}-15`,'投稿済み','zyxwvutsrqp']);
 await db.query(`insert into channel_stats values('qa-channel','Local QA',500,100000,50,now())`);
 for(const [key,target] of [['subscribers',1000],['highest_views',10000],['posts',10],['monthly_views',100000],['average_views',20000],['likes',1000],['tag_horizontal',10],['tag_player',5],['tag_news',30]]) await db.query(`insert into goals(title,goal_scope,goal_month,goal_key,target_value) values($1,'monthly',$2,$1,$3)`,[key,thisMonth,target]);
+await db.query(`insert into monthly_achievement_snapshots(month_key,subscriber_count,highest_views,post_count,monthly_views,average_views,likes,tag_counts,metric_targets,tag_targets,is_finalized,finalized_at) values($1,480,3000,1,3000,3000,30,$2,$3,$4,true,now())`,[previousMonth,JSON.stringify({'選手解説':1,'ネット競艇':1}),JSON.stringify({monthly_views:3000}),JSON.stringify({tag_player:1,tag_online:1})]);
 await db.query(`insert into monthly_payments values('2026-07',true,now(),now())`);
 await db.query(`insert into notifications(title,message,entity_type,entity_id,is_read) values('旧目標通知','履歴の互換性確認','goal','legacy',false)`);
 const assets=new Map();
@@ -78,7 +82,7 @@ function mockSdk() {
     auth:{getSession:async()=>({data:{session},error:null}),getUser:async()=>({data:{user:session?.user||null},error:null}),refreshSession:async()=>({data:{session},error:null}),onAuthStateChange:cb=>{onAuth=cb;return {data:{subscription:{unsubscribe(){}}}};},
       signInWithPassword:async()=>{session={user,expires_at:Date.now()/1000+3600};onAuth('SIGNED_IN',session);return {data:{user},error:null};},
       signOut:async()=>{session=null;onAuth('SIGNED_OUT',null);return {error:null};}},
-    functions:{invoke:async(name,{body})=>({data:{updated:body.videoRecordIds,failed:[]},error:null})},
+    functions:{invoke:async(name,{body})=>name==='sync-youtube-video'?api('/qa-youtube-sync',{ids:body.videoRecordIds}):({data:null,error:{message:'Unexpected function'}})},
     channel:()=>({on(){return this;},subscribe(cb){cb('SUBSCRIBED');return this;}}),removeChannel:async()=>{},
     storage:{from:bucket=>({
       getPublicUrl:p=>({data:{publicUrl:`${location.origin}/storage/v1/object/public/${bucket}/${p}`}}),
@@ -149,6 +153,14 @@ http.createServer(async(req,res)=>{
       }else{
         const input=JSON.parse(body.toString());audit.push({pathname,input});
         if(pathname==='/qa-query')result=await query(input);
+        else if(pathname==='/qa-youtube-sync'){
+          const updated=[];
+          for(const id of input.ids||[]) {
+            const rows=(await db.query('update videos set youtube_views=coalesce(youtube_views,0)+500,youtube_likes=coalesce(youtube_likes,0)+5,youtube_comments=coalesce(youtube_comments,0)+1,youtube_synced_at=now() where id=$1 returning id',[id])).rows;
+            if(rows[0])updated.push(rows[0].id);
+          }
+          result={data:{updated,failed:[]},error:null};
+        }
         else if(pathname==='/qa-rpc'){
           const p=input.params;
           if(input.name==='save_idea_with_images')result={data:await appendImages(db,p.p_kind,p.p_id,p.p_values,p.p_added_image_urls,p.p_removed_image_urls,p.p_expected_image_urls,p.p_expected_updated_at),error:null};
@@ -166,7 +178,7 @@ http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png'})[path.extname(name)]);
     let content=fs.readFileSync(path.join(root,name));
     if(name==='index.html')content=content.toString().replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js','/qa-client.js');
-    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.31"','name="app-version" content="obsolete"');
+    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.32"','name="app-version" content="obsolete"');
     if(name==='app.js')content=content.toString().replace('const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";',`const SUPABASE_URL = "${origin}";`).replaceAll('https://img.youtube.com',origin+'/qa-thumbnails');
     res.end(content);
   }catch(error){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:null,error:{code:error.code,message:error.message}}));}

@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.31";
+const APP_VERSION = "23.32";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -25,15 +25,17 @@ const VIDEO_STATUSES = ["編集待ち", "投稿済み"];
 const VIDEO_STATUS_LABELS = { "編集待ち": "投稿待ち", "投稿済み": "投稿済み" };
 const IDEA_STATUSES = ["アイデア", "実行済み"];
 const IDEA_STATUS_LABELS = { アイデア: "アイデア", 実行済み: "企画ボード" };
-const VIDEO_TAGS = [
+// Active tags are selectable and visible in current operating UI.
+const ACTIVE_VIDEO_TAGS = Object.freeze([
   "横動画",
   "選手解説",
   "用語解説",
   "競艇場解説",
-  "ネット競艇",
   "レース映像",
   "競艇ニュース"
-];
+]);
+// Retired tags stay in stored video/goal/snapshot data but are never newly selectable.
+const LEGACY_VIDEO_TAGS = Object.freeze(["ネット競艇"]);
 // Fixed editorial guidance: independent of videos, goals and Supabase availability.
 const WEEKLY_UPLOAD_SCHEDULE = Object.freeze({
   daily: "昨日の競艇ニュース",
@@ -45,18 +47,7 @@ const WEEKLY_UPLOAD_SCHEDULE = Object.freeze({
     { weekday: 5, label: "金曜日", feature: "横動画の切り抜き投稿" },
     { weekday: 6, label: "土曜日", feature: "横動画の切り抜き投稿" },
     { weekday: 0, label: "日曜日", feature: "横動画の切り抜き投稿" }
-  ].map(Object.freeze)),
-  rules: Object.freeze([
-    "「昨日の競艇ニュース」は毎日投稿する。",
-    "月〜木は曜日ごとに固定企画を投稿する。",
-    "金・土・日は横動画の切り抜きをShortsとして投稿する。",
-    "良いレースがあった日は、レースShortsも追加で投稿する。",
-    "レースShortsは無理に毎日出さず、動画にする価値があるレースだけ投稿する。",
-    "学校、勉強、編集を両立できることを最優先にする。",
-    "投稿本数を埋めるために質の低い動画は出さない。",
-    "選手紹介、用語解説、競艇場紹介、疑問解決は可能な限り事前にストックしておく。",
-    "Shortsで反応が良かったテーマは、今後の横動画企画として深掘りする。"
-  ])
+  ].map(Object.freeze))
 });
 const ACHIEVEMENT_GOAL_SCOPE = "monthly";
 const ACHIEVEMENT_GOAL_MAX = 2147483647;
@@ -74,7 +65,6 @@ const ACHIEVEMENT_TAG_GOAL_KEYS = {
   "選手解説": "tag_player",
   "用語解説": "tag_terms",
   "競艇場解説": "tag_venue",
-  "ネット競艇": "tag_online",
   "レース映像": "tag_race",
   "競艇ニュース": "tag_news"
 };
@@ -116,6 +106,7 @@ let toastTimer = null;
 let refreshTimer = null;
 let selectedPostStatsMonth = "";
 let selectedAchievementMonth = "";
+let selectedDashboardMetricsMonth = "";
 let currentDetailVideoId = null;
 let currentDetailIdeaId = null;
 let currentDetailIdeaItemId = null;
@@ -147,7 +138,6 @@ const elements = {
   appRoot: document.getElementById("appRoot"),
   todayLabel: document.getElementById("todayLabel"),
   weeklyScheduleList: document.getElementById("weeklyScheduleList"),
-  weeklyScheduleRules: document.getElementById("weeklyScheduleRules"),
   mobileNav: document.getElementById("mobileNav"),
   loginForm: document.getElementById("loginForm"),
   loginEmail: document.getElementById("loginEmail"),
@@ -216,11 +206,15 @@ const elements = {
   postStatsRewardRaceAmount: document.getElementById("postStatsRewardRaceAmount"),
   postStatsRewardTotal: document.getElementById("postStatsRewardTotal"),
   postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel"),
+  dashboardMonthlyEyebrow: document.getElementById("dashboardMonthlyEyebrow"),
+  dashboardMonthlyPerformanceTitle: document.getElementById("dashboardMonthlyPerformanceTitle"),
+  dashboardMetricsMonthSelect: document.getElementById("dashboardMetricsMonthSelect"),
   dashboardMonthlyViews: document.getElementById("dashboardMonthlyViews"),
   dashboardMonthlyLikes: document.getElementById("dashboardMonthlyLikes"),
   dashboardMonthlyComments: document.getElementById("dashboardMonthlyComments"),
   dashboardMonthlyAverageViews: document.getElementById("dashboardMonthlyAverageViews"),
   dashboardMonthlySyncLabel: document.getElementById("dashboardMonthlySyncLabel"),
+  dashboardTagSummaryTitle: document.getElementById("dashboardTagSummaryTitle"),
   dashboardTagSummary: document.getElementById("dashboardTagSummary"),
   achievementMonthLabel: document.getElementById("achievementMonthLabel"),
   achievementMonthSelect: document.getElementById("achievementMonthSelect"),
@@ -676,7 +670,7 @@ function parseVideoTags(value) {
   const source = Array.isArray(value) ? value : String(value || "").split(/[、,\n]/);
   return source
     .map(item => String(item).trim())
-    .filter(tag => VIDEO_TAGS.includes(tag))
+    .filter(tag => ACTIVE_VIDEO_TAGS.includes(tag))
     .filter((tag, index, array) => array.indexOf(tag) === index);
 }
 function serializeVideoTags(value, legacyValue = "") {
@@ -687,12 +681,16 @@ function getLegacyVideoTags(value) {
   return source
     .map(item => String(item).trim())
     .filter(Boolean)
-    .filter(tag => !VIDEO_TAGS.includes(tag))
+    // Preserve retired known tags (including ネット競艇) and unknown historical values.
+    .filter(tag => LEGACY_VIDEO_TAGS.includes(tag) || !ACTIVE_VIDEO_TAGS.includes(tag))
     .filter((tag, index, array) => array.indexOf(tag) === index);
 }
 function renderTagChips(tags) {
   const parsed = parseTags(tags);
   return parsed.length ? `<div class="tag-chip-row">${parsed.map(tag => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join("")}</div>` : "";
+}
+function renderVideoTagChips(tags) {
+  return renderTagChips(parseVideoTags(tags));
 }
 function isUploadableImage(file) { return file && typeof file === "object" && file.name && file.size > 0; }
 function getFileExt(filename) {
@@ -1072,7 +1070,7 @@ function renderVideoTagChoices(tags) {
     <fieldset class="video-tag-fieldset">
       <legend>動画タグ（複数選択可）</legend>
       <div class="video-tag-options">
-        ${VIDEO_TAGS.map(tag => `
+        ${ACTIVE_VIDEO_TAGS.map(tag => `
           <label class="video-tag-option">
             <input type="checkbox" name="tags" value="${tag}" ${selected.has(tag) ? "checked" : ""} />
             <span>${tag}</span>
@@ -1454,7 +1452,7 @@ function mapAchievementSnapshot(row) {
       likes: toNumber(row.likes)
     },
     tagCounts: Object.fromEntries(
-      VIDEO_TAGS.map(tag => [tag, toNumber(tagCounts[tag]) ?? 0])
+      ACTIVE_VIDEO_TAGS.map(tag => [tag, toNumber(tagCounts[tag]) ?? 0])
     ),
     metricTargets: Object.fromEntries(
       ACHIEVEMENT_METRIC_DEFINITIONS.map(definition => [
@@ -1870,7 +1868,7 @@ function getMonthlyPostStats(monthKey) {
   const videos = getPostedVideos().filter(video =>
     getVideoMonthKey(video) === monthKey
   );
-  const tagCounts = Object.fromEntries(VIDEO_TAGS.map(tag => [tag, 0]));
+  const tagCounts = Object.fromEntries(ACTIVE_VIDEO_TAGS.map(tag => [tag, 0]));
 
   videos.forEach(video => {
     parseVideoTags(video.tags).forEach(tag => {
@@ -1909,6 +1907,7 @@ function renderMonthSelectOptions(selectElement, months, selectedMonth) {
       ${formatMonthLabel(monthKey)}
     </option>
   `).join("");
+  selectElement.value = selectedMonth;
 }
 
 function renderPostStatsMonthOptions(months) {
@@ -2160,11 +2159,11 @@ function getAchievementProgress(currentValue, targetValue, currentAvailable = tr
 function renderMonthlyTagRows(tagCounts, { targets = null } = {}) {
   const hasTargets = targets !== null;
   const visibleTags = hasTargets
-    ? VIDEO_TAGS.filter(tag => {
+    ? ACTIVE_VIDEO_TAGS.filter(tag => {
         const target = Number(targets?.[ACHIEVEMENT_TAG_GOAL_KEYS[tag]]);
         return Number.isFinite(target) && target > 0;
       })
-    : VIDEO_TAGS;
+    : ACTIVE_VIDEO_TAGS;
 
   if (!visibleTags.length) {
     return '<p class="monthly-tag-empty">この月のタグ目標は設定されていません。</p>';
@@ -2207,37 +2206,88 @@ function getWeeklyScheduleDay(now = new Date()) {
 
 function renderWeeklyUploadSchedule(now = new Date()) {
   const list = elements.weeklyScheduleList;
-  const rules = elements.weeklyScheduleRules;
-  if (!list || !rules) return;
+  if (!list) return;
   const weekday = getWeeklyScheduleDay(now);
-  // Keep <details> and focus intact across Realtime redraws / foreground resume.
   if (list.dataset.weekday === String(weekday)) return;
-  list.innerHTML = WEEKLY_UPLOAD_SCHEDULE.days.map(day => {
+  const today = WEEKLY_UPLOAD_SCHEDULE.days.find(day => day.weekday === weekday);
+  if (!today) {
+    list.innerHTML = "";
+    delete list.dataset.weekday;
+    return;
+  }
+  const orderedDays = [
+    today,
+    ...WEEKLY_UPLOAD_SCHEDULE.days.filter(day => day.weekday !== weekday)
+  ];
+  list.innerHTML = orderedDays.map(day => {
     const isToday = day.weekday === weekday;
-    return `<li class="weekly-schedule-day${isToday ? " is-today" : ""}"${isToday ? ' aria-current="date"' : ""}>
+    const layoutClass = isToday ? " weekly-schedule-hero" : " weekly-schedule-compact";
+    return `<li class="weekly-schedule-day${layoutClass}" data-weekday="${day.weekday}"${isToday ? ' aria-current="date"' : ""}>
       <div class="weekly-schedule-day-head"><h4>${escapeHtml(day.label)}</h4>${isToday ? '<span class="weekly-schedule-today">今日</span>' : ""}</div>
       <p class="weekly-schedule-daily"><span>毎日</span>${escapeHtml(WEEKLY_UPLOAD_SCHEDULE.daily)}</p>
       <p class="weekly-schedule-feature">${escapeHtml(day.feature)}</p>
     </li>`;
   }).join("");
-  rules.innerHTML = WEEKLY_UPLOAD_SCHEDULE.rules.map(rule => `<li>${escapeHtml(rule)}</li>`).join("");
   list.dataset.weekday = String(weekday);
+}
+
+function getAvailableDashboardMonths() {
+  const current = currentMonthKey();
+  const observedMonths = getPostedVideos()
+    .map(getVideoMonthKey)
+    .filter(monthKey => /^\d{4}-\d{2}$/.test(monthKey) && monthKey <= current);
+  const sortedMonths = sortMonthKeysDesc([current, ...observedMonths]);
+  const oldest = sortedMonths[sortedMonths.length - 1] || current;
+  const months = [];
+
+  for (let monthKey = current; monthKey && monthKey >= oldest; monthKey = shiftMonthKey(monthKey, -1)) {
+    months.push(monthKey);
+  }
+
+  return months;
+}
+
+function renderDashboardMonthOptions() {
+  const months = getAvailableDashboardMonths();
+  if (!months.includes(selectedDashboardMetricsMonth)) {
+    selectedDashboardMetricsMonth = currentMonthKey();
+  }
+  renderMonthSelectOptions(
+    elements.dashboardMetricsMonthSelect,
+    months,
+    selectedDashboardMetricsMonth
+  );
 }
 
 function renderDashboard() {
   renderWeeklyUploadSchedule();
-  const monthKey = currentMonthKey();
-  const monthlyPostStats = getMonthlyPostStats(monthKey);
-  document.getElementById("monthlyPosts").textContent = monthlyPostStats.total;
-  document.getElementById("monthlyShorts").textContent = monthlyPostStats.shorts;
-  document.getElementById("monthlyLongVideos").textContent = monthlyPostStats.long;
+  const currentStats = getMonthlyPostStats(currentMonthKey());
+  document.getElementById("monthlyPosts").textContent = currentStats.total;
+  document.getElementById("monthlyShorts").textContent = currentStats.shorts;
+  document.getElementById("monthlyLongVideos").textContent = currentStats.long;
   document.getElementById("videoCount").textContent = data.videos.length;
   document.getElementById("editingWaitingCount").textContent =
     data.videos.filter(video => video.status === "編集待ち").length;
   document.getElementById("ideaCount").textContent =
     data.ideas.filter(idea => idea.status !== "実行済み").length;
 
+  renderDashboardMonthOptions();
+  const monthKey = selectedDashboardMetricsMonth;
+  // Dashboard is LIVE: current video metrics grouped by publication month.
+  // Achievements remain immutable month-end snapshots in getAchievementMonthView().
+  const monthlyPostStats = getMonthlyPostStats(monthKey);
   const monthlyPerformance = getMonthlyAchievementStats(monthKey);
+  const isCurrentMonth = monthKey === currentMonthKey();
+  const monthLabel = formatMonthLabel(monthKey);
+  elements.dashboardMonthlyEyebrow.textContent = isCurrentMonth
+    ? "今月投稿した動画"
+    : `${monthLabel}に投稿した動画`;
+  elements.dashboardMonthlyPerformanceTitle.textContent = isCurrentMonth
+    ? "今月の数字"
+    : `${monthLabel}の数字`;
+  elements.dashboardTagSummaryTitle.textContent = isCurrentMonth
+    ? "今月のタグ別投稿"
+    : `${monthLabel}のタグ別投稿`;
   elements.dashboardMonthlyViews.textContent = formatNumber(monthlyPerformance.views);
   elements.dashboardMonthlyLikes.textContent = formatNumber(monthlyPerformance.likes);
   elements.dashboardMonthlyComments.textContent = formatNumber(monthlyPerformance.comments);
@@ -2474,7 +2524,7 @@ function renderAchievementMetric({
 function getAchievementGoalDefinitions() {
   return [
     ...ACHIEVEMENT_METRIC_DEFINITIONS,
-    ...VIDEO_TAGS.map(tag => ({
+    ...ACTIVE_VIDEO_TAGS.map(tag => ({
       key: ACHIEVEMENT_TAG_GOAL_KEYS[tag],
       label: tag,
       suffix: "本",
@@ -2622,7 +2672,11 @@ function renderAchievements() {
     ? `確定日時 ${formatDateTime(snapshot.finalizedAt)}`
     : "";
   elements.achievementGoalButton.classList.toggle("is-hidden", !isCurrentMonth);
-  elements.achievementGoalButton.textContent = Object.keys(targets).length
+  const hasActiveTargets = getAchievementGoalDefinitions().some(definition => {
+    const target = Number(targets[definition.key]);
+    return Number.isFinite(target) && target > 0;
+  });
+  elements.achievementGoalButton.textContent = hasActiveTargets
     ? "目標を編集"
     : "目標を設定";
   elements.achievementTagTitle.textContent = `${formatMonthLabel(monthKey)}のタグ別投稿本数`;
@@ -2735,7 +2789,7 @@ function renderVideos() {
               </article>
             </div>
 
-            ${renderTagChips(video.tags)}
+            ${renderVideoTagChips(video.tags)}
 
             <div class="meta video-card-meta">
               <span>${escapeHtml(video.type)}</span>
@@ -3682,7 +3736,7 @@ function renderVideoDetail(video) {
       <div class="detail-field"><span>YouTube</span><strong>${youtubeUrl ? `<a class="detail-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener noreferrer">動画を開く</a>` : "未設定"}</strong></div>
     </div>
 
-    ${renderTagChips(video.tags)}
+    ${renderVideoTagChips(video.tags)}
 
     <section class="detail-section youtube-detail-section">
       <div class="youtube-detail-heading">
@@ -4232,6 +4286,7 @@ async function resetAuthenticatedApp({ message = "" } = {}) {
   getOpenDialogs().forEach(closeManagedDialog);
   data = createEmptyDataState();
   selectedAchievementMonth = "";
+  selectedDashboardMetricsMonth = "";
   hideAppLoadError();
   showAuthScreen();
   elements.loginMessage.textContent = message;
@@ -4258,6 +4313,9 @@ function startAuthenticatedApp(user) {
   const flight = (async () => {
     if (isNewUser || !selectedAchievementMonth) {
       selectedAchievementMonth = currentMonthKey();
+    }
+    if (isNewUser || !selectedDashboardMetricsMonth) {
+      selectedDashboardMetricsMonth = currentMonthKey();
     }
 
     showApplication(user);
@@ -4926,6 +4984,14 @@ function setupEventListeners() {
   elements.postStatsMonthSelect.addEventListener("change", event => {
     selectedPostStatsMonth = event.currentTarget.value;
     renderPostStats();
+  });
+
+  elements.dashboardMetricsMonthSelect.addEventListener("change", event => {
+    const availableMonths = getAvailableDashboardMonths();
+    selectedDashboardMetricsMonth = availableMonths.includes(event.currentTarget.value)
+      ? event.currentTarget.value
+      : currentMonthKey();
+    renderDashboard();
   });
 
   elements.achievementMonthSelect.addEventListener("change", event => {

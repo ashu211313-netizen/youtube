@@ -28,7 +28,7 @@ function harness({ client = {}, ref = process.env.APP_REF } = {}) {
   const setTimer = (fn, ms, interval = false) => { timers.set(++timerId, { fn, ms, interval }); return timerId; };
   const document = {
     visibilityState: 'visible', body: node('body'), documentElement: node('html'),
-    getElementById: node, querySelector: selector => selector === 'meta[name="app-version"]' ? { content: '23.31' } : node(selector),
+    getElementById: node, querySelector: selector => selector === 'meta[name="app-version"]' ? { content: '23.32' } : node(selector),
     querySelectorAll: selector => selector === 'dialog[open]' ? [...nodes.values()].filter(n => n.open) : [],
     addEventListener() {}
   };
