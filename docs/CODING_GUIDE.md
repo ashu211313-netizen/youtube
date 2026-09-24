@@ -13,3 +13,4 @@
 11. HTMLのapp-versionとJSのAPP_VERSION、3資産のquery versionを一緒に更新。Service Workerや依存/ビルド導入は別の変更として判断する。
 12. DB・Storageの破壊的テストはローカル隔離Postgresだけ。本番でのテスト投稿/支払い変更は禁止。Secret値をログ・テストfixture・commitへ入れない。
 13. `tests/browser-server.mjs` はテスト専用。loopback/CSP制限を維持し、デプロイや実認証用途に使わない。実機未確認を「iPhoneで確認済み」と記載しない。
+14. 動画カード/一覧の違いは描画だけ。`activeVideoViewMode` と `activeVideoFilter` を独立させ、同じ配列・並び順・既存イベント委譲を使う。表示切替に取得/保存/再購読を追加しない（端末内表示設定の保存を除く）。

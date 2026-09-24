@@ -1,4 +1,4 @@
-# 構成・変更時の入口（23.32）
+# 構成・変更時の入口（23.33）
 
 ## 実行構成
 
@@ -38,6 +38,7 @@
 ### 状態の所有者
 
 - `data` はサーバーから取得した画面用状態。フォーム編集中の値はフォーム側で保持する。
+- `activeVideoViewMode` は `card` / `compact` の表示密度だけを管理。`boat-manager-video-view` に端末内保存し、不正値/読み取り失敗はcard、保存失敗はメモリ内で継続する。両モードは `renderVideos` の同じフィルタ済み動画配列を使い、追加query/sort/購読なし。一覧は既存の詳細/状態変更/サムネイルerror委譲を再利用する。検証は [動画表示切替](video-view-verification.md)。
 - `selectedDashboardMetricsMonth` / `selectedAchievementMonth` / `selectedPostStatsMonth` / `activeVideoFilter` は互いに独立した表示選択。
 - `ideaImageEditors` は各エディタの既存・追加予定・明示削除予定を保持するWeakMap。保存/キャンセル後にObject URLを解放する。
 - `pendingIdeaImageCleanup` は参照のなくなった画像の掃除再試行。`localStorage`への保存不能時はメモリ内。認証の保存はsupabase-jsが担当する。

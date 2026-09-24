@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.32";
+const APP_VERSION = "23.33";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -99,6 +99,8 @@ function createEmptyDataState() {
 let data = createEmptyDataState();
 
 let activeVideoFilter = "all";
+const VIDEO_VIEW_STORAGE_KEY = "boat-manager-video-view";
+let activeVideoViewMode = readVideoViewMode();
 let realtimeChannel = null;
 let realtimeStatus = "CLOSED";
 let realtimeSubscribeInFlight = null;
@@ -134,6 +136,7 @@ let lastDataLoadError = null;
 let versionMismatchDetected = false;
 
 const elements = {
+  videoViewToggle: document.getElementById("videoViewToggle"),
   authScreen: document.getElementById("authScreen"),
   appRoot: document.getElementById("appRoot"),
   todayLabel: document.getElementById("todayLabel"),
@@ -2716,9 +2719,47 @@ function renderVideoFilterCounts() {
 }
 
 
+function readVideoViewMode() {
+  try {
+    return localStorage.getItem(VIDEO_VIEW_STORAGE_KEY) === "compact" ? "compact" : "card";
+  } catch {
+    return "card";
+  }
+}
+
+function setVideoViewMode(mode) {
+  activeVideoViewMode = mode === "compact" ? "compact" : "card";
+  try { localStorage.setItem(VIDEO_VIEW_STORAGE_KEY, activeVideoViewMode); } catch { /* Keep the selection in memory. */ }
+  renderVideos();
+}
+
+function renderVideoCompactRow(video) {
+  const thumbnailUrl = getYouTubeThumbnailUrl(video);
+  const tags = parseVideoTags(video.tags);
+  return `<article class="video-compact-row" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
+    <div class="video-compact-thumbnail video-thumbnail-shell${thumbnailUrl ? "" : " is-thumbnail-error"}">
+      ${thumbnailUrl ? `<img class="video-thumbnail-image" data-video-thumbnail src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(video.title)}のYouTubeサムネイル" loading="lazy" decoding="async" />` : ""}
+      <div class="video-thumbnail-fallback" aria-hidden="true"><span>▶</span><small>サムネイル未取得</small></div>
+    </div>
+    <div class="video-compact-main">
+      <h4>${escapeHtml(video.title)}</h4>
+      <div class="video-compact-meta"><span>${escapeHtml(video.type)}</span><span>${formatDate(getVideoPublishedDateKey(video))}</span></div>
+      <div class="video-compact-tags">${renderVideoTagChips(tags.slice(0, 1))}${tags.length > 1 ? `<span class="video-compact-tag-count">+${tags.length - 1}</span>` : ""}</div>
+    </div>
+    <div class="video-compact-controls">
+      <select class="video-compact-status" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">${VIDEO_STATUSES.map(status => `<option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>`).join("")}</select>
+      <strong class="video-compact-views" aria-label="再生数">${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
+    </div>
+  </article>`;
+}
+
 function renderVideos() {
   const list = document.getElementById("videoList");
   renderVideoFilterCounts();
+  list.classList.toggle("video-list--compact", activeVideoViewMode === "compact");
+  elements.videoViewToggle.querySelectorAll("[data-video-view]").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.videoView === activeVideoViewMode));
+  });
 
   const videos = activeVideoFilter === "all"
     ? data.videos
@@ -2730,6 +2771,7 @@ function renderVideos() {
   }
 
   list.innerHTML = videos.map(video => {
+    if (activeVideoViewMode === "compact") return renderVideoCompactRow(video);
     const youtubeUrl = getYouTubeWatchUrl(video);
     const thumbnailUrl = getYouTubeThumbnailUrl(video);
 
@@ -5004,6 +5046,11 @@ function setupEventListeners() {
     openManagedDialog(elements.trashModal);
   });
 
+
+  elements.videoViewToggle.addEventListener("click", event => {
+    const button = event.target.closest("[data-video-view]");
+    if (button) setVideoViewMode(button.dataset.videoView);
+  });
 
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {
