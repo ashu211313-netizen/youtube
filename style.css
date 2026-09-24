@@ -2265,6 +2265,87 @@ body.modal-scroll-locked dialog[open] {
   gap: 10px;
 }
 
+.video-list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.video-list-toolbar .filter-row { margin-bottom: 0; }
+.video-view-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: #e9e9ec;
+}
+.video-view-toggle button {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.video-view-toggle button[aria-pressed="true"] {
+  background: var(--text);
+  color: white;
+}
+.cards-list.video-list--compact { gap: 8px; }
+.video-compact-row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr) 130px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #e9e9ec;
+  border-radius: 18px;
+  background: white;
+  cursor: pointer;
+}
+.video-compact-row:focus-visible,
+.video-view-toggle button:focus-visible {
+  outline: 3px solid #007aff;
+  outline-offset: 2px;
+}
+.video-compact-thumbnail { border-radius: 10px; }
+.video-compact-thumbnail .video-thumbnail-fallback { padding: 4px; gap: 2px; }
+.video-compact-thumbnail .video-thumbnail-fallback span { width: 22px; height: 22px; font-size: 11px; }
+.video-compact-thumbnail .video-thumbnail-fallback small { font-size: 8px; }
+.video-compact-main { min-width: 0; }
+.video-compact-main h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.video-compact-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--muted); font-size: 11px; }
+.video-compact-meta span { white-space: nowrap; }
+.video-compact-tags { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.video-compact-tags .tag-chip-row { margin: 0; }
+.video-compact-tags .tag-chip { padding: 2px 5px; font-size: 10px; white-space: nowrap; }
+.video-compact-tag-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.video-compact-controls { display: grid; gap: 5px; justify-items: stretch; min-width: 0; }
+.video-compact-status { width: 100%; min-height: 44px; padding: 7px; font-size: 16px; border-radius: 10px; }
+.video-compact-views { text-align: right; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 620px) {
+  .video-list-toolbar { align-items: stretch; }
+  .video-list-toolbar .filter-row { width: 100%; }
+  .video-view-toggle { margin-left: auto; }
+  .video-compact-row { grid-template-columns: 88px minmax(0, 1fr) 98px; gap: 7px; padding: 9px; }
+  .video-compact-main h4 { font-size: 12px; }
+  .video-compact-meta { font-size: 10px; }
+  .video-compact-views { font-size: 11px; }
+}
+
 .video-card {
   grid-template-columns: 1fr;
   align-items: stretch;

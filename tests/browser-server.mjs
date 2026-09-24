@@ -26,6 +26,10 @@ for (const [title,type,tags,day,status] of [['最新Shorts','Shorts','競艇ニ�
   await db.query('insert into videos(title,video_type,tags,post_date,status,youtube_video_id,youtube_views,youtube_likes,youtube_comments,youtube_synced_at) values($1,$2,$3,$4,$5,$6,12500,200,30,now())',[title,type,tags,`${thisMonth}-${day}`,status,'abcdefghijk']);
 }
 await db.query('insert into videos(title,video_type,tags,post_date,status,youtube_video_id,youtube_views,youtube_likes,youtube_comments,youtube_synced_at) values($1,$2,$3,$4,$5,$6,3000,30,4,now())',['過去月のlegacy動画','Shorts','選手解説、ネット競艇',`${previousMonth}-15`,'投稿済み','zyxwvutsrqp']);
+await db.query('update videos set title=$1,tags=$2,youtube_views=123456789,youtube_video_id=null where video_type=$3',[
+  '長い動画タイトル・表示確認のためにカードからはみ出さない競艇選手紹介動画'.repeat(4),
+  '横動画、選手解説、用語解説、競艇場解説、レース映像、競艇ニュース、ネット競艇','横動画'
+]);
 await db.query(`insert into channel_stats values('qa-channel','Local QA',500,100000,50,now())`);
 for(const [key,target] of [['subscribers',1000],['highest_views',10000],['posts',10],['monthly_views',100000],['average_views',20000],['likes',1000],['tag_horizontal',10],['tag_player',5],['tag_news',30]]) await db.query(`insert into goals(title,goal_scope,goal_month,goal_key,target_value) values($1,'monthly',$2,$1,$3)`,[key,thisMonth,target]);
 await db.query(`insert into monthly_achievement_snapshots(month_key,subscriber_count,highest_views,post_count,monthly_views,average_views,likes,tag_counts,metric_targets,tag_targets,is_finalized,finalized_at) values($1,480,3000,1,3000,3000,30,$2,$3,$4,true,now())`,[previousMonth,JSON.stringify({'選手解説':1,'ネット競艇':1}),JSON.stringify({monthly_views:3000}),JSON.stringify({tag_player:1,tag_online:1})]);
@@ -178,7 +182,7 @@ http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png'})[path.extname(name)]);
     let content=fs.readFileSync(path.join(root,name));
     if(name==='index.html')content=content.toString().replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js','/qa-client.js');
-    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.32"','name="app-version" content="obsolete"');
+    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.33"','name="app-version" content="obsolete"');
     if(name==='app.js')content=content.toString().replace('const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";',`const SUPABASE_URL = "${origin}";`).replaceAll('https://img.youtube.com',origin+'/qa-thumbnails');
     res.end(content);
   }catch(error){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:null,error:{code:error.code,message:error.message}}));}
