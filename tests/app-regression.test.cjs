@@ -52,13 +52,18 @@ test('schedule renders on core DB failure and foreground while offline; missing 
   assert(h.node('weeklyScheduleList').innerHTML.includes('今日'));
   h.run('elements.weeklyScheduleList=null; renderWeeklyUploadSchedule()');
 });
-test('six metric refactor returns byte-identical HTML to main across current/past and missing values',()=>{
+test('six metric HTML stays identical except the explicitly changed missing-history comparison',()=>{
   const baseline=harness({ref:'d680bbaaf421918128a0b738ca5e79904e325a55'}), current=harness();
   for(const isCurrentMonth of [true,false]) for(const missing of [true,false]) for(const value of [0,50,100,125]) {
     const view={isCurrentMonth,snapshot:null,values:{},available:{},tagCounts:{},targets:{}};
     for(const key of ['subscribers','highest_views','posts','monthly_views','average_views','likes']) {view.values[key]=missing?null:value;view.available[key]=!missing;view.targets[key]=100;}
     for(const h of [baseline,current]) {h.context.view=view;h.run(`renderAchievementMonthOptions=()=>{};selectedAchievementMonth='2026-08';getAchievementMonthView=()=>view;renderAchievements()`);}
-    assert.equal(current.node('achievementMetricGrid').innerHTML,baseline.node('achievementMetricGrid').innerHTML);
+    // No saved previous snapshot exists in this fixture. 23.34 intentionally
+    // replaces the old invented 100% comparison with an unavailable label.
+    let expected=baseline.node('achievementMetricGrid').innerHTML.replaceAll('前月比 100%','比較データなし');
+    if(isCurrentMonth) expected=expected.replaceAll('履歴データなし','未取得');
+    assert.equal(current.node('achievementMetricGrid').innerHTML,expected);
+    assert.equal((current.node('achievementMetricGrid').innerHTML.match(/比較データなし/g)||[]).length,6);
   }
 });
 test('progress 0 / 50 / 100 / 125 and absent/invalid values never overflow or show NaN',()=>{

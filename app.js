@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.33";
+const APP_VERSION = "23.34";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -81,6 +81,22 @@ const AUTH_RECOVERY_MAX_ATTEMPTS = 1;
 const AUTH_RECOVERY_DELAY_MS = 800;
 const APP_RESUME_DEBOUNCE_MS = 250;
 const APP_DATA_STALE_MS = 60 * 1000;
+const POSTING_PACE_TOLERANCE = 0.1;
+const VIDEO_SWIPE_MIN_DISTANCE = 64;
+let videoSwipeStart = null;
+const CHANNEL_AI_QUESTIONS = Object.freeze([
+  "今週は何を投稿すればいい？", "次に作るべき動画を3本考えて", "最近一番伸びている企画は？", "今月の投稿ペースは順調？",
+  "今月あと何本必要？", "今ある企画で優先するべきものは？", "横動画にするならどの企画がいい？", "最近伸びていない原因を分析して",
+  "今月の成績を簡単にまとめて", "先月と今月を比較して", "過去最高だった月はいつ？", "最近一番伸びた動画は？",
+  "最近伸び始めた過去動画はある？", "再生数が止まっている動画は？", "平均より伸びている動画を教えて", "タグ別で一番成績がいいのは？",
+  "競艇ニュースの最近の成績は？", "選手紹介の最近の成績は？", "用語解説の最近の成績は？", "競艇場解説の最近の成績は？",
+  "Shortsと横動画はどっちが伸びてる？", "今月まだ不足している投稿ジャンルは？", "週間投稿スケジュール通りに投稿できてる？", "投稿待ちで放置されている動画はある？",
+  "YouTube情報が未同期の動画はある？", "投稿日やURLが未設定の動画を教えて", "今ある企画ストックを整理して", "最近のヒット企画から次の企画を考えて",
+  "過去に似た企画で伸びたものはある？", "このチャンネルの今の課題を3つ教えて"
+]);
+let channelAiMessages = [];
+let channelAiBusy = false;
+let channelAiGeneration = 0;
 
 function createEmptyDataState() {
   return {
@@ -100,7 +116,9 @@ let data = createEmptyDataState();
 
 let activeVideoFilter = "all";
 const VIDEO_VIEW_STORAGE_KEY = "boat-manager-video-view";
+const VIDEO_THUMBNAIL_STORAGE_KEY = "boat-manager-video-thumbnail";
 let activeVideoViewMode = readVideoViewMode();
+let videoThumbnailVisible = readVideoThumbnailVisible();
 let realtimeChannel = null;
 let realtimeStatus = "CLOSED";
 let realtimeSubscribeInFlight = null;
@@ -136,7 +154,18 @@ let lastDataLoadError = null;
 let versionMismatchDetected = false;
 
 const elements = {
+  channelAiModal: document.getElementById("channelAiModal"),
+  channelAiButton: document.getElementById("channelAiButton"),
+  channelAiTemplates: document.getElementById("channelAiTemplates"),
+  channelAiMore: document.getElementById("channelAiMore"),
+  channelAiConversation: document.getElementById("channelAiConversation"),
+  channelAiForm: document.getElementById("channelAiForm"),
+  channelAiInput: document.getElementById("channelAiInput"),
+  channelAiSend: document.getElementById("channelAiSend"),
+  channelAiStatus: document.getElementById("channelAiStatus"),
+  dashboardPostingPace: document.getElementById("dashboardPostingPace"),
   videoViewToggle: document.getElementById("videoViewToggle"),
+  videoThumbnailToggle: document.getElementById("videoThumbnailToggle"),
   authScreen: document.getElementById("authScreen"),
   appRoot: document.getElementById("appRoot"),
   todayLabel: document.getElementById("todayLabel"),
@@ -1212,9 +1241,9 @@ function closeManagedDialog(dialog) {
   }
 }
 
-function syncDialogScrollLock() {
+function syncDialogScrollLock({ opening = false } = {}) {
   const openDialogs = getOpenDialogs();
-  const shouldLock = openDialogs.length > 0;
+  const shouldLock = opening || openDialogs.length > 0;
 
   if (shouldLock) {
     if (!document.body.classList.contains("modal-scroll-locked")) {
@@ -1230,8 +1259,11 @@ function syncDialogScrollLock() {
     document.body.classList.add("modal-scroll-locked");
     document.body.style.top = `-${lockedPageScrollY}px`;
 
-    elements.appRoot?.setAttribute("aria-hidden", "true");
-    elements.mobileNav?.setAttribute("aria-hidden", "true");
+    // Do not hide the focused opener from accessibility before showModal moves focus.
+    if (openDialogs.length) {
+      elements.appRoot?.setAttribute("aria-hidden", "true");
+      elements.mobileNav?.setAttribute("aria-hidden", "true");
+    }
 
     openDialogs.forEach(dialog => {
       dialog.style.pointerEvents = "auto";
@@ -1260,19 +1292,22 @@ function syncDialogScrollLock() {
 }
 
 function openManagedDialog(dialog) {
-  if (!dialog || dialog.open) {
+  if (!dialog) return;
+  // Capture the page position before native dialog focus can scroll the page.
+  syncDialogScrollLock({ opening: true });
+  try {
+    if (!dialog.open) dialog.showModal();
+    managedDialogSequence += 1;
+    dialog.dataset.openSequence = String(managedDialogSequence);
+    // showModal() retains the old dialog scroll offset. Focus the top control
+    // without scrolling, then reset the actual scroll owner (the dialog).
+    const focusTarget = dialog.querySelector(".modal-head [data-close]") || dialog;
+    focusTarget.focus({ preventScroll: true });
+    dialog.scrollTop = 0;
+    dialog.scrollLeft = 0;
+  } finally {
     syncDialogScrollLock();
-    return;
   }
-
-  dialog.showModal();
-  managedDialogSequence += 1;
-  dialog.dataset.openSequence = String(managedDialogSequence);
-
-  requestAnimationFrame(() => {
-    syncDialogScrollLock();
-    dialog.focus({ preventScroll: true });
-  });
 }
 
 function restoreDialogStateAfterResume() {
@@ -2263,6 +2298,7 @@ function renderDashboardMonthOptions() {
 }
 
 function renderDashboard() {
+  renderPostingPace();
   renderWeeklyUploadSchedule();
   const currentStats = getMonthlyPostStats(currentMonthKey());
   document.getElementById("monthlyPosts").textContent = currentStats.total;
@@ -2399,6 +2435,7 @@ function getAchievementMonthView(monthKey) {
   const snapshot = isCurrentMonth ? null : getAchievementSnapshot(monthKey);
 
   if (isCurrentMonth) {
+    const hasLiveMetric = field => monthlyPostStats.total === 0 || liveStats.videos.some(video => video[field] != null && Number.isFinite(Number(video[field])));
     return {
       isCurrentMonth,
       snapshot,
@@ -2412,11 +2449,11 @@ function getAchievementMonthView(monthKey) {
       },
       available: {
         subscribers: data.channelStats?.subscriberCount != null,
-        highest_views: true,
+        highest_views: hasLiveMetric("youtubeViews"),
         posts: true,
-        monthly_views: true,
-        average_views: true,
-        likes: true
+        monthly_views: hasLiveMetric("youtubeViews"),
+        average_views: hasLiveMetric("youtubeViews"),
+        likes: hasLiveMetric("youtubeLikes")
       },
       tagCounts: monthlyPostStats.tagCounts,
       targets: getAchievementTargets(monthKey)
@@ -2463,15 +2500,50 @@ function getAchievementMonthView(monthKey) {
   };
 }
 
-function getMetricComparison(currentValue, previousValue) {
-  const current = Math.max(0, Number(currentValue || 0));
-  const previous = Number(previousValue);
+function getMetricComparison(currentValue, previousValue, suffix = "") {
+  if ([currentValue, previousValue].some(value => value == null || value === "" || !Number.isFinite(Number(value)) || Number(value) < 0)) return "比較データなし";
+  const current = Number(currentValue), previous = Number(previousValue);
+  const delta = current - previous;
+  const sign = delta > 0 ? "+" : delta < 0 ? "-" : "±";
+  return previous === 0
+    ? `前月比 ${sign}${formatNumber(Math.abs(delta))}${suffix}`
+    : `前月比 ${sign}${formatAchievementPercentage(Math.abs(delta / previous * 100))}%`;
+}
 
-  if (!Number.isFinite(previous) || previous <= 0) {
-    return "比較データなし";
-  }
+function calculatePostingPace(target, actual, now = new Date()) {
+  const parts = getJstDateParts(now);
+  if (!parts) return { label: "日付を確認できません", target: null };
+  const day = Number(parts.day);
+  const daysInMonth = new Date(Date.UTC(Number(parts.year), Number(parts.month), 0)).getUTCDate();
+  const remainingDays = Math.max(1, daysInMonth - day + 1);
+  const total = Math.max(0, Number(actual) || 0);
+  const goal = Number(target);
+  if (!Number.isFinite(goal) || goal <= 0) return { label: "投稿目標未設定", target: null, actual: total, day, remainingDays };
+  const expected = goal * day / daysInMonth;
+  const tolerance = Math.max(1, expected * POSTING_PACE_TOLERANCE);
+  const remainingPosts = Math.max(goal - total, 0);
+  return { target: goal, actual: total, day, daysInMonth, expected, remainingDays, remainingPosts,
+    requiredPerDay: remainingPosts / remainingDays,
+    label: remainingPosts === 0 ? "目標達成" : total > expected + tolerance ? "目標より速い" : total < expected - tolerance ? "目標より遅い" : "予定通り" };
+}
 
-  return `前月比 ${formatAchievementPercentage((current / previous) * 100)}%`;
+function renderPostingPace() {
+  const month = currentMonthKey();
+  const pace = calculatePostingPace(getAchievementTargets(month).posts, getMonthlyPostStats(month).total);
+  elements.dashboardPostingPace.innerHTML = `<strong>今月の投稿ペース：${pace.label}</strong>${pace.target ? `<span>あと${formatNumber(pace.remainingPosts)}本 · 1日平均${pace.requiredPerDay.toFixed(1)}本必要</span><small>今日を含む残り${pace.remainingDays}日・目標${formatNumber(pace.target)}本</small>` : ""}`;
+}
+
+function isAchievementRecord(monthKey, key) {
+  const current = currentMonthKey();
+  const months = [...new Set([...data.achievementSnapshots.map(snapshot => snapshot.monthKey), current])]
+    .filter(month => /^\d{4}-\d{2}$/.test(month) && month <= current);
+  if (!months.includes(monthKey)) return false;
+  const values = months.map(month => {
+    const view = getAchievementMonthView(month);
+    return { month, value: view.available[key] ? view.values[key] : null };
+  }).filter(item => item.value != null && item.value !== "" && Number.isFinite(Number(item.value)));
+  const selected = values.find(item => item.month === monthKey);
+  return values.length >= 2 && Boolean(selected) && Number(selected.value) === Math.max(...values.map(item => Number(item.value)));
 }
 
 function getAchievementTargets(monthKey = currentMonthKey()) {
@@ -2489,10 +2561,11 @@ function renderAchievementMetric({
   suffix,
   target,
   previousValue = null,
+  record = false,
   currentAvailable = true,
   displayValue = ""
 }) {
-  const comparison = getMetricComparison(value, previousValue);
+  const comparison = getMetricComparison(currentAvailable ? value : null, previousValue, suffix);
   const safeValue = Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
   const progress = getAchievementProgress(value, target, currentAvailable);
   const targetLabel = progress.isSet
@@ -2519,7 +2592,7 @@ function renderAchievementMetric({
       <div class="progress achievement-progress${progressClass}" aria-label="${label} ${targetLabel} ${achievementLabel}">
         <span style="width:${progress.width}%"></span>
       </div>
-      <div class="achievement-metric-comparison">${comparison}</div>
+      <div class="achievement-metric-comparison">${comparison}${record ? '<span class="achievement-record-badge">🏆 過去最高</span>' : ""}</div>
     </article>
   `;
 }
@@ -2655,7 +2728,7 @@ function renderAchievements() {
   const monthKey = selectedAchievementMonth;
   const monthView = getAchievementMonthView(monthKey);
   const previousMonthKey = getPreviousMonthKey(monthKey);
-  const previousMonthView = previousMonthKey >= ACHIEVEMENT_HISTORY_START_MONTH
+  const previousMonthView = getAchievementSnapshot(previousMonthKey)
     ? getAchievementMonthView(previousMonthKey)
     : null;
   const { isCurrentMonth, snapshot, values, available, tagCounts, targets } = monthView;
@@ -2693,8 +2766,9 @@ function renderAchievements() {
       suffix,
       target: targets[key],
       previousValue: previousValue(key),
+      record: isAchievementRecord(monthKey, key),
       currentAvailable,
-      displayValue: currentAvailable ? "" : key === "subscribers" && isCurrentMonth
+      displayValue: currentAvailable ? "" : isCurrentMonth
         ? "未取得" : historicalValueLabel
     });
   }).join("");
@@ -2721,26 +2795,68 @@ function renderVideoFilterCounts() {
 
 function readVideoViewMode() {
   try {
-    return localStorage.getItem(VIDEO_VIEW_STORAGE_KEY) === "compact" ? "compact" : "card";
+    const value = localStorage.getItem(VIDEO_VIEW_STORAGE_KEY);
+    return ["compact", "minimal"].includes(value) ? value : "card";
   } catch {
     return "card";
   }
 }
 
 function setVideoViewMode(mode) {
-  activeVideoViewMode = mode === "compact" ? "compact" : "card";
+  activeVideoViewMode = ["compact", "minimal"].includes(mode) ? mode : "card";
   try { localStorage.setItem(VIDEO_VIEW_STORAGE_KEY, activeVideoViewMode); } catch { /* Keep the selection in memory. */ }
   renderVideos();
+}
+
+function readVideoThumbnailVisible() {
+  try { return localStorage.getItem(VIDEO_THUMBNAIL_STORAGE_KEY) !== "off"; } catch { return true; }
+}
+
+function setVideoThumbnailVisible(visible) {
+  videoThumbnailVisible = Boolean(visible);
+  try { localStorage.setItem(VIDEO_THUMBNAIL_STORAGE_KEY, visible ? "on" : "off"); } catch { /* Memory-only preference. */ }
+  renderVideos();
+}
+
+function getVisibleVideos() {
+  return activeVideoFilter === "all" ? data.videos : data.videos.filter(video => video.status === activeVideoFilter);
+}
+
+function hasYouTubeSyncEvidence(video) {
+  return Boolean(video.youtubeSyncedAt && Number.isFinite(Date.parse(video.youtubeSyncedAt))) ||
+    [video.youtubeViews, video.youtubeLikes, video.youtubeComments].some(value => value != null && value !== "" && Number.isFinite(Number(value)));
+}
+
+function getVideoDataWarnings(video) {
+  const warnings = [];
+  if (!getVideoPublishedDateKey(video)) warnings.push("投稿日未設定");
+  if (!getYouTubeVideoId(video)) warnings.push("YouTube URL未設定");
+  else if (video.status === "投稿済み" && !hasYouTubeSyncEvidence(video)) warnings.push("YouTube情報未同期");
+  return warnings;
+}
+
+function renderVideoWarnings(video) {
+  const warnings = getVideoDataWarnings(video);
+  return warnings.length ? `<div class="video-data-warnings">${warnings.map(message => `<span>⚠ ${message}</span>`).join("")}</div>` : "";
+}
+
+function renderVideoMinimalRow(video) {
+  return `<article class="video-minimal-row" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
+    <div class="video-minimal-main"><h4>${escapeHtml(video.title)}</h4>
+      <div class="video-minimal-meta"><span>${escapeHtml(video.type)}</span><span>${formatDate(getVideoPublishedDateKey(video))}</span><strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong></div>
+    </div>
+    <select class="video-compact-status" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">${VIDEO_STATUSES.map(status => `<option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>`).join("")}</select>
+  </article>`;
 }
 
 function renderVideoCompactRow(video) {
   const thumbnailUrl = getYouTubeThumbnailUrl(video);
   const tags = parseVideoTags(video.tags);
-  return `<article class="video-compact-row" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
-    <div class="video-compact-thumbnail video-thumbnail-shell${thumbnailUrl ? "" : " is-thumbnail-error"}">
+  return `<article class="video-compact-row${videoThumbnailVisible ? "" : " video-compact-no-thumbnail"}" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
+    ${videoThumbnailVisible ? `<div class="video-compact-thumbnail video-thumbnail-shell${thumbnailUrl ? "" : " is-thumbnail-error"}">
       ${thumbnailUrl ? `<img class="video-thumbnail-image" data-video-thumbnail src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(video.title)}のYouTubeサムネイル" loading="lazy" decoding="async" />` : ""}
       <div class="video-thumbnail-fallback" aria-hidden="true"><span>▶</span><small>サムネイル未取得</small></div>
-    </div>
+    </div>` : ""}
     <div class="video-compact-main">
       <h4>${escapeHtml(video.title)}</h4>
       <div class="video-compact-meta"><span>${escapeHtml(video.type)}</span><span>${formatDate(getVideoPublishedDateKey(video))}</span></div>
@@ -2756,14 +2872,15 @@ function renderVideoCompactRow(video) {
 function renderVideos() {
   const list = document.getElementById("videoList");
   renderVideoFilterCounts();
-  list.classList.toggle("video-list--compact", activeVideoViewMode === "compact");
+  list.classList.toggle("video-list--compact", activeVideoViewMode !== "card");
+  elements.videoThumbnailToggle.classList.toggle("is-hidden", activeVideoViewMode !== "compact");
+  elements.videoThumbnailToggle.setAttribute("aria-pressed", String(videoThumbnailVisible));
+  elements.videoThumbnailToggle.textContent = `サムネイル ${videoThumbnailVisible ? "ON" : "OFF"}`;
   elements.videoViewToggle.querySelectorAll("[data-video-view]").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.videoView === activeVideoViewMode));
   });
 
-  const videos = activeVideoFilter === "all"
-    ? data.videos
-    : data.videos.filter(video => video.status === activeVideoFilter);
+  const videos = getVisibleVideos();
 
   if (!videos.length) {
     list.innerHTML = `<div class="card empty-state">該当する動画はありません</div>`;
@@ -2771,6 +2888,7 @@ function renderVideos() {
   }
 
   list.innerHTML = videos.map(video => {
+    if (activeVideoViewMode === "minimal") return renderVideoMinimalRow(video);
     if (activeVideoViewMode === "compact") return renderVideoCompactRow(video);
     const youtubeUrl = getYouTubeWatchUrl(video);
     const thumbnailUrl = getYouTubeThumbnailUrl(video);
@@ -3744,9 +3862,15 @@ async function completeIdea(id, button) {
 function renderVideoDetail(video) {
   const youtubeUrl = getYouTubeWatchUrl(video);
   const thumbnailUrl = getYouTubeThumbnailUrl(video);
+  const visibleVideos = getVisibleVideos();
+  const visibleIndex = visibleVideos.findIndex(item => sameId(item.id, video.id));
 
   elements.videoDetailTitle.textContent = video.title;
   elements.videoDetailBody.innerHTML = `
+    <nav class="video-detail-navigation" aria-label="前後の動画">
+      <button type="button" class="secondary-btn" data-video-step="-1" ${visibleIndex <= 0 ? "disabled" : ""}>← 前の動画</button>
+      <button type="button" class="secondary-btn" data-video-step="1" ${visibleIndex < 0 || visibleIndex >= visibleVideos.length - 1 ? "disabled" : ""}>次の動画 →</button>
+    </nav>
     <div class="youtube-thumbnail-card${thumbnailUrl ? "" : " is-thumbnail-error"}">
       ${thumbnailUrl ? `
         <img
@@ -3781,9 +3905,10 @@ function renderVideoDetail(video) {
     ${renderVideoTagChips(video.tags)}
 
     <section class="detail-section youtube-detail-section">
+      ${renderVideoWarnings(video)}
       <div class="youtube-detail-heading">
         <h4>YouTube情報</h4>
-        <span>${video.youtubeSyncedAt ? `最終同期 ${formatDateTime(video.youtubeSyncedAt)}` : "未同期"}</span>
+        <span>${video.youtubeSyncedAt ? `最終同期 ${formatDateTime(video.youtubeSyncedAt)}` : hasYouTubeSyncEvidence(video) ? "同期日時未取得" : "未同期"}</span>
       </div>
 
       <div class="youtube-metrics-grid">
@@ -3834,6 +3959,137 @@ function openVideoDetail(id) {
   currentDetailVideoId = video.id;
   renderVideoDetail(video);
   openManagedDialog(elements.videoDetailModal);
+}
+
+function navigateVideoDetail(step) {
+  const videos = getVisibleVideos();
+  const index = videos.findIndex(video => sameId(video.id, currentDetailVideoId));
+  if (index < 0 || ![-1, 1].includes(step)) return;
+  const next = videos[index + step];
+  if (next) openVideoDetail(next.id);
+}
+
+function getVideoSwipeStep(dx, dy, elapsed) {
+  if (elapsed < 0 || elapsed > 1200 || Math.abs(dx) < VIDEO_SWIPE_MIN_DISTANCE || Math.abs(dx) < Math.abs(dy) * 2) return 0;
+  return dx < 0 ? 1 : -1;
+}
+
+function setupVideoDetailNavigation() {
+  elements.videoDetailModal.addEventListener("click", event => {
+    const button = event.target.closest("[data-video-step]");
+    if (button) navigateVideoDetail(Number(button.dataset.videoStep));
+  });
+  elements.videoDetailModal.addEventListener("touchstart", event => {
+    videoSwipeStart = null;
+    if (!window.matchMedia("(max-width: 900px)").matches || event.touches.length !== 1 ||
+      event.target.closest("button,a,select,input,textarea,label,[contenteditable]")) return;
+    const touch = event.touches[0];
+    videoSwipeStart = { x: touch.clientX, y: touch.clientY, time: Date.now(), id: currentDetailVideoId, scrollTop: elements.videoDetailModal.scrollTop };
+  }, { passive: true });
+  elements.videoDetailModal.addEventListener("touchend", event => {
+    const start = videoSwipeStart;
+    videoSwipeStart = null;
+    if (!start || event.changedTouches.length !== 1 || event.touches.length || !elements.videoDetailModal.open ||
+      !sameId(start.id, currentDetailVideoId) || Math.abs(elements.videoDetailModal.scrollTop - start.scrollTop) > 12) return;
+    const touch = event.changedTouches[0];
+    const step = getVideoSwipeStep(touch.clientX - start.x, touch.clientY - start.y, Date.now() - start.time);
+    if (step) navigateVideoDetail(step);
+  }, { passive: true });
+  elements.videoDetailModal.addEventListener("touchcancel", () => { videoSwipeStart = null; }, { passive: true });
+}
+
+// Read-only, bounded context. Never include keys, emails, payment data or image URLs.
+function buildChannelAiContext(question) {
+  const month = currentMonthKey();
+  const view = getAchievementMonthView(month);
+  const trim = (value, limit) => String(value || "").slice(0, limit);
+  const relevantTags = ACTIVE_VIDEO_TAGS.filter(tag => question.includes(tag) || (tag === "選手解説" && question.includes("選手紹介")));
+  const candidates = [...data.videos.filter(video => relevantTags.some(tag => parseVideoTags(video.tags).includes(tag))).slice(0, 6),
+    ...data.videos.slice(0, 8), ...[...data.videos].filter(video => video.youtubeViews != null).sort((a, b) => b.youtubeViews - a.youtubeViews).slice(0, 5),
+    ...data.videos.filter(video => video.status !== "投稿済み" || getVideoDataWarnings(video).length).slice(0, 5)];
+  const videos = [...new Map(candidates.map(video => [String(video.id), video])).values()].slice(0, 24).map(video => ({
+    id: String(video.id), title: trim(video.title, 160), memo: trim(video.memo, 200), type: video.type, status: videoStatusLabel(video.status),
+    postDate: getVideoPublishedDateKey(video) || null, views: video.youtubeViews, likes: video.youtubeLikes, comments: video.youtubeComments,
+    syncedAt: video.youtubeSyncedAt || null, tags: parseVideoTags(video.tags), warnings: getVideoDataWarnings(video)
+  }));
+  const metrics = Object.fromEntries(ACHIEVEMENT_METRIC_DEFINITIONS.map(({key}) => [key, view.available[key] ? view.values[key] : null]));
+  const snapshots = [...data.achievementSnapshots].filter(snapshot => snapshot.monthKey < month).sort((a,b) => b.monthKey.localeCompare(a.monthKey)).slice(0, 12)
+    .map(snapshot => ({ month: snapshot.monthKey, metrics: snapshot.metrics, tagCounts: Object.fromEntries(ACTIVE_VIDEO_TAGS.map(tag => [tag,snapshot.tagCounts[tag] ?? null])) }));
+  const context = { version: 1, capturedAt: new Date().toISOString(), month, timezone: "Asia/Tokyo", youtubeSyncedAt: getLatestYouTubeSyncAt() || null,
+    limitations: ["再生数は現在累計。日別推移がないため、増加速度・伸び始め・停止原因は断定できない。", "動画と企画は件数制限した抜粋。NULLは未取得。", "過去月は保存済みsnapshotのみ。未保存月を0として補完しない。"],
+    schedule: WEEKLY_UPLOAD_SCHEDULE, metrics,
+    targets: Object.fromEntries(getAchievementGoalDefinitions().filter(definition => view.targets[definition.key] != null).map(definition => [definition.key,view.targets[definition.key]])),
+    tagCounts: Object.fromEntries(ACTIVE_VIDEO_TAGS.map(tag => [tag,view.tagCounts[tag] ?? 0])),
+    coverage: { totalVideos: data.videos.length, selectedVideos: videos.length, currentMonthVideos: getMonthlyPostedVideos(month).length,
+      currentMonthViewsKnown: getMonthlyPostedVideos(month).filter(video => video.youtubeViews != null).length },
+    pace: calculatePostingPace(view.targets.posts, metrics.posts), snapshots, videos,
+    ideas: data.ideas.slice(0, 12).map(idea => ({ id: String(idea.id), title: trim(idea.title, 160), note: trim(idea.note, 200), status: idea.status })),
+    ideaItems: data.ideaItems.slice(0, 12).map(item => ({ title: trim(item.title, 160), note: trim(item.note, 200), status: item.status })) };
+  // Enforce the transport budget even for unusually large saved target objects.
+  if (new TextEncoder().encode(JSON.stringify(context)).length > 60000) throw new Error("分析データが大きすぎます。対象を絞ってください。");
+  return context;
+}
+
+function renderChannelAiTemplates(expanded = false) {
+  elements.channelAiTemplates.innerHTML = CHANNEL_AI_QUESTIONS.slice(0, expanded ? 30 : 8).map((question,index) =>
+    `<button type="button" data-ai-question="${index}">${escapeHtml(question)}</button>`).join("");
+  elements.channelAiMore.setAttribute("aria-expanded", String(expanded));
+  elements.channelAiMore.textContent = expanded ? "閉じる" : "もっと見る";
+}
+
+function renderChannelAiConversation() {
+  elements.channelAiConversation.innerHTML = channelAiMessages.map(message => `<article class="channel-ai-message"><strong>${message.role === "user" ? "あなた" : "チャンネルAI"}</strong><p>${escapeHtml(message.content)}</p></article>`).join("");
+}
+
+function resetChannelAi() {
+  channelAiGeneration += 1;
+  channelAiBusy = false;
+  channelAiMessages = [];
+  elements.channelAiInput.value = "";
+  elements.channelAiSend.disabled = false;
+  elements.channelAiStatus.textContent = "AI provider未設定：回答生成はまだ利用できません。";
+  renderChannelAiConversation();
+}
+
+async function sendChannelAiQuestion() {
+  const question = elements.channelAiInput.value.trim();
+  if (channelAiBusy || !question) return;
+  if (question.length > 1500) { elements.channelAiStatus.textContent = "質問は1500文字以内で入力してください。"; return; }
+  const session = appSessionGeneration, generation = channelAiGeneration;
+  channelAiBusy = true;
+  elements.channelAiSend.disabled = true;
+  elements.channelAiStatus.textContent = "AI接続を確認しています…";
+  if (channelAiMessages.at(-1)?.role !== "user" || channelAiMessages.at(-1)?.content !== question) channelAiMessages.push({role:"user",content:question});
+  channelAiMessages = channelAiMessages.slice(-12);
+  renderChannelAiConversation();
+  let timeout;
+  try {
+    const context = buildChannelAiContext(question);
+    const messages = channelAiMessages.slice(-6).map(message => ({...message,content:message.content.slice(0,2000)}));
+    const body = {question, context, messages};
+    while (new TextEncoder().encode(JSON.stringify(body)).length > 75000 && messages.length) messages.shift();
+    const {data: result, error} = await Promise.race([
+      supabaseClient.functions.invoke("channel-assistant", {body}),
+      new Promise((_,reject) => { timeout = setTimeout(() => reject(new Error("AI接続がタイムアウトしました。")),35000); })
+    ]);
+    if (session !== appSessionGeneration || generation !== channelAiGeneration) return;
+    if (error) throw new Error(await getFunctionInvokeErrorMessage(error));
+    if (result?.code === "AI_NOT_CONFIGURED") throw new Error("AI provider未設定：利用するprovider・モデルの指定が必要です。回答は生成していません。");
+    if (typeof result?.answer !== "string" || !result.answer.trim() || result.answer.length > 12000) throw new Error("AIから有効な回答を受信できませんでした。");
+    channelAiMessages.push({role:"assistant",content:result.answer});
+    renderChannelAiConversation();
+    if (elements.channelAiInput.value.trim() === question) elements.channelAiInput.value = "";
+    elements.channelAiStatus.textContent = `参照データ取得：${formatDateTime(context.capturedAt)}。回答は確認して利用してください。`;
+  } catch (error) {
+    if (session !== appSessionGeneration || generation !== channelAiGeneration) return;
+    elements.channelAiStatus.textContent = `回答できませんでした。${getErrorMessage(error)} 入力は保持しています。同じ送信ボタンで再試行できます。`;
+  } finally {
+    clearTimeout(timeout);
+    if (session === appSessionGeneration && generation === channelAiGeneration) {
+      channelAiBusy = false;
+      elements.channelAiSend.disabled = false;
+    }
+  }
 }
 
 function getIdeaItems(parentIdeaId) {
@@ -4319,6 +4575,7 @@ function invalidateAppSessionWork() {
 }
 
 async function resetAuthenticatedApp({ message = "" } = {}) {
+  resetChannelAi();
   invalidateAppSessionWork();
   authenticatedUserId = "";
   lastSuccessfulDataLoadAt = 0;
@@ -4546,9 +4803,23 @@ async function initialize() {
 // Event wiring / application start
 // ============================================================
 function setupEventListeners() {
-  if (eventListenersReady) {
-    return;
-  }
+  if (eventListenersReady) return;
+  setupVideoDetailNavigation();
+  elements.channelAiButton.addEventListener("click", () => {
+    renderChannelAiTemplates();
+    renderChannelAiConversation();
+    const syncedAt = getLatestYouTubeSyncAt();
+    document.getElementById("channelAiDataStamp").textContent = `YouTube最終同期：${syncedAt ? formatDateTime(syncedAt) : "未取得"}。${!syncedAt || Date.now() - Date.parse(syncedAt) > 24 * 60 * 60 * 1000 ? "YouTube情報を更新すると分析の精度が上がります。" : ""}`;
+    openManagedDialog(elements.channelAiModal);
+  });
+  elements.channelAiMore.addEventListener("click", () => renderChannelAiTemplates(elements.channelAiMore.getAttribute("aria-expanded") !== "true"));
+  elements.channelAiTemplates.addEventListener("click", event => {
+    const button = event.target.closest("[data-ai-question]");
+    if (!button || channelAiBusy) return;
+    const question = CHANNEL_AI_QUESTIONS[Number(button.dataset.aiQuestion)];
+    if (question) { elements.channelAiInput.value = question; elements.channelAiInput.focus({ preventScroll: true }); }
+  });
+  elements.channelAiForm.addEventListener("submit", event => { event.preventDefault(); void sendChannelAiQuestion(); });
   eventListenersReady = true;
 
   elements.loginForm.addEventListener("submit", async event => {
@@ -5051,6 +5322,7 @@ function setupEventListeners() {
     const button = event.target.closest("[data-video-view]");
     if (button) setVideoViewMode(button.dataset.videoView);
   });
+  elements.videoThumbnailToggle.addEventListener("click", () => setVideoThumbnailVisible(!videoThumbnailVisible));
 
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {
@@ -5061,7 +5333,7 @@ function setupEventListeners() {
     });
   });
 
-  [elements.formModal, elements.achievementGoalModal, elements.videoDetailModal, elements.ideaDetailModal, elements.ideaItemDetailModal, elements.postStatsModal, elements.notificationModal, elements.trashModal].forEach(dialog => {
+  document.querySelectorAll("dialog.modal").forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog && !isDesktopDialogLayout()) {
         closeManagedDialog(dialog);

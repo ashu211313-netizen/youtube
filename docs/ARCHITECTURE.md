@@ -1,4 +1,6 @@
-# 構成・変更時の入口（23.33）
+# 構成・変更時の入口（23.34）
+
+23.34の追加入口：`getVisibleVideos`（3表示と詳細前後移動の共通配列）、`calculatePostingPace`（JST当月目標）、`getMetricComparison` / `isAchievementRecord`（保存履歴との比較）、`buildChannelAiContext`（上限付き読み取り文脈）。AIはprovider未決定の安全な接続口までで、実回答は未実装。[AI仕様](channel-ai.md)、[検証記録](next-ux-verification.md)を参照。
 
 ## 実行構成
 
@@ -38,7 +40,9 @@
 ### 状態の所有者
 
 - `data` はサーバーから取得した画面用状態。フォーム編集中の値はフォーム側で保持する。
-- `activeVideoViewMode` は `card` / `compact` の表示密度だけを管理。`boat-manager-video-view` に端末内保存し、不正値/読み取り失敗はcard、保存失敗はメモリ内で継続する。両モードは `renderVideos` の同じフィルタ済み動画配列を使い、追加query/sort/購読なし。一覧は既存の詳細/状態変更/サムネイルerror委譲を再利用する。検証は [動画表示切替](video-view-verification.md)。
+- `activeVideoViewMode` は `card` / `compact` / `minimal` の表示密度だけを管理。`boat-manager-video-view` に端末内保存し、不正値/読み取り失敗はcard、保存失敗はメモリ内で継続する。3モードは `getVisibleVideos` の同じフィルタ済み動画配列を使い、追加query/sort/購読なし。一覧の画像設定は `boat-manager-video-thumbnail` に独立保存。詳細/状態変更/サムネイルerror委譲は共通。
+- `channelAiMessages` はセッション内のみ。logoutで破棄し、世代番号で遅延応答を棄却。AI入力・回答はescapeして表示し、DB保存・外部LLM呼び出しはまだ行わない。
+- `openManagedDialog` はnative focus前に背景位置を捕捉し、上部closeへpreventScrollでfocus、実scroll ownerのdialogを先頭に戻す。PWA復帰は従来の復帰処理であり、編集中の位置を無条件にリセットしない。
 - `selectedDashboardMetricsMonth` / `selectedAchievementMonth` / `selectedPostStatsMonth` / `activeVideoFilter` は互いに独立した表示選択。
 - `ideaImageEditors` は各エディタの既存・追加予定・明示削除予定を保持するWeakMap。保存/キャンセル後にObject URLを解放する。
 - `pendingIdeaImageCleanup` は参照のなくなった画像の掃除再試行。`localStorage`への保存不能時はメモリ内。認証の保存はsupabase-jsが担当する。
