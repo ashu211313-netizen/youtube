@@ -2308,6 +2308,7 @@ body.modal-scroll-locked dialog[open] {
   cursor: pointer;
 }
 .video-compact-row:focus-visible,
+.video-minimal-row:focus-visible,
 .video-view-toggle button:focus-visible {
   outline: 3px solid #007aff;
   outline-offset: 2px;
@@ -2336,6 +2337,28 @@ body.modal-scroll-locked dialog[open] {
 .video-compact-controls { display: grid; gap: 5px; justify-items: stretch; min-width: 0; }
 .video-compact-status { width: 100%; min-height: 44px; padding: 7px; font-size: 16px; border-radius: 10px; }
 .video-compact-views { text-align: right; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.video-minimal-row { display: grid; grid-template-columns: minmax(0, 1fr) 108px; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid #e9e9ec; border-radius: 12px; background: white; cursor: pointer; }
+.video-minimal-main { min-width: 0; }
+.video-minimal-main h4 { margin: 0 0 3px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.video-minimal-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--muted); font-size: 11px; }
+.video-minimal-meta > * { white-space: nowrap; }
+.video-data-warnings { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.video-data-warnings span { padding: 5px 8px; border-radius: 8px; color: #795100; background: #fff6dc; font-size: 12px; }
+.video-detail-navigation { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.video-detail-navigation button { min-height: 44px; }
+.dashboard-posting-pace { display: grid; gap: 5px; padding: 12px; margin-bottom: 16px; border-radius: 14px; background: var(--bg); font-size: 13px; }
+.dashboard-posting-pace small { color: var(--muted); }
+.achievement-record-badge { display: inline-block; margin: 4px 0 0 8px; font-size: 11px; color: #795100; white-space: nowrap; }
+.channel-ai-entry { margin-bottom: 12px; min-height: 44px; }
+.channel-ai-modal > #channelAiMore { display: block; min-height: 44px; }
+.channel-ai-templates { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.channel-ai-templates button { max-width: 100%; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 14px; background: var(--bg); text-align: left; font-size: 13px; overflow-wrap: anywhere; }
+.channel-ai-conversation { display: grid; gap: 12px; margin-block: 16px; }
+.channel-ai-message { min-width: 0; padding: 12px; border-radius: 14px; background: var(--bg); }
+.channel-ai-message p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.channel-ai-form { display: grid; gap: 8px; }
+.channel-ai-form textarea { width: 100%; font-size: 16px; resize: vertical; }
+.channel-ai-form button { min-height: 44px; }
 @media (max-width: 620px) {
   .video-list-toolbar { align-items: stretch; }
   .video-list-toolbar .filter-row { width: 100%; }
@@ -2344,6 +2367,13 @@ body.modal-scroll-locked dialog[open] {
   .video-compact-main h4 { font-size: 12px; }
   .video-compact-meta { font-size: 10px; }
   .video-compact-views { font-size: 11px; }
+}
+
+.video-compact-row.video-compact-no-thumbnail { grid-template-columns: minmax(0, 1fr) 130px; }
+@media (max-width: 620px) {
+  .video-compact-row.video-compact-no-thumbnail { grid-template-columns: minmax(0, 1fr) 98px; }
+  .video-minimal-row { grid-template-columns: minmax(0, 1fr) 98px; }
+  .video-view-toggle button { padding-inline: 12px; }
 }
 
 .video-card {

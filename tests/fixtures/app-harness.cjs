@@ -29,12 +29,12 @@ function harness({ client = {}, ref = process.env.APP_REF, initialStorage = [], 
   const setTimer = (fn, ms, interval = false) => { timers.set(++timerId, { fn, ms, interval }); return timerId; };
   const document = {
     visibilityState: 'visible', body: node('body'), documentElement: node('html'),
-    getElementById: node, querySelector: selector => selector === 'meta[name="app-version"]' ? { content: '23.33' } : node(selector),
+    getElementById: node, querySelector: selector => selector === 'meta[name="app-version"]' ? { content: '23.34' } : node(selector),
     querySelectorAll: selector => selector === 'dialog[open]' ? [...nodes.values()].filter(n => n.open) : [],
     addEventListener() {}
   };
   const context = vm.createContext({
-    document, navigator: { onLine: true }, URL, URLSearchParams, Blob, Intl, Date,
+    document, navigator: { onLine: true }, URL, URLSearchParams, Blob, Intl, Date, TextEncoder,
     console: Object.fromEntries(['log','info','warn','error','debug'].map(level => [level, (...args) => logs.push({ level, args })])),
     setTimeout: setTimer, clearTimeout: id => timers.delete(id),
     localStorage: { getItem: k => { if(storageError) throw new Error('Storage unavailable'); return storage.get(k) || null; }, setItem: (k,v) => { if(storageError) throw new Error('Storage unavailable'); storage.set(k,v); }, removeItem: k => storage.delete(k) },
