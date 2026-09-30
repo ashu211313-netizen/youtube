@@ -49,3 +49,12 @@ test('monthly finalization: existing snapshot is skipped, no update or recalcula
   const response=await h.request('POST',{apikey:'fixture-public'},'{}');assert.equal(response.status,200);
   assert.equal((await response.json()).skipped,'already_finalized');assert.equal(reads,1);
 });
+test('future monthly finalization captures both new tag counts and targets, keeping legacy data',async()=>{
+  let saved;
+  const rows=[{id:'a',status:'投稿済み',post_date:'2026-09-01',tags:'疑問解決系,横動画の切り抜き,ネット競艇',youtube_views:0,youtube_likes:0},{id:'b',status:'投稿済み',post_date:'2026-09-02',tags:'横動画の切り抜き',youtube_views:5,youtube_likes:1}];
+  const client={from(table){const q={select(){return q;},eq(){return q;},is(){return q;},order(){return q;},maybeSingle:async()=>({data:null}),insert(value){saved=value;return Promise.resolve({error:null});},then(resolve){return Promise.resolve({data:table==='videos'?rows:table==='goals'?[{goal_key:'tag_question',target_value:2},{goal_key:'tag_clip',target_value:3},{goal_key:'tag_online',target_value:4}]:[],error:null}).then(resolve);}};return q;}};
+  const h=fixture('finalize-monthly-achievements',client);h.run("currentJstMonthKey=()=> '2026-10'");
+  assert.equal((await h.request('POST',{apikey:'fixture-public'},'{}')).status,200);
+  assert.equal(saved.tag_counts['疑問解決系'],1);assert.equal(saved.tag_counts['横動画の切り抜き'],2);assert.equal(saved.tag_counts['ネット競艇'],1);
+  assert.equal(saved.tag_targets.tag_question,2);assert.equal(saved.tag_targets.tag_clip,3);assert.equal(saved.tag_targets.tag_online,4);
+});

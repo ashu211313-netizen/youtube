@@ -26,7 +26,7 @@ test('JST seven weekdays and 23:59 → 00:00, invalid date',()=>{
 test('schedule uses one immutable source and renders one hero plus six compact days',()=>{
   const h=harness();h.run('renderWeeklyUploadSchedule()');
   const config=JSON.parse(h.run('JSON.stringify(WEEKLY_UPLOAD_SCHEDULE)'));
-  assert.deepEqual(config.days.map(d=>d.feature),['選手紹介','用語解説','競艇場紹介','疑問解決Shorts','横動画の切り抜き投稿','横動画の切り抜き投稿','横動画の切り抜き投稿']);
+  assert.deepEqual(config.days.map(d=>d.feature),['選手紹介','用語解説','競艇場解説','疑問解決系','切り抜き＋横動画（完成していれば）','切り抜き＋レース','切り抜き＋レース']);
   const html=h.node('weeklyScheduleList').innerHTML;
   assert.equal((html.match(/weekly-schedule-hero/g)||[]).length,1);
   assert.equal((html.match(/weekly-schedule-compact/g)||[]).length,6);
@@ -76,8 +76,8 @@ test('progress 0 / 50 / 100 / 125 and absent/invalid values never overflow or sh
     assert(!/NaN|Infinity|undefined/.test(html));
   }
 });
-test('six active tags exclude retired online tag from choices and summaries',()=>{
-  const h=harness();assert.equal(h.run('ACTIVE_VIDEO_TAGS.length'),6);
+test('eight active tags exclude retired online tag from choices and summaries',()=>{
+  const h=harness();assert.equal(h.run('ACTIVE_VIDEO_TAGS.length'),8);
   assert.equal(h.run(`ACTIVE_VIDEO_TAGS.includes('ネット競艇')`),false);
   const html=h.run(`renderMonthlyTagRows({'横動画':0,'選手解説':5,'競艇ニュース':2},{targets:{tag_horizontal:10,tag_news:3}})`);
   assert(html.includes('横動画'));assert(html.includes('競艇ニュース'));assert(!html.includes('選手解説'));

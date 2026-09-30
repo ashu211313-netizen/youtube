@@ -1,9 +1,13 @@
-競艇チャンネル管理 Ver23.34 更新手順
+競艇チャンネル管理 Ver23.35 更新手順
 
 1. Pull RequestをmainへMerge
 2. 既存のGitHub Pages公開への反映後、PCを再読み込みし、iPhone PWAを完全終了して再起動
+3. finalize-monthly-achievementsを共有_shared/youtube.tsを含むリポジトリ構成のままCLI/APIで再Deploy
+   既存のverify_jwt=falseを維持。CLIの例：supabase functions deploy finalize-monthly-achievements --project-ref jyxrrnfnypqaecfojsle --no-verify-jwt
+   新タグの将来月末スナップショットに必要。今回の作業では本番Deployは行っていません。
 
-通常機能はSQL実行不要、既存Edge Function再Deploy不要、Cron・Storage・RLS・Secret変更不要です。
+SQL実行不要、sync-youtube-video再Deploy不要、Cron・Storage・RLS・Secret変更不要です。
+AIのchannel-assistantは今回変更・Deployしません。AI有料API接続も行いません。
 新規channel-assistantはprovider未設定を返す認証済み接続口で、まだ本番Deployしていません。
 AI実回答にはprovider・モデルの決定後、サーバーadapter・制限・検証・Secret設定・新規関数Deployが必要です。
 APIキーを設定するだけでは実回答は有効になりません。詳細はdocs/channel-ai.md。
@@ -26,7 +30,7 @@ APIキーを設定するだけでは実回答は有効になりません。詳�
 ・実績の過去月は確定snapshotのままで、DashboardのLIVE値とは連動しない
 ・ログアウト後の通信完了で旧データや購読が復活しない
 ・下ナビが「ホーム / 動画 / 企画 / 実績」の4個横一列
-・動画タグはactive 6種類から複数選択でき、旧「ネット競艇」は新規選択不可・既存保存値のみ維持
+・動画タグは指定順のactive 8種類から複数選択でき、旧「ネット競艇」と未知の歴史タグは編集保存時に維持
 ・動画一覧はYouTube公開日時（未取得時は入力した投稿日）の新しい順
 ・編集/タグ/状態変更だけでは動画の並び順が動かない
 ・通知が相手側に届き、通知画面を開くと全部既読
@@ -38,7 +42,7 @@ APIキーを設定するだけでは実回答は有効になりません。詳�
 ・ホームと実績ページに今月のタグ別投稿本数が表示
 ・ホーム「今月の数字」のYouTube更新が動画画面の一括更新と同じ動作
 ・実績ページの6指標が「登録者 / 最高再生 / 投稿 / 再生 / 平均再生 / 高評価」の順
-・主要6指標とactive 6タグの月間目標を設定でき、旧tag_online目標はDB上で維持
+・主要6指標とactive 8タグの月間目標を設定でき、旧tag_online目標はDB上で維持
 ・実績の月選択が報酬確認と同じプルダウン方式
 ・過去月は閲覧専用で、目標編集ボタンが表示されない
 ・2026年7月は投稿/タグ本数だけ復元し、復元不能値は「履歴データなし」

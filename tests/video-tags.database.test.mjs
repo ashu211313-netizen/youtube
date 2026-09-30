@@ -1,0 +1,41 @@
+// Actual frontend save functions against isolated Postgres, followed by fresh reads.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {createDatabase} from './fixtures/idea-images-db.mjs';
+const {harness}=createRequire(import.meta.url)('./fixtures/app-harness.cjs');
+const db=await createDatabase();
+await db.exec(`reset role;
+create table videos(id uuid primary key default gen_random_uuid(),title text,video_type text,status text,post_date date,youtube_url text,tags text,memo text,updated_at timestamptz);
+create table goals(id uuid primary key default gen_random_uuid(),title text,current_value integer,target_value integer,deadline date,achieved boolean,achieved_date date,goal_scope text,goal_month text,goal_key text,deleted_at timestamptz,updated_at timestamptz,unique(goal_scope,goal_month,goal_key));
+grant select,insert,update on videos,goals to authenticated;set role authenticated;`);
+const client={from(table){assert(['videos','goals'].includes(table));let action,payload,id;
+  const q={insert(p){action='insert';payload=p;return q;},update(p){action='update';payload=p;return q;},upsert(p){action='upsert';payload=p;return q;},eq(k,v){assert.equal(k,'id');id=v;return q;},select(){return q;},single(){return q;},then(resolve,reject){return (async()=>{
+    const rows=Array.isArray(payload)?payload:[payload];let result;
+    for(const row of rows){const keys=Object.keys(row),values=Object.values(row),params=keys.map((_,i)=>'$'+(i+1));
+      if(action==='update'){values.push(id);result=await db.query(`update ${table} set ${keys.map((k,i)=>k+'='+params[i]).join(',')} where id=$${values.length} returning *`,values);}
+      else result=await db.query(`insert into ${table} (${keys.join(',')}) values (${params.join(',')}) ${action==='upsert'?'on conflict(goal_scope,goal_month,goal_key) do update set target_value=excluded.target_value':''} returning *`,values);
+    }return {data:result.rows[0],error:null};})().then(resolve,reject);}};return q;}};
+const fresh=()=>{const h=harness({client});h.run('addActivityLog=async()=>{}');return h;};
+let h=fresh();
+const row=await h.run("saveVideo({title:'新タグ',type:'Shorts',status:'投稿済み',postDate:'2026-10-01',youtubeUrl:'',tags:['疑問解決系','横動画の切り抜き'],memo:''},'add')");
+h=fresh();h.context.row=(await db.query('select * from videos where id=$1',[row.id])).rows[0];
+assert.deepEqual(Array.from(h.run('parseVideoTags(mapVideo(row).tags)')),['疑問解決系','横動画の切り抜き']);
+assert.equal((h.run('renderVideoTagChoices(mapVideo(row).tags)').match(/checked/g)||[]).length,2);
+console.log('PASS actual saveVideo → discard state → fresh DB read → both new tags checked');
+await db.query("update videos set tags='用語解説, ネット競艇, 旧独自タグ' where id=$1",[row.id]);
+h.context.row=(await db.query('select * from videos where id=$1',[row.id])).rows[0];h.run('data.videos=[mapVideo(row)]');
+await h.run("saveVideo({title:'編集済み',type:'Shorts',status:'投稿済み',postDate:'2026-10-01',youtubeUrl:'',tags:['用語解説','競艇ニュース'],legacyVideoTags:getLegacyVideoTags(row.tags),memo:''},'edit',row.id)");
+assert.equal((await db.query('select tags from videos where id=$1',[row.id])).rows[0].tags,'用語解説, 競艇ニュース, ネット競艇, 旧独自タグ');
+console.log('PASS actual edit preserves online and unknown historical tags');
+const month=h.run('currentMonthKey()');
+await db.query("insert into goals(title,goal_scope,goal_month,goal_key,target_value) values('legacy','monthly',$1,'tag_online',7),('old','monthly','2020-01','tag_player',8)",[month]);
+const legacyBefore=(await db.query("select * from goals where goal_key='tag_online' or goal_month='2020-01' order by goal_key")).rows;
+h.context.FormData=class{get(key){return ({tag_question:'2',tag_clip:'3'})[key]||'';}};
+h.node('achievementGoalForm').dataset.monthKey=month;h.run('loadAllData=async()=>{}');
+await h.run('saveAchievementGoals({preventDefault(){}})');assert.equal(h.node('achievementGoalError').textContent,'');
+h=fresh();const goals=(await db.query('select * from goals')).rows;h.context.goals=goals;
+h.run("data.achievementGoals=goals.filter(g=>g.goal_month===currentMonthKey()).map(g=>({monthKey:g.goal_month,key:g.goal_key,target:g.target_value}));renderAchievementGoalFields()");
+assert.match(h.node('achievementGoalFields').innerHTML,/name="tag_question"\s+value="2"/);assert.match(h.node('achievementGoalFields').innerHTML,/name="tag_clip"\s+value="3"/);
+assert.deepEqual((await db.query("select * from goals where goal_key='tag_online' or goal_month='2020-01' order by goal_key")).rows,legacyBefore);
+console.log('PASS actual saveAchievementGoals → fresh DB read; new targets persist; old goals byte-equivalent');
+await db.close();console.log('3 frontend/Postgres persistence tests passed');
