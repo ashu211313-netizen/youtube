@@ -4,16 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#f5f5f7" />
-  <meta name="app-version" content="23.35" />
+  <meta name="app-version" content="23.36" />
   <title>競艇チャンネル管理</title>
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=6" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=6" />
-  <link rel="manifest" href="manifest.json?v=23.35" />
+  <link rel="manifest" href="manifest.json?v=23.36" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="競艇管理" />
-  <link rel="stylesheet" href="style.css?v=23.35" />
+  <link rel="stylesheet" href="style.css?v=23.36" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -174,7 +174,6 @@
 
           <section class="dashboard-monthly-performance" aria-labelledby="dashboardMonthlyPerformanceTitle">
             <div id="dashboardPostingPace" class="dashboard-posting-pace" aria-live="polite"></div>
-            <button type="button" id="channelAiButton" class="secondary-btn channel-ai-entry">チャンネルAI</button>
             <div class="dashboard-monthly-performance-head">
               <div class="dashboard-monthly-heading">
                 <span id="dashboardMonthlyEyebrow">今月投稿した動画</span>
@@ -293,20 +292,6 @@
     <button type="button" class="mobile-nav-item" data-page="achievements">実績</button>
   </div>
 
-  <dialog id="channelAiModal" class="modal fullscreen-modal channel-ai-modal" aria-labelledby="channelAiTitle">
-    <div class="modal-head"><h3 id="channelAiTitle">チャンネルAI</h3><button type="button" class="icon-btn" data-close aria-label="チャンネルAIを閉じる">×</button></div>
-    <p class="form-help">読み取り専用。質問チップを選び、内容を確認して送信してください。AI provider未設定のため、現在は回答生成を利用できません。</p>
-    <p id="channelAiDataStamp" class="form-help"></p>
-    <div id="channelAiTemplates" class="channel-ai-templates" aria-label="質問の候補"></div>
-    <button type="button" id="channelAiMore" class="secondary-btn" aria-expanded="false">もっと見る</button>
-    <div id="channelAiConversation" class="channel-ai-conversation" role="log" aria-live="polite"></div>
-    <form id="channelAiForm" class="channel-ai-form">
-      <label for="channelAiInput">質問（1500文字以内）</label>
-      <textarea id="channelAiInput" rows="3" maxlength="1500" placeholder="チャンネル運営について質問" required></textarea>
-      <button type="submit" id="channelAiSend" class="primary-btn">送信 / 再試行</button>
-    </form>
-    <p id="channelAiStatus" class="form-help" role="status">AI provider未設定：回答生成はまだ利用できません。</p>
-  </dialog>
 
   <dialog id="formModal" class="modal form-modal fullscreen-modal">
     <div class="modal-head">
@@ -566,6 +551,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js"></script>
-  <script src="app.js?v=23.35"></script>
+  <script src="app.js?v=23.36"></script>
 </body>
 </html>

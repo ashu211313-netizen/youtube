@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {harness,deferred}=require('./fixtures/app-harness.cjs');
+const {harness}=require('./fixtures/app-harness.cjs');
 
-test('new navigation and AI handlers share the existing once-only event guard',()=>{
+test('navigation handlers share the existing once-only event guard',()=>{
   const h=harness();let registrations=0;
-  for(const id of ['videoDetailModal','channelAiButton','channelAiMore','channelAiTemplates','channelAiForm']) h.node(id).addEventListener=()=>registrations++;
+  for(const id of ['videoDetailModal']) h.node(id).addEventListener=()=>registrations++;
   h.run('setupEventListeners()');const first=registrations;assert(first>0);
   h.run('setupEventListeners()');assert.equal(registrations,first);
 });
@@ -26,7 +26,7 @@ test('touch handlers ignore interactive controls, scrolling, cancel and multitou
 
 test('managed dialogs reopen at top and capture background before native focus',()=>{
   const h=harness();h.context.requestAnimationFrame=fn=>fn();
-  for(const id of ['formModal','videoDetailModal','ideaDetailModal','ideaItemDetailModal','achievementGoalModal','notificationModal','trashModal','postStatsModal','channelAiModal']) {
+  for(const id of ['formModal','videoDetailModal','ideaDetailModal','ideaItemDetailModal','achievementGoalModal','notificationModal','trashModal','postStatsModal']) {
     const dialog=h.node(id);dialog.scrollTop=800;h.context.window.scrollY=1000;
     dialog.showModal=function(){this.open=true;h.context.window.scrollY=40;};
     h.run(`openManagedDialog(elements.${id})`);
@@ -35,32 +35,6 @@ test('managed dialogs reopen at top and capture background before native focus',
     h.context.window.scrollY=1000;h.run(`openManagedDialog(elements.${id})`);assert.equal(dialog.scrollTop,0,id);
     h.run(`closeManagedDialog(elements.${id});syncDialogScrollLock()`);
   }
-});
-
-test('AI templates are 8 initially, 30 expanded; context is bounded, grounded and read-only',()=>{
-  const h=harness();h.run(`currentMonthKey=()=> '2026-09';data.videos=Array.from({length:200},(_,i)=>mapVideo({id:String(i),title:'動画'+i,status:'投稿済み',post_date:'2026-09-01',youtube_views:i,tags:'選手解説,ネット競艇'}));data.achievementGoals=[{monthKey:'2026-09',key:'posts',target:250}];renderChannelAiTemplates()`);
-  assert.equal((h.node('channelAiTemplates').innerHTML.match(/data-ai-question/g)||[]).length,8);
-  h.run('renderChannelAiTemplates(true)');assert.equal((h.node('channelAiTemplates').innerHTML.match(/data-ai-question/g)||[]).length,30);
-  const c=JSON.parse(h.run(`JSON.stringify(buildChannelAiContext('選手紹介の成績'))`));
-  assert.equal(c.metrics.posts,200);assert.equal(c.metrics.monthly_views,19900);assert.equal(c.targets.posts,250);
-  assert(c.videos.length<=24);assert(c.ideas.length<=12);assert(!JSON.stringify(c).includes('ネット競艇'));
-  assert(!JSON.stringify(c).includes('sb_publishable'));assert(c.limitations.some(text=>text.includes('日別推移')));
-});
-
-test('AI failure keeps input/conversation; retry is single flight; logout discards old reply',async()=>{
-  const gate=deferred();let calls=0;
-  const h=harness({client:{functions:{invoke:()=>{calls++;return gate.promise;}}}});
-  h.node('channelAiInput').value='今月の成績';
-  const first=h.run('sendChannelAiQuestion()');await h.run('sendChannelAiQuestion()');assert.equal(calls,1);
-  gate.resolve({data:null,error:{message:'local test 500'}});await first;
-  assert.equal(h.node('channelAiInput').value,'今月の成績');assert.match(h.node('channelAiStatus').textContent,/再試行/);
-  assert.equal(h.run('channelAiMessages.length'),1);assert.equal(h.run('channelAiBusy'),false);
-  const next=deferred();
-  h.run('resetChannelAi()');assert.equal(h.run('channelAiMessages.length'),0);
-  const client={functions:{invoke:()=>next.promise}}, other=harness({client});other.node('channelAiInput').value='質問';
-  const pending=other.run('sendChannelAiQuestion()');other.run('resetChannelAi();appSessionGeneration++');
-  next.resolve({data:{answer:'test-only response'}});await pending;
-  assert.equal(other.run('channelAiMessages.length'),0);assert.equal(other.node('channelAiInput').value,'');
 });
 
 test('swipe intent rejects vertical/short/slow movement and respects filtered boundaries',()=>{

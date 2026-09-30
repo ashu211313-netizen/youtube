@@ -14,14 +14,14 @@ project `jyxrrnfnypqaecfojsle` のinformation_schema/pg_constraintと既存tag g
 
 ## 将来の月末確定
 
-frontendだけ変更すると月末関数の固定一覧から新タグが落ちるため、`finalize-monthly-achievements`のVIDEO_TAGSとTAG_GOAL_KEYSだけを2件追加。ここはactive UIではなくsnapshot用の一覧であり、legacyネット競艇/tag_onlineも引き続き収録する。既存snapshotの先行存在チェック・不変性・Cron・同期・認証は変更なし。本番Deploy未実行。Merge後、この関数だけ共有youtube.tsを含むCLI/API再Deployが必要。AIとsync関数は変更なし。
+frontendだけ変更すると月末関数の固定一覧から新タグが落ちるため、`finalize-monthly-achievements`のVIDEO_TAGSとTAG_GOAL_KEYSだけを2件追加。ここはactive UIではなくsnapshot用の一覧であり、legacyネット競艇/tag_onlineも引き続き収録する。既存snapshotの先行存在チェック・不変性・Cron・同期・認証は変更なし。本番Deploy未実行。Merge後、この関数だけ共有youtube.tsを含むCLI/API再Deployが必要。sync関数は変更なし。
 
 ## 自動検証：139件成功／失敗0
 
 ```sh
 node --check app.js
 node --check tests/browser-server.mjs
-node --test tests/app-lifecycle.test.cjs tests/app-regression.test.cjs tests/edge-functions.test.cjs tests/video-view.test.cjs tests/next-ux.test.cjs tests/channel-ai-edge.test.cjs tests/schedule-tags.test.cjs
+node --test tests/app-lifecycle.test.cjs tests/app-regression.test.cjs tests/edge-functions.test.cjs tests/video-view.test.cjs tests/next-ux.test.cjs tests/schedule-tags.test.cjs
 node tests/idea-images.test.cjs
 node tests/idea-images.database.test.mjs
 node tests/monthly-notifications.database.test.mjs
@@ -47,4 +47,4 @@ localhost fixtureで390×844、430×932、768×1024、1280×900を確認。8chec
 
 既存動画編集でactive8選択肢・先頭表示、目標フォームの主要6＋タグ8＝14入力・新2キー・先頭表示を確認。ブラウザconsole error/warning 0。
 
-本番への新タグ書き込み、本番Edge Deploy/将来月末の実実行、物理iPhone/PWA・実touchは未確認。ローカルPostgres保存とブラウザfixtureを本番確認とは扱わない。AI UI/provider/Secret/関数は変更・Deployしていない。
+本番への新タグ書き込み、本番Edge Deploy/将来月末の実実行、物理iPhone/PWA・実touchは未確認。ローカルPostgres保存とブラウザfixtureを本番確認とは扱わない。

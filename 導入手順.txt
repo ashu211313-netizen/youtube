@@ -1,16 +1,11 @@
-競艇チャンネル管理 Ver23.35 更新手順
+競艇チャンネル管理 Ver23.36 更新手順
 
 1. Pull RequestをmainへMerge
 2. 既存のGitHub Pages公開への反映後、PCを再読み込みし、iPhone PWAを完全終了して再起動
-3. finalize-monthly-achievementsを共有_shared/youtube.tsを含むリポジトリ構成のままCLI/APIで再Deploy
-   既存のverify_jwt=falseを維持。CLIの例：supabase functions deploy finalize-monthly-achievements --project-ref jyxrrnfnypqaecfojsle --no-verify-jwt
-   新タグの将来月末スナップショットに必要。今回の作業では本番Deployは行っていません。
-
-SQL実行不要、sync-youtube-video再Deploy不要、Cron・Storage・RLS・Secret変更不要です。
-AIのchannel-assistantは今回変更・Deployしません。AI有料API接続も行いません。
-新規channel-assistantはprovider未設定を返す認証済み接続口で、まだ本番Deployしていません。
-AI実回答にはprovider・モデルの決定後、サーバーadapter・制限・検証・Secret設定・新規関数Deployが必要です。
-APIキーを設定するだけでは実回答は有効になりません。詳細はdocs/channel-ai.md。
+SQL実行不要、既存Edge Function再Deploy不要、Cron・Storage・RLS・Secret変更不要です。
+前版23.35の月末確定関数再Deployが未完了の場合のみ、その既存手順を実施してください。
+共有_shared/youtube.tsを含むリポジトリ構成のままCLI/APIで、既存verify_jwt=falseを維持します。
+既存手順：supabase functions deploy finalize-monthly-achievements --project-ref jyxrrnfnypqaecfojsle --no-verify-jwt
 既存baseline SQLを無条件に再実行しないでください。
 本番には前回の複数画像テーブル/RPCが存在することを読み取り確認済みです。
 別の未導入環境を構築する場合はdocs/ARCHITECTURE.mdとdocs/multi-idea-images.mdを参照してください。
