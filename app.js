@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.34";
+const APP_VERSION = "23.35";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -27,11 +27,13 @@ const IDEA_STATUSES = ["アイデア", "実行済み"];
 const IDEA_STATUS_LABELS = { アイデア: "アイデア", 実行済み: "企画ボード" };
 // Active tags are selectable and visible in current operating UI.
 const ACTIVE_VIDEO_TAGS = Object.freeze([
-  "横動画",
   "選手解説",
   "用語解説",
   "競艇場解説",
+  "疑問解決系",
+  "横動画の切り抜き",
   "レース映像",
+  "横動画",
   "競艇ニュース"
 ]);
 // Retired tags stay in stored video/goal/snapshot data but are never newly selectable.
@@ -42,11 +44,11 @@ const WEEKLY_UPLOAD_SCHEDULE = Object.freeze({
   days: Object.freeze([
     { weekday: 1, label: "月曜日", feature: "選手紹介" },
     { weekday: 2, label: "火曜日", feature: "用語解説" },
-    { weekday: 3, label: "水曜日", feature: "競艇場紹介" },
-    { weekday: 4, label: "木曜日", feature: "疑問解決Shorts" },
-    { weekday: 5, label: "金曜日", feature: "横動画の切り抜き投稿" },
-    { weekday: 6, label: "土曜日", feature: "横動画の切り抜き投稿" },
-    { weekday: 0, label: "日曜日", feature: "横動画の切り抜き投稿" }
+    { weekday: 3, label: "水曜日", feature: "競艇場解説" },
+    { weekday: 4, label: "木曜日", feature: "疑問解決系" },
+    { weekday: 5, label: "金曜日", feature: "切り抜き＋横動画（完成していれば）" },
+    { weekday: 6, label: "土曜日", feature: "切り抜き＋レース" },
+    { weekday: 0, label: "日曜日", feature: "切り抜き＋レース" }
   ].map(Object.freeze))
 });
 const ACHIEVEMENT_GOAL_SCOPE = "monthly";
@@ -65,6 +67,8 @@ const ACHIEVEMENT_TAG_GOAL_KEYS = {
   "選手解説": "tag_player",
   "用語解説": "tag_terms",
   "競艇場解説": "tag_venue",
+  "疑問解決系": "tag_question",
+  "横動画の切り抜き": "tag_clip",
   "レース映像": "tag_race",
   "競艇ニュース": "tag_news"
 };

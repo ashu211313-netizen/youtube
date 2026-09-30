@@ -1,4 +1,6 @@
-# 構成・変更時の入口（23.34）
+# 構成・変更時の入口（23.35）
+
+23.35は固定週間予定の内容とactive動画タグ8種を更新。共通タグ定義からフォーム・表示・月別集計・目標を生成する。新目標キーは`tag_question` / `tag_clip`。月末確定関数の将来snapshotにも2タグを追加し、既存snapshotとlegacy値は変更しない。[変更・検証記録](schedule-tags-verification.md)を参照。
 
 23.34の追加入口：`getVisibleVideos`（3表示と詳細前後移動の共通配列）、`calculatePostingPace`（JST当月目標）、`getMetricComparison` / `isAchievementRecord`（保存履歴との比較）、`buildChannelAiContext`（上限付き読み取り文脈）。AIはprovider未決定の安全な接続口までで、実回答は未実装。[AI仕様](channel-ai.md)、[検証記録](next-ux-verification.md)を参照。
 
@@ -25,7 +27,7 @@
 
 | 入口 | 内容・不変条件 |
 | --- | --- |
-| 定数 / `elements` | ステータス、active 6タグ、legacyタグ、目標キー、DOM参照。DB内部値と表示名を区別 |
+| 定数 / `elements` | ステータス、active 8タグ、legacyタグ、目標キー、DOM参照。DB内部値と表示名を区別 |
 | `createEmptyDataState`, `mapVideo`, `mapIdea`, `mapAchievementSnapshot` | DB snake_case → UIデータ。未取得を0と混同しない |
 | `selectNewestRows`, `fetchAllDataOnce`, `loadAllData` | videos/ideas/idea_itemsが必須。目標・実績履歴・支払い・通知・channel_statsは任意取得。既存画像へのfallbackあり |
 | `getMonthlyPostStats`, `getMonthlyAchievementStats` | 投稿日月ごとのLIVE集計。Dashboardは選択月の最新video統計に利用し、実績snapshotとは分離 |
@@ -67,7 +69,7 @@
 
 | テーブル | 用途 |
 | --- | --- |
-| videos | 動画、投稿日時、タグ（TEXT）、YouTube現在統計。active選択肢は6タグ。旧「ネット競艇」は保存値を維持するlegacyタグ。旧views_24系は残存するがアプリ未使用 |
+| videos | 動画、投稿日時、タグ（TEXT）、YouTube現在統計。active選択肢は8タグ。旧「ネット競艇」と未知の歴史タグは編集時に保存値を維持。旧views_24系は残存するがアプリ未使用 |
 | ideas / idea_items | 企画・企画内アイデア。親IDはUUID、子IDはbigint、parent_idea_idはTEXT |
 | idea_images | UUID/関連親FK/URL/path/並び順。旧image_urlは互換用先頭画像 |
 | goals | 実績ページ内の月別目標。旧目標タブは復活させない |

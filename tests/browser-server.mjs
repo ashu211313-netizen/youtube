@@ -182,7 +182,7 @@ http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png'})[path.extname(name)]);
     let content=fs.readFileSync(path.join(root,name));
     if(name==='index.html')content=content.toString().replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js','/qa-client.js');
-    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.34"','name="app-version" content="obsolete"');
+    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.35"','name="app-version" content="obsolete"');
     if(name==='app.js')content=content.toString().replace('const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";',`const SUPABASE_URL = "${origin}";`).replaceAll('https://img.youtube.com',origin+'/qa-thumbnails');
     res.end(content);
   }catch(error){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:null,error:{code:error.code,message:error.message}}));}
