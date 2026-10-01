@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.35";
+const APP_VERSION = "23.36";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -88,19 +88,6 @@ const APP_DATA_STALE_MS = 60 * 1000;
 const POSTING_PACE_TOLERANCE = 0.1;
 const VIDEO_SWIPE_MIN_DISTANCE = 64;
 let videoSwipeStart = null;
-const CHANNEL_AI_QUESTIONS = Object.freeze([
-  "今週は何を投稿すればいい？", "次に作るべき動画を3本考えて", "最近一番伸びている企画は？", "今月の投稿ペースは順調？",
-  "今月あと何本必要？", "今ある企画で優先するべきものは？", "横動画にするならどの企画がいい？", "最近伸びていない原因を分析して",
-  "今月の成績を簡単にまとめて", "先月と今月を比較して", "過去最高だった月はいつ？", "最近一番伸びた動画は？",
-  "最近伸び始めた過去動画はある？", "再生数が止まっている動画は？", "平均より伸びている動画を教えて", "タグ別で一番成績がいいのは？",
-  "競艇ニュースの最近の成績は？", "選手紹介の最近の成績は？", "用語解説の最近の成績は？", "競艇場解説の最近の成績は？",
-  "Shortsと横動画はどっちが伸びてる？", "今月まだ不足している投稿ジャンルは？", "週間投稿スケジュール通りに投稿できてる？", "投稿待ちで放置されている動画はある？",
-  "YouTube情報が未同期の動画はある？", "投稿日やURLが未設定の動画を教えて", "今ある企画ストックを整理して", "最近のヒット企画から次の企画を考えて",
-  "過去に似た企画で伸びたものはある？", "このチャンネルの今の課題を3つ教えて"
-]);
-let channelAiMessages = [];
-let channelAiBusy = false;
-let channelAiGeneration = 0;
 
 function createEmptyDataState() {
   return {
@@ -158,15 +145,6 @@ let lastDataLoadError = null;
 let versionMismatchDetected = false;
 
 const elements = {
-  channelAiModal: document.getElementById("channelAiModal"),
-  channelAiButton: document.getElementById("channelAiButton"),
-  channelAiTemplates: document.getElementById("channelAiTemplates"),
-  channelAiMore: document.getElementById("channelAiMore"),
-  channelAiConversation: document.getElementById("channelAiConversation"),
-  channelAiForm: document.getElementById("channelAiForm"),
-  channelAiInput: document.getElementById("channelAiInput"),
-  channelAiSend: document.getElementById("channelAiSend"),
-  channelAiStatus: document.getElementById("channelAiStatus"),
   dashboardPostingPace: document.getElementById("dashboardPostingPace"),
   videoViewToggle: document.getElementById("videoViewToggle"),
   videoThumbnailToggle: document.getElementById("videoThumbnailToggle"),
@@ -4002,100 +3980,6 @@ function setupVideoDetailNavigation() {
   elements.videoDetailModal.addEventListener("touchcancel", () => { videoSwipeStart = null; }, { passive: true });
 }
 
-// Read-only, bounded context. Never include keys, emails, payment data or image URLs.
-function buildChannelAiContext(question) {
-  const month = currentMonthKey();
-  const view = getAchievementMonthView(month);
-  const trim = (value, limit) => String(value || "").slice(0, limit);
-  const relevantTags = ACTIVE_VIDEO_TAGS.filter(tag => question.includes(tag) || (tag === "選手解説" && question.includes("選手紹介")));
-  const candidates = [...data.videos.filter(video => relevantTags.some(tag => parseVideoTags(video.tags).includes(tag))).slice(0, 6),
-    ...data.videos.slice(0, 8), ...[...data.videos].filter(video => video.youtubeViews != null).sort((a, b) => b.youtubeViews - a.youtubeViews).slice(0, 5),
-    ...data.videos.filter(video => video.status !== "投稿済み" || getVideoDataWarnings(video).length).slice(0, 5)];
-  const videos = [...new Map(candidates.map(video => [String(video.id), video])).values()].slice(0, 24).map(video => ({
-    id: String(video.id), title: trim(video.title, 160), memo: trim(video.memo, 200), type: video.type, status: videoStatusLabel(video.status),
-    postDate: getVideoPublishedDateKey(video) || null, views: video.youtubeViews, likes: video.youtubeLikes, comments: video.youtubeComments,
-    syncedAt: video.youtubeSyncedAt || null, tags: parseVideoTags(video.tags), warnings: getVideoDataWarnings(video)
-  }));
-  const metrics = Object.fromEntries(ACHIEVEMENT_METRIC_DEFINITIONS.map(({key}) => [key, view.available[key] ? view.values[key] : null]));
-  const snapshots = [...data.achievementSnapshots].filter(snapshot => snapshot.monthKey < month).sort((a,b) => b.monthKey.localeCompare(a.monthKey)).slice(0, 12)
-    .map(snapshot => ({ month: snapshot.monthKey, metrics: snapshot.metrics, tagCounts: Object.fromEntries(ACTIVE_VIDEO_TAGS.map(tag => [tag,snapshot.tagCounts[tag] ?? null])) }));
-  const context = { version: 1, capturedAt: new Date().toISOString(), month, timezone: "Asia/Tokyo", youtubeSyncedAt: getLatestYouTubeSyncAt() || null,
-    limitations: ["再生数は現在累計。日別推移がないため、増加速度・伸び始め・停止原因は断定できない。", "動画と企画は件数制限した抜粋。NULLは未取得。", "過去月は保存済みsnapshotのみ。未保存月を0として補完しない。"],
-    schedule: WEEKLY_UPLOAD_SCHEDULE, metrics,
-    targets: Object.fromEntries(getAchievementGoalDefinitions().filter(definition => view.targets[definition.key] != null).map(definition => [definition.key,view.targets[definition.key]])),
-    tagCounts: Object.fromEntries(ACTIVE_VIDEO_TAGS.map(tag => [tag,view.tagCounts[tag] ?? 0])),
-    coverage: { totalVideos: data.videos.length, selectedVideos: videos.length, currentMonthVideos: getMonthlyPostedVideos(month).length,
-      currentMonthViewsKnown: getMonthlyPostedVideos(month).filter(video => video.youtubeViews != null).length },
-    pace: calculatePostingPace(view.targets.posts, metrics.posts), snapshots, videos,
-    ideas: data.ideas.slice(0, 12).map(idea => ({ id: String(idea.id), title: trim(idea.title, 160), note: trim(idea.note, 200), status: idea.status })),
-    ideaItems: data.ideaItems.slice(0, 12).map(item => ({ title: trim(item.title, 160), note: trim(item.note, 200), status: item.status })) };
-  // Enforce the transport budget even for unusually large saved target objects.
-  if (new TextEncoder().encode(JSON.stringify(context)).length > 60000) throw new Error("分析データが大きすぎます。対象を絞ってください。");
-  return context;
-}
-
-function renderChannelAiTemplates(expanded = false) {
-  elements.channelAiTemplates.innerHTML = CHANNEL_AI_QUESTIONS.slice(0, expanded ? 30 : 8).map((question,index) =>
-    `<button type="button" data-ai-question="${index}">${escapeHtml(question)}</button>`).join("");
-  elements.channelAiMore.setAttribute("aria-expanded", String(expanded));
-  elements.channelAiMore.textContent = expanded ? "閉じる" : "もっと見る";
-}
-
-function renderChannelAiConversation() {
-  elements.channelAiConversation.innerHTML = channelAiMessages.map(message => `<article class="channel-ai-message"><strong>${message.role === "user" ? "あなた" : "チャンネルAI"}</strong><p>${escapeHtml(message.content)}</p></article>`).join("");
-}
-
-function resetChannelAi() {
-  channelAiGeneration += 1;
-  channelAiBusy = false;
-  channelAiMessages = [];
-  elements.channelAiInput.value = "";
-  elements.channelAiSend.disabled = false;
-  elements.channelAiStatus.textContent = "AI provider未設定：回答生成はまだ利用できません。";
-  renderChannelAiConversation();
-}
-
-async function sendChannelAiQuestion() {
-  const question = elements.channelAiInput.value.trim();
-  if (channelAiBusy || !question) return;
-  if (question.length > 1500) { elements.channelAiStatus.textContent = "質問は1500文字以内で入力してください。"; return; }
-  const session = appSessionGeneration, generation = channelAiGeneration;
-  channelAiBusy = true;
-  elements.channelAiSend.disabled = true;
-  elements.channelAiStatus.textContent = "AI接続を確認しています…";
-  if (channelAiMessages.at(-1)?.role !== "user" || channelAiMessages.at(-1)?.content !== question) channelAiMessages.push({role:"user",content:question});
-  channelAiMessages = channelAiMessages.slice(-12);
-  renderChannelAiConversation();
-  let timeout;
-  try {
-    const context = buildChannelAiContext(question);
-    const messages = channelAiMessages.slice(-6).map(message => ({...message,content:message.content.slice(0,2000)}));
-    const body = {question, context, messages};
-    while (new TextEncoder().encode(JSON.stringify(body)).length > 75000 && messages.length) messages.shift();
-    const {data: result, error} = await Promise.race([
-      supabaseClient.functions.invoke("channel-assistant", {body}),
-      new Promise((_,reject) => { timeout = setTimeout(() => reject(new Error("AI接続がタイムアウトしました。")),35000); })
-    ]);
-    if (session !== appSessionGeneration || generation !== channelAiGeneration) return;
-    if (error) throw new Error(await getFunctionInvokeErrorMessage(error));
-    if (result?.code === "AI_NOT_CONFIGURED") throw new Error("AI provider未設定：利用するprovider・モデルの指定が必要です。回答は生成していません。");
-    if (typeof result?.answer !== "string" || !result.answer.trim() || result.answer.length > 12000) throw new Error("AIから有効な回答を受信できませんでした。");
-    channelAiMessages.push({role:"assistant",content:result.answer});
-    renderChannelAiConversation();
-    if (elements.channelAiInput.value.trim() === question) elements.channelAiInput.value = "";
-    elements.channelAiStatus.textContent = `参照データ取得：${formatDateTime(context.capturedAt)}。回答は確認して利用してください。`;
-  } catch (error) {
-    if (session !== appSessionGeneration || generation !== channelAiGeneration) return;
-    elements.channelAiStatus.textContent = `回答できませんでした。${getErrorMessage(error)} 入力は保持しています。同じ送信ボタンで再試行できます。`;
-  } finally {
-    clearTimeout(timeout);
-    if (session === appSessionGeneration && generation === channelAiGeneration) {
-      channelAiBusy = false;
-      elements.channelAiSend.disabled = false;
-    }
-  }
-}
-
 function getIdeaItems(parentIdeaId) {
   return sortByCreatedAtDesc(
     data.ideaItems.filter(
@@ -4579,7 +4463,6 @@ function invalidateAppSessionWork() {
 }
 
 async function resetAuthenticatedApp({ message = "" } = {}) {
-  resetChannelAi();
   invalidateAppSessionWork();
   authenticatedUserId = "";
   lastSuccessfulDataLoadAt = 0;
@@ -4809,21 +4692,6 @@ async function initialize() {
 function setupEventListeners() {
   if (eventListenersReady) return;
   setupVideoDetailNavigation();
-  elements.channelAiButton.addEventListener("click", () => {
-    renderChannelAiTemplates();
-    renderChannelAiConversation();
-    const syncedAt = getLatestYouTubeSyncAt();
-    document.getElementById("channelAiDataStamp").textContent = `YouTube最終同期：${syncedAt ? formatDateTime(syncedAt) : "未取得"}。${!syncedAt || Date.now() - Date.parse(syncedAt) > 24 * 60 * 60 * 1000 ? "YouTube情報を更新すると分析の精度が上がります。" : ""}`;
-    openManagedDialog(elements.channelAiModal);
-  });
-  elements.channelAiMore.addEventListener("click", () => renderChannelAiTemplates(elements.channelAiMore.getAttribute("aria-expanded") !== "true"));
-  elements.channelAiTemplates.addEventListener("click", event => {
-    const button = event.target.closest("[data-ai-question]");
-    if (!button || channelAiBusy) return;
-    const question = CHANNEL_AI_QUESTIONS[Number(button.dataset.aiQuestion)];
-    if (question) { elements.channelAiInput.value = question; elements.channelAiInput.focus({ preventScroll: true }); }
-  });
-  elements.channelAiForm.addEventListener("submit", event => { event.preventDefault(); void sendChannelAiQuestion(); });
   eventListenersReady = true;
 
   elements.loginForm.addEventListener("submit", async event => {

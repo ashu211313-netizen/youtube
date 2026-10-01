@@ -2349,16 +2349,6 @@ body.modal-scroll-locked dialog[open] {
 .dashboard-posting-pace { display: grid; gap: 5px; padding: 12px; margin-bottom: 16px; border-radius: 14px; background: var(--bg); font-size: 13px; }
 .dashboard-posting-pace small { color: var(--muted); }
 .achievement-record-badge { display: inline-block; margin: 4px 0 0 8px; font-size: 11px; color: #795100; white-space: nowrap; }
-.channel-ai-entry { margin-bottom: 12px; min-height: 44px; }
-.channel-ai-modal > #channelAiMore { display: block; min-height: 44px; }
-.channel-ai-templates { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.channel-ai-templates button { max-width: 100%; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 14px; background: var(--bg); text-align: left; font-size: 13px; overflow-wrap: anywhere; }
-.channel-ai-conversation { display: grid; gap: 12px; margin-block: 16px; }
-.channel-ai-message { min-width: 0; padding: 12px; border-radius: 14px; background: var(--bg); }
-.channel-ai-message p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.channel-ai-form { display: grid; gap: 8px; }
-.channel-ai-form textarea { width: 100%; font-size: 16px; resize: vertical; }
-.channel-ai-form button { min-height: 44px; }
 @media (max-width: 620px) {
   .video-list-toolbar { align-items: stretch; }
   .video-list-toolbar .filter-row { width: 100%; }
