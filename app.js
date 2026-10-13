@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.36";
+const APP_VERSION = "23.37";
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -107,9 +107,7 @@ let data = createEmptyDataState();
 
 let activeVideoFilter = "all";
 const VIDEO_VIEW_STORAGE_KEY = "boat-manager-video-view";
-const VIDEO_THUMBNAIL_STORAGE_KEY = "boat-manager-video-thumbnail";
 let activeVideoViewMode = readVideoViewMode();
-let videoThumbnailVisible = readVideoThumbnailVisible();
 let realtimeChannel = null;
 let realtimeStatus = "CLOSED";
 let realtimeSubscribeInFlight = null;
@@ -147,7 +145,6 @@ let versionMismatchDetected = false;
 const elements = {
   dashboardPostingPace: document.getElementById("dashboardPostingPace"),
   videoViewToggle: document.getElementById("videoViewToggle"),
-  videoThumbnailToggle: document.getElementById("videoThumbnailToggle"),
   authScreen: document.getElementById("authScreen"),
   appRoot: document.getElementById("appRoot"),
   todayLabel: document.getElementById("todayLabel"),
@@ -291,6 +288,112 @@ function setLoading(button, loading, loadingText = "保存中...") {
   button.disabled = false;
   button.textContent = button.dataset.originalText || button.textContent;
   delete button.dataset.originalText;
+}
+
+// Delete-only lifecycle. An aborted request may already have committed on the server.
+const DELETE_REQUEST_TIMEOUT_MS = 30000;
+const DELETE_FOLLOWUP_TIMEOUT_MS = 10000;
+const deleteOperations = new Map();
+
+async function awaitDeleteStage(work, timeoutMs, onTimeout = () => {}) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(work),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          onTimeout();
+          const error = new Error("通信の待機期限を超えました。");
+          reject(error);
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function applyConfirmedDeletion({ type, id, entity, permanent }) {
+  if (type === "idea_item") {
+    data.ideaItems = data.ideaItems.filter(item => !sameId(item.id, id));
+    if (sameId(currentDetailIdeaItemId, id)) {
+      closeManagedDialog(elements.ideaItemDetailModal);
+      currentDetailIdeaItemId = null;
+    }
+  } else {
+    const collection = type === "video" ? "videos" : "ideas";
+    data[collection] = data[collection].filter(item => !sameId(item.id, id));
+    data.trash = data.trash.filter(item => item.entityType !== type || !sameId(item.id, id));
+    if (!permanent) data.trash.push({ ...entity, entityType: type, deletedAt: new Date().toISOString() });
+    if (type === "video" && sameId(currentDetailVideoId, id)) closeManagedDialog(elements.videoDetailModal);
+    if (type === "idea" && sameId(currentDetailIdeaId, id)) closeManagedDialog(elements.ideaDetailModal);
+  }
+  renderAll();
+  renderTrash();
+}
+
+async function runDeleteOperation({ type, id, entity, permanent, button, confirmation, mutation, cleanup, log, success, failure }) {
+  const key = `${type}:${id}`;
+  if (deleteOperations.has(key)) {
+    showToast(deleteOperations.get(key).uncertain
+      ? "前回の削除結果は未確認です。同じ削除は再送しません。画面を再読み込みして確認してください。"
+      : "この項目の削除処理中です。", "error");
+    return;
+  }
+  if (!navigator.onLine) {
+    showToast("オフラインのため削除できません。接続を確認してください。", "error");
+    return;
+  }
+  if (!window.confirm(confirmation)) return;
+  const operation = { uncertain: false };
+  deleteOperations.set(key, operation);
+  const generation = appSessionGeneration;
+  const controller = new AbortController();
+  let committed = false;
+  setLoading(button, true, permanent || type === "idea_item" ? "削除中..." : "移動中...");
+  try {
+    const result = await awaitDeleteStage(async () => {
+      try { return await mutation(controller.signal); }
+      catch (error) { operation.uncertain = true; throw error; }
+    }, DELETE_REQUEST_TIMEOUT_MS, () => { operation.uncertain = true; controller.abort(); });
+    if (result?.error) {
+      // postgrest-js can return a transport failure as {error}, rather than reject.
+      if (/AbortError|Failed to fetch|fetch failed|NetworkError|Network request failed|timed out/i.test(getErrorMessage(result.error))) operation.uncertain = true;
+      throw result.error;
+    }
+    if (!result?.data) throw new Error("対象を更新・削除できませんでした。権限と最新状態を確認してください。");
+    committed = true;
+    if (generation !== appSessionGeneration) return;
+    const warnings = [];
+    applyConfirmedDeletion({ type, id, entity, permanent });
+    for (const [label, work] of [
+      ...(cleanup ? [["画像の後処理", cleanup]] : []),
+      ["操作ログ", log],
+      ["画面の再取得", () => loadAllData({ silent: true })]
+    ]) {
+      if (generation !== appSessionGeneration) return;
+      try {
+        const result = await awaitDeleteStage(work, DELETE_FOLLOWUP_TIMEOUT_MS);
+        if (result === false || (label === "画像の後処理" && pendingIdeaImageCleanup.size)) warnings.push(label);
+      } catch { warnings.push(label); }
+    }
+    if (generation !== appSessionGeneration) return;
+    // A shared read may have started before the mutation; it must not resurrect this row.
+    applyConfirmedDeletion({ type, id, entity, permanent });
+    showToast(warnings.length ? `${success}。ただし${warnings.join("・")}が未完了です。再読み込みして確認してください。` : success,
+      warnings.length ? "error" : "success");
+  } catch (error) {
+    if (generation !== appSessionGeneration) return;
+    showToast(committed
+      ? `${success}。ただし画面への反映が未完了です。再読み込みしてください。`
+      : operation.uncertain
+        ? "削除結果を確認できませんでした。サーバーで完了している可能性があるため再送せず、画面を再読み込みして確認してください。"
+        : `${failure}：${getErrorMessage(error)}`, "error");
+  } finally {
+    setLoading(button, false);
+    // Unknown outcomes stay locked for this page lifetime. No automatic DELETE/UPDATE retry.
+    if (!operation.uncertain && deleteOperations.get(key) === operation) deleteOperations.delete(key);
+  }
 }
 
 function wait(milliseconds) {
@@ -1543,6 +1646,7 @@ async function addActivityLog(type, entityId, title, action, details = "") {
     actor_email: getCurrentUserEmail()
   });
   if (error) console.error("操作ログ保存:", error);
+  return !error;
 }
 
 
@@ -2778,25 +2882,15 @@ function renderVideoFilterCounts() {
 function readVideoViewMode() {
   try {
     const value = localStorage.getItem(VIDEO_VIEW_STORAGE_KEY);
-    return ["compact", "minimal"].includes(value) ? value : "card";
+    return value === "minimal" ? "minimal" : "card";
   } catch {
     return "card";
   }
 }
 
 function setVideoViewMode(mode) {
-  activeVideoViewMode = ["compact", "minimal"].includes(mode) ? mode : "card";
+  activeVideoViewMode = mode === "minimal" ? "minimal" : "card";
   try { localStorage.setItem(VIDEO_VIEW_STORAGE_KEY, activeVideoViewMode); } catch { /* Keep the selection in memory. */ }
-  renderVideos();
-}
-
-function readVideoThumbnailVisible() {
-  try { return localStorage.getItem(VIDEO_THUMBNAIL_STORAGE_KEY) !== "off"; } catch { return true; }
-}
-
-function setVideoThumbnailVisible(visible) {
-  videoThumbnailVisible = Boolean(visible);
-  try { localStorage.setItem(VIDEO_THUMBNAIL_STORAGE_KEY, visible ? "on" : "off"); } catch { /* Memory-only preference. */ }
   renderVideos();
 }
 
@@ -2827,37 +2921,14 @@ function renderVideoMinimalRow(video) {
     <div class="video-minimal-main"><h4>${escapeHtml(video.title)}</h4>
       <div class="video-minimal-meta"><span>${escapeHtml(video.type)}</span><span>${formatDate(getVideoPublishedDateKey(video))}</span><strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong></div>
     </div>
-    <select class="video-compact-status" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">${VIDEO_STATUSES.map(status => `<option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>`).join("")}</select>
-  </article>`;
-}
-
-function renderVideoCompactRow(video) {
-  const thumbnailUrl = getYouTubeThumbnailUrl(video);
-  const tags = parseVideoTags(video.tags);
-  return `<article class="video-compact-row${videoThumbnailVisible ? "" : " video-compact-no-thumbnail"}" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
-    ${videoThumbnailVisible ? `<div class="video-compact-thumbnail video-thumbnail-shell${thumbnailUrl ? "" : " is-thumbnail-error"}">
-      ${thumbnailUrl ? `<img class="video-thumbnail-image" data-video-thumbnail src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(video.title)}のYouTubeサムネイル" loading="lazy" decoding="async" />` : ""}
-      <div class="video-thumbnail-fallback" aria-hidden="true"><span>▶</span><small>サムネイル未取得</small></div>
-    </div>` : ""}
-    <div class="video-compact-main">
-      <h4>${escapeHtml(video.title)}</h4>
-      <div class="video-compact-meta"><span>${escapeHtml(video.type)}</span><span>${formatDate(getVideoPublishedDateKey(video))}</span></div>
-      <div class="video-compact-tags">${renderVideoTagChips(tags.slice(0, 1))}${tags.length > 1 ? `<span class="video-compact-tag-count">+${tags.length - 1}</span>` : ""}</div>
-    </div>
-    <div class="video-compact-controls">
-      <select class="video-compact-status" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">${VIDEO_STATUSES.map(status => `<option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>`).join("")}</select>
-      <strong class="video-compact-views" aria-label="再生数">${formatYouTubeMetric(video.youtubeViews, "回")}</strong>
-    </div>
+    <select class="video-row-status" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">${VIDEO_STATUSES.map(status => `<option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>`).join("")}</select>
   </article>`;
 }
 
 function renderVideos() {
   const list = document.getElementById("videoList");
   renderVideoFilterCounts();
-  list.classList.toggle("video-list--compact", activeVideoViewMode !== "card");
-  elements.videoThumbnailToggle.classList.toggle("is-hidden", activeVideoViewMode !== "compact");
-  elements.videoThumbnailToggle.setAttribute("aria-pressed", String(videoThumbnailVisible));
-  elements.videoThumbnailToggle.textContent = `サムネイル ${videoThumbnailVisible ? "ON" : "OFF"}`;
+  list.classList.toggle("video-list--minimal", activeVideoViewMode === "minimal");
   elements.videoViewToggle.querySelectorAll("[data-video-view]").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.videoView === activeVideoViewMode));
   });
@@ -2871,7 +2942,6 @@ function renderVideos() {
 
   list.innerHTML = videos.map(video => {
     if (activeVideoViewMode === "minimal") return renderVideoMinimalRow(video);
-    if (activeVideoViewMode === "compact") return renderVideoCompactRow(video);
     const youtubeUrl = getYouTubeWatchUrl(video);
     const thumbnailUrl = getYouTubeThumbnailUrl(video);
 
@@ -3493,32 +3563,22 @@ async function deleteItem(type, id, triggerButton = null) {
     showToast("削除対象が見つかりませんでした。", "error");
     return;
   }
-
-  if (!window.confirm(`「${entity.title}」をゴミ箱へ移動しますか？`)) return;
-
-  setLoading(triggerButton, true, "移動中...");
-  try {
-    const { error } = await supabaseClient
-      .from(table)
+  return runDeleteOperation({
+    type, id, entity, permanent: false, button: triggerButton,
+    confirmation: `「${entity.title}」をゴミ箱へ移動しますか？`,
+    mutation: signal => supabaseClient.from(table)
       .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq("id", id);
-    if (error) throw error;
-
-    await addActivityLog(type, id, entity.title, `${entityLabel(type)}をゴミ箱へ移動`);
-
-    [elements.videoDetailModal, elements.ideaDetailModal]
-      .forEach(modal => modal.open && modal.close());
-
-    await loadAllData({ silent: true });
-    showToast("ゴミ箱へ移動しました");
-  } catch (error) {
-    showToast(`移動できませんでした：${getErrorMessage(error)}`, "error");
-  } finally {
-    setLoading(triggerButton, false);
-  }
+      .eq("id", id).select("id").maybeSingle().abortSignal(signal),
+    log: () => addActivityLog(type, id, entity.title, `${entityLabel(type)}をゴミ箱へ移動`),
+    success: "ゴミ箱へ移動しました", failure: "移動できませんでした"
+  });
 }
 
 async function restoreItem(type, id, button) {
+  if (deleteOperations.has(`${type}:${id}`)) {
+    showToast("削除処理中または結果未確認のため復元できません。再読み込みして確認してください。", "error");
+    return;
+  }
   const table = tableForType(type);
   const item = data.trash.find(entry => entry.entityType === type && String(entry.id) === String(id));
   if (!table || !item) return;
@@ -3539,20 +3599,16 @@ async function restoreItem(type, id, button) {
 
 async function permanentDeleteItem(type, id, button) {
   const table = tableForType(type);
-  const item = data.trash.find(entry => entry.entityType === type && String(entry.id) === String(id));
-  if (!table || !item) return;
-  if (!window.confirm(`「${item.title}」を完全に削除しますか？\nこの操作は取り消せません。`)) return;
-
-  setLoading(button, true, "削除中...");
-  const { error } = await supabaseClient.from(table).delete().eq("id", id);
-  if (error) showToast(`完全削除できませんでした：${getErrorMessage(error)}`, "error");
-  else {
-    if (type === "idea") await cleanupIdeaImages(getIdeaImageUrls(item));
-    await addActivityLog(type, id, item.title, `${entityLabel(type)}を完全削除`);
-    await loadAllData({ silent: true });
-    showToast("完全に削除しました");
-  }
-  setLoading(button, false);
+  const entity = data.trash.find(entry => entry.entityType === type && sameId(entry.id, id));
+  if (!table || !entity) return;
+  return runDeleteOperation({
+    type, id, entity, permanent: true, button,
+    confirmation: `「${entity.title}」を完全に削除しますか？\nこの操作は取り消せません。`,
+    mutation: signal => supabaseClient.from(table).delete().eq("id", id).select("id").maybeSingle().abortSignal(signal),
+    cleanup: type === "idea" ? () => cleanupIdeaImages(getIdeaImageUrls(entity)) : null,
+    log: () => addActivityLog(type, id, entity.title, `${entityLabel(type)}を完全削除`),
+    success: "完全に削除しました", failure: "完全削除できませんでした"
+  });
 }
 
 async function updateVideoStatus(id, newStatus, selectElement) {
@@ -3771,54 +3827,20 @@ async function updateIdeaItemStatus(itemId, status, triggerElement) {
 }
 
 async function deleteIdeaItem(itemId, button) {
-  const item = findById(data.ideaItems, itemId);
-
-  if (!item) {
+  const entity = findById(data.ideaItems, itemId);
+  if (!entity) {
     showToast("企画内アイデアが見つかりませんでした。", "error");
     return;
   }
-
-  if (!window.confirm(`「${item.title}」を削除しますか？`)) {
-    return;
-  }
-
-  setLoading(button, true, "削除中...");
-
-  try {
-    const { error } = await supabaseClient
-      .from("idea_items")
-      .delete()
-      .eq("id", itemId);
-
-    if (error) throw error;
-
-    await cleanupIdeaImages(getIdeaImageUrls(item));
-
-    const parentIdea = findById(data.ideas, item.parentIdeaId);
-
-    if (parentIdea) {
-      await addActivityLog(
-        "idea",
-        parentIdea.id,
-        parentIdea.title,
-        "企画内アイデアを削除",
-        item.title
-      );
-    }
-
-    if (elements.ideaItemDetailModal.open) {
-      elements.ideaItemDetailModal.close();
-    }
-    currentDetailIdeaItemId = null;
-
-    await loadAllData({ silent: true });
-    showToast("企画内アイデアを削除しました");
-  } catch (error) {
-    console.error(error);
-    showToast(`削除できませんでした：${getErrorMessage(error)}`, "error");
-  } finally {
-    setLoading(button, false);
-  }
+  const parentIdea = findById(data.ideas, entity.parentIdeaId);
+  return runDeleteOperation({
+    type: "idea_item", id: itemId, entity, permanent: true, button,
+    confirmation: `「${entity.title}」を削除しますか？`,
+    mutation: signal => supabaseClient.from("idea_items").delete().eq("id", itemId).select("id").maybeSingle().abortSignal(signal),
+    cleanup: () => cleanupIdeaImages(getIdeaImageUrls(entity)),
+    log: () => parentIdea ? addActivityLog("idea", parentIdea.id, parentIdea.title, "企画内アイデアを削除", entity.title) : Promise.resolve(true),
+    success: "企画内アイデアを削除しました", failure: "削除できませんでした"
+  });
 }
 
 async function completeIdea(id, button) {
@@ -5194,7 +5216,6 @@ function setupEventListeners() {
     const button = event.target.closest("[data-video-view]");
     if (button) setVideoViewMode(button.dataset.videoView);
   });
-  elements.videoThumbnailToggle.addEventListener("click", () => setVideoThumbnailVisible(!videoThumbnailVisible));
 
   document.querySelectorAll(".filter-btn").forEach(button => {
     button.addEventListener("click", () => {

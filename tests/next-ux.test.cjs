@@ -74,22 +74,19 @@ test('high badge uses two known months minimum, ignores null/future and includes
   h.run(`data.achievementSnapshots.splice(0,1)`);assert.equal(h.run(`isAchievementRecord('2026-08','subscribers')`),false);
 });
 
-test('three views and thumbnail preference keep ordered IDs in all filters and persist',()=>{
+test('two views keep ordered IDs in all filters and persist',()=>{
   const h=harness();h.run(`data.videos=Array.from({length:10},(_,i)=>mapVideo({id:String(i),title:'動画'+i,status:i%2?'編集待ち':'投稿済み',youtube_video_id:'abcdefghijk'}));`);
   for(const filter of ['all','編集待ち','投稿済み']) {
     h.context.filter=filter;h.run('activeVideoFilter=filter');let expected;
-    for(const mode of ['card','compact','minimal']) {
+    for(const mode of ['card','minimal']) {
       h.context.mode=mode;h.run('setVideoViewMode(mode)');
       const ids=[...h.node('videoList').innerHTML.matchAll(/data-video-card-id="([^"]+)"/g)].map(m=>m[1]);
       if(!expected)expected=ids;assert.deepEqual(ids,expected);
     }
   }
-  h.run(`setVideoViewMode('compact');setVideoThumbnailVisible(false)`);
-  assert(!h.node('videoList').innerHTML.includes('video-compact-thumbnail'));
-  const fresh=harness({initialStorage:[...h.storage]});assert.equal(fresh.run('videoThumbnailVisible'),false);
   h.run(`setVideoViewMode('minimal')`);assert.equal(harness({initialStorage:[...h.storage]}).run('activeVideoViewMode'),'minimal');
   assert(!h.node('videoList').innerHTML.includes('<img'));
-  const denied=harness({storageError:true});denied.run('setVideoThumbnailVisible(false)');assert.equal(denied.run('videoThumbnailVisible'),false);
+  const denied=harness({storageError:true});denied.run(`setVideoViewMode('minimal')`);assert.equal(denied.run('activeVideoViewMode'),'minimal');
 });
 
 test('warnings distinguish absent data from zero views and canonical ID from missing URL',()=>{
