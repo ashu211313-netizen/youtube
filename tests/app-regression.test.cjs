@@ -171,7 +171,7 @@ test('user text escaping remains inert',()=>{
 });
 test('video/idea trash, restore and explicit permanent deletion keep exact ID scope',async()=>{
   const writes=[];
-  const client={from:table=>{const q={update:payload=>{writes.push({table,payload});return q;},delete:()=>{writes.push({table,deleted:true});return q;},eq:(key,id)=>{writes.at(-1).filter=[key,id];return Promise.resolve({error:null});}};return q;}};
+  const client={from:table=>{let id;const q={update:payload=>{writes.push({table,payload});return q;},delete:()=>{writes.push({table,deleted:true});return q;},eq:(key,value)=>{id=value;writes.at(-1).filter=[key,value];return q;},select(){return q;},maybeSingle(){return q;},abortSignal(){return q;},then(resolve,reject){return Promise.resolve({data:{id},error:null}).then(resolve,reject);}};return q;}};
   const h=harness({client});h.run(`window.confirm=()=>true;addActivityLog=async()=>{};loadAllData=async()=>true;cleanupIdeaImages=async()=>{};data.videos=[{id:'v',title:'video'}];data.ideas=[{id:'i',title:'idea'}]`);
   for(const [kind,id] of [['video','v'],['idea','i']]) {
     await h.run(`deleteItem('${kind}','${id}')`);assert(writes.at(-1).payload.deleted_at);assert.deepEqual(writes.at(-1).filter,['id',id]);

@@ -1,8 +1,8 @@
-# 構成・変更時の入口（23.36）
+# 構成・変更時の入口（23.37）
 
 23.35は固定週間予定の内容とactive動画タグ8種を更新。共通タグ定義からフォーム・表示・月別集計・目標を生成する。新目標キーは`tag_question` / `tag_clip`。月末確定関数の将来snapshotにも2タグを追加し、既存snapshotとlegacy値は変更しない。[変更・検証記録](schedule-tags-verification.md)を参照。
 
-追加入口：`getVisibleVideos`（3表示と詳細前後移動の共通配列）、`calculatePostingPace`（JST当月目標）、`getMetricComparison` / `isAchievementRecord`（保存履歴との比較）。[検証記録](next-ux-verification.md)を参照。
+追加入口：`getVisibleVideos`（2表示と詳細前後移動の共通配列）、`calculatePostingPace`（JST当月目標）、`getMetricComparison` / `isAchievementRecord`（保存履歴との比較）。[今回の表示・削除検証](two-views-delete-verification.md)を参照。
 
 ## 実行構成
 
@@ -42,7 +42,8 @@
 ### 状態の所有者
 
 - `data` はサーバーから取得した画面用状態。フォーム編集中の値はフォーム側で保持する。
-- `activeVideoViewMode` は `card` / `compact` / `minimal` の表示密度だけを管理。`boat-manager-video-view` に端末内保存し、不正値/読み取り失敗はcard、保存失敗はメモリ内で継続する。3モードは `getVisibleVideos` の同じフィルタ済み動画配列を使い、追加query/sort/購読なし。一覧の画像設定は `boat-manager-video-thumbnail` に独立保存。詳細/状態変更/サムネイルerror委譲は共通。
+- `activeVideoViewMode` は `card` / `minimal` の2表示だけを管理。`boat-manager-video-view` に端末内保存し、旧compact・不正値・読み取り失敗はcard、保存失敗はメモリ内で継続する。両表示は `getVisibleVideos` の同じ配列・フィルタ・順序を使う。旧サムネイル設定は参照しない。カードの画像と詳細/状態変更の共通委譲は維持。
+- 削除3入口は `runDeleteOperation` を共有。DBのID返却確認→ローカル反映→画像/log/既存single-flight再取得の順。DB要求は30秒でabort、各後処理は10秒まで待つ。timeout/transport障害は結果未確認として再送禁止、ページ内の項目ロックを保持。確定DB削除と補助処理失敗を区別し、finallyでボタンを復帰。世代が変わった場合は古い画面を更新しない。削除中の復元も競合させない。
 - `openManagedDialog` はnative focus前に背景位置を捕捉し、上部closeへpreventScrollでfocus、実scroll ownerのdialogを先頭に戻す。PWA復帰は従来の復帰処理であり、編集中の位置を無条件にリセットしない。
 - `selectedDashboardMetricsMonth` / `selectedAchievementMonth` / `selectedPostStatsMonth` / `activeVideoFilter` は互いに独立した表示選択。
 - `ideaImageEditors` は各エディタの既存・追加予定・明示削除予定を保持するWeakMap。保存/キャンセル後にObject URLを解放する。

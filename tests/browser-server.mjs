@@ -63,6 +63,7 @@ function mockSdk() {
   }
   function from(table) {
     const request={table,action:'select',filters:[]};
+    let signal;
     const q={
       select(){return q;},order(){return q;},limit(){return q;},
       eq(k,v){request.filters.push([k,v]);return q;},is(k,v){request.filters.push([k,v]);return q;},
@@ -72,9 +73,11 @@ function mockSdk() {
       delete(){request.action='delete';return q;},
       upsert(payload){request.action='upsert';request.payload=payload;return q;},
       in(k,v){request.filters.push([k,v]);return q;},
+      abortSignal(value){signal=value;return q;},
       then(resolve,reject){
         if((mode==='core-error'&&table==='videos')||(mode==='optional-error'&&table==='goals'))return Promise.resolve({data:null,error:{message:'Local QA simulated network failure'}}).then(resolve,reject);
-        return api('/qa-query',request).then(resolve,reject);
+        if(mode==='delete-error'&&['videos','ideas','idea_items'].includes(table)&&['update','delete'].includes(request.action))return Promise.resolve({data:null,error:{message:'Local QA simulated delete failure'}}).then(resolve,reject);
+        return api('/qa-query',request,{signal}).then(resolve,reject);
       }
     };return q;
   }
@@ -108,7 +111,7 @@ async function query(request) {
         return row;
       });return {data:single?(rows[0]||null):rows,error:null};
     }
-    if(action==='delete')return {data:(await db.query(`delete from ${table} where ${where} returning *`,args)).rows,error:null};
+    if(action==='delete'){const rows=(await db.query(`delete from ${table} where ${where} returning *`,args)).rows;return {data:single?(rows[0]||null):rows,error:null};}
     if(action==='update'){const fields=Object.entries(payload).map(([k,v])=>{args.push(v);return `${column(k)}=$${args.length}`;});const rows=(await db.query(`update ${table} set ${fields.join(',')} where ${where} returning *`,args)).rows;return {data:single?rows[0]:rows,error:null};}
     const rows=[];
     for(const item of Array.isArray(payload)?payload:[payload]) {
@@ -129,10 +132,10 @@ async function query(request) {
     const rows=(await db.query(`select t.*,coalesce((select jsonb_agg(i order by i.sort_order) from idea_images i where i.${parent}=t.id),'[]'::jsonb) idea_images from ${table} t where ${where} order by t.created_at desc`,args)).rows;
     return {data:single?(rows[0]||null):rows,error:null};
   }
-  if(action==='delete')return {data:(await db.query(`delete from ${table} t where ${where} returning *`,args)).rows,error:null};
+  if(action==='delete'){const rows=(await db.query(`delete from ${table} t where ${where} returning *`,args)).rows;return {data:single?(rows[0]||null):rows,error:null};}
   if(action==='update'){
     const fields=Object.entries(payload).map(([k,v])=>{if(!['title','status','note','tags','updated_at','deleted_at'].includes(k))throw Error('Unexpected update');args.push(v);return `${k}=$${args.length}`;});
-    return {data:(await db.query(`update ${table} t set ${fields.join(',')} where ${where} returning *`,args)).rows,error:null};
+    const rows=(await db.query(`update ${table} t set ${fields.join(',')} where ${where} returning *`,args)).rows;return {data:single?(rows[0]||null):rows,error:null};
   }
   throw Error('Unexpected direct parent insert');
 }
@@ -182,7 +185,7 @@ http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png'})[path.extname(name)]);
     let content=fs.readFileSync(path.join(root,name));
     if(name==='index.html')content=content.toString().replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js','/qa-client.js');
-    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.36"','name="app-version" content="obsolete"');
+    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.37"','name="app-version" content="obsolete"');
     if(name==='app.js')content=content.toString().replace('const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";',`const SUPABASE_URL = "${origin}";`).replaceAll('https://img.youtube.com',origin+'/qa-thumbnails');
     res.end(content);
   }catch(error){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:null,error:{code:error.code,message:error.message}}));}
