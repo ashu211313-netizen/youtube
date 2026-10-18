@@ -45,9 +45,9 @@ function fixture(initial = []) {
   };
   const context = vm.createContext({
     document: { getElementById(id) { if (!nodes.has(id)) nodes.set(id, {}); return nodes.get(id); } },
-    window: { supabase: { createClient: () => client } },
+    window: { location: { href: 'https://qa.invalid/repo/' }, supabase: { createClient: () => client } },
     localStorage: { getItem: k => stored.get(k) || null, setItem: (k,v) => stored.set(k,v) },
-    URL, Blob, Intl, Date, console, editor
+    URL, URLSearchParams, Blob, Intl, Date, console, editor
   });
   vm.runInContext(source.slice(0, source.lastIndexOf('\ninitialize().catch')), context);
   const run = code => vm.runInContext(code, context);

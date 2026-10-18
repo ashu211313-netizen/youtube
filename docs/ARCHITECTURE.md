@@ -1,4 +1,6 @@
-# 構成・変更時の入口（23.37）
+# 構成・変更時の入口（23.38）
+
+23.38はPassword Recovery、3表示共通の動画警告、取得状態の独立表示を局所追加。通知の最小権限deltaは隔離検証済み・本番未適用。月末関数のみ承認済みmainを本番v3へ配置。[総合監査](product-integrity-audit.md)、[Deploy記録](finalizer-deployment-20261019.md)、[通知監査](notification-security-audit.md)、[PR履歴・報酬設計](product-integrity-history-payments.md)を参照。
 
 23.35は固定週間予定の内容とactive動画タグ8種を更新。共通タグ定義からフォーム・表示・月別集計・目標を生成する。新目標キーは`tag_question` / `tag_clip`。月末確定関数の将来snapshotにも2タグを追加し、既存snapshotとlegacy値は変更しない。[変更・検証記録](schedule-tags-verification.md)を参照。
 
