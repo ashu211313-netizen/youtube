@@ -58,3 +58,63 @@ test('future monthly finalization captures both new tag counts and targets, keep
   assert.equal(saved.tag_counts['疑問解決系'],1);assert.equal(saved.tag_counts['横動画の切り抜き'],2);assert.equal(saved.tag_counts['ネット競艇'],1);
   assert.equal(saved.tag_targets.tag_question,2);assert.equal(saved.tag_targets.tag_clip,3);assert.equal(saved.tag_targets.tag_online,4);
 });
+
+test('monthly finalization: JST month boundary and publication date take precedence',()=>{
+  const h=fixture('finalize-monthly-achievements');
+  assert.equal(h.run(`currentJstMonthKey(new Date('2026-10-31T14:59:59Z'))`),'2026-10');
+  assert.equal(h.run(`currentJstMonthKey(new Date('2026-10-31T15:00:00Z'))`),'2026-11');
+  assert.equal(h.run(`shiftMonthKey('2027-01',-1)`),'2026-12');
+  assert.equal(h.run(`videoMonthKey({youtube_published_at:'2026-09-30T15:00:00Z',post_date:'2026-09-30'})`),'2026-10');
+  assert.equal(h.run(`videoMonthKey({youtube_published_at:null,post_date:'2026-09-30'})`),'2026-09');
+});
+
+// In-memory fluent client: all writes are isolated; no production function is invoked.
+function monthlyClient({rows=[],goals=[],existing=null,readError=null,insertError=null,updateError=null}={}) {
+  const state={existing,insertError,readError,updateError,saved:[],updates:[],reads:[]};
+  return {state,from(table){
+    const q={select(){return q;},eq(){return q;},is(){return q;},order(){return q;},
+      maybeSingle:async()=>({data:state.existing,error:state.readError}),
+      update(value){state.updates.push({table,value});q.then=resolve=>Promise.resolve({error:state.updateError}).then(resolve);return q;},
+      insert(value){if(!state.insertError){state.saved.push(value);state.existing={month_key:value.month_key,finalized_at:value.finalized_at};}return Promise.resolve({error:state.insertError});},
+      then(resolve){state.reads.push(table);return Promise.resolve({data:table==='videos'?structuredClone(rows):table==='goals'?goals:[],error:null}).then(resolve);}};
+    return q;
+  }};
+}
+
+test('monthly finalization: first success, repeated run skips all stats and snapshot writes',async()=>{
+  const client=monthlyClient({rows:[{status:'投稿済み',post_date:'2026-10-03',tags:'疑問解決系,横動画の切り抜き,レース映像'}],goals:[{goal_key:'tag_question',target_value:3},{goal_key:'tag_clip',target_value:4}]});
+  const h=fixture('finalize-monthly-achievements',client);h.run(`currentJstMonthKey=()=> '2026-11'`);
+  const first=await h.request('POST',{apikey:'fixture-public'},'{}');assert.equal(first.status,200);assert.equal((await first.json()).finalized,true);
+  const before=client.state.reads.length;
+  const second=await h.request('POST',{Authorization:'Bearer fixture-public'},'{}');
+  assert.equal((await second.json()).skipped,'already_finalized');assert.equal(client.state.saved.length,1);assert.equal(client.state.reads.length,before);assert.equal(client.state.updates.length,0);
+  assert.equal(client.state.saved[0].tag_counts['レース映像'],1);assert.equal(client.state.saved[0].tag_targets.tag_question,3);
+});
+
+test('monthly finalization: concurrent unique conflict is skipped, never overwritten',async()=>{
+  const client=monthlyClient({insertError:{code:'23505'}}),h=fixture('finalize-monthly-achievements',client);h.run(`currentJstMonthKey=()=> '2026-11'`);
+  const response=await h.request('POST',{apikey:'fixture-public'},'{}');assert.equal(response.status,200);assert.equal((await response.json()).skipped,'already_finalized');assert.equal(client.state.saved.length,0);
+});
+
+test('monthly finalization: DB failure can retry successfully without partial snapshot',async()=>{
+  const client=monthlyClient({insertError:{code:'08006'}}),h=fixture('finalize-monthly-achievements',client);h.context.console={error(){}};h.run(`currentJstMonthKey=()=> '2026-11'`);
+  assert.equal((await h.request('POST',{apikey:'fixture-public'},'{}')).status,500);assert.equal(client.state.saved.length,0);
+  client.state.insertError=null;
+  assert.equal((await h.request('POST',{apikey:'fixture-public'},'{}')).status,200);assert.equal(client.state.saved.length,1);
+});
+
+for(const failure of ['network','missing-video','video-update']) test(`monthly finalization: ${failure} failure prevents snapshot and allows retry`,async()=>{
+  const client=monthlyClient({rows:[{id:'a',status:'投稿済み',post_date:'2026-10-03',youtube_video_id:'abcdefghijk',tags:'疑問解決系,横動画の切り抜き'}],updateError:failure==='video-update'?{code:'08006'}:null});
+  const h=fixture('finalize-monthly-achievements',client);h.context.console={error(){}};h.run(`currentJstMonthKey=()=> '2026-11'`);
+  if(failure==='missing-video')h.run(`fetchYouTubeVideos=async()=>new Map()`);
+  if(failure==='video-update')h.run(`fetchYouTubeVideos=async()=>new Map([['abcdefghijk',{statistics:{viewCount:'0'},snippet:{publishedAt:'2026-10-03T00:00:00Z'}}]])`);
+  assert.equal((await h.request('POST',{apikey:'fixture-public'},'{}')).status,500);assert.equal(client.state.saved.length,0);
+  client.state.updateError=null;
+  h.run(`fetchYouTubeVideos=async()=>new Map([['abcdefghijk',{statistics:{viewCount:'0'},snippet:{publishedAt:'2026-10-03T00:00:00Z'}}]])`);
+  assert.equal((await h.request('POST',{apikey:'fixture-public'},'{}')).status,200);assert.equal(client.state.saved.length,1);
+});
+
+test('monthly finalization: before supported month exits without DB or API',async()=>{
+  const h=fixture('finalize-monthly-achievements',{from(){throw Error('Unexpected DB access');}});h.run(`currentJstMonthKey=()=> '2026-08'`);
+  const response=await h.request('POST',{apikey:'fixture-public'},'{}');assert.equal(response.status,200);assert.equal((await response.json()).skipped,'snapshot_start_month_not_reached');
+});

@@ -9,7 +9,9 @@ const deferred = () => {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 };
-function harness({ client = {}, ref = process.env.APP_REF, initialStorage = [], storageError = false } = {}) {
+function harness({ client = {}, ref = process.env.APP_REF, initialStorage = [], storageError = false, href = 'https://qa.invalid/repo/' } = {}) {
+  const source = ref ? execFileSync('git', ['show', `${ref}:app.js`], { cwd: root, encoding: 'utf8' }) : fs.readFileSync(path.join(root,'app.js'),'utf8');
+  const version = source.match(/const APP_VERSION = "([^"]+)"/)[1];
   const nodes = new Map(), timers = new Map(), logs = [], storage = new Map();
   let timerId = 0;
   initialStorage.forEach(([key,value]) => storage.set(key,value));
@@ -29,7 +31,7 @@ function harness({ client = {}, ref = process.env.APP_REF, initialStorage = [], 
   const setTimer = (fn, ms, interval = false) => { timers.set(++timerId, { fn, ms, interval }); return timerId; };
   const document = {
     visibilityState: 'visible', body: node('body'), documentElement: node('html'),
-    getElementById: node, querySelector: selector => selector === 'meta[name="app-version"]' ? { content: '23.37' } : node(selector),
+    getElementById: node, querySelector: selector => selector === 'meta[name="app-version"]' ? { content: version } : node(selector),
     querySelectorAll: selector => selector === 'dialog[open]' ? [...nodes.values()].filter(n => n.open) : [],
     addEventListener() {}
   };
@@ -40,9 +42,8 @@ function harness({ client = {}, ref = process.env.APP_REF, initialStorage = [], 
     localStorage: { getItem: k => { if(storageError) throw new Error('Storage unavailable'); return storage.get(k) || null; }, setItem: (k,v) => { if(storageError) throw new Error('Storage unavailable'); storage.set(k,v); }, removeItem: k => storage.delete(k) },
     window: { supabase: { createClient: () => client }, setTimeout: setTimer, clearTimeout: id => timers.delete(id),
       setInterval: (fn,ms) => setTimer(fn,ms,true), clearInterval: id => timers.delete(id),
-      location: { reload() {} }, matchMedia: () => ({ matches: false }), scrollTo() {}, scrollY: 0, addEventListener() {} }
+      location: { href, reload() {} }, history: { replaceState() {} }, matchMedia: () => ({ matches: false }), scrollTo() {}, scrollY: 0, addEventListener() {} }
   });
-  const source = ref ? execFileSync('git', ['show', `${ref}:app.js`], { cwd: root, encoding: 'utf8' }) : fs.readFileSync(path.join(root,'app.js'),'utf8');
   vm.runInContext(source.slice(0,source.lastIndexOf('\ninitialize().catch')),context);
   return { run: code => vm.runInContext(code,context), node, timers, logs, context, source, storage,
     async tick(ms) { for (const [id,timer] of [...timers]) if (timer.ms === ms) { if (!timer.interval) timers.delete(id); timer.fn(); } for (let i=0;i<20;i++) await Promise.resolve(); } };

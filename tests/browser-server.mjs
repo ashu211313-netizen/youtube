@@ -84,9 +84,13 @@ function mockSdk() {
   const user={id:'00000000-0000-4000-8000-000000000001',email:'qa@example.test'};
   let session=mode==='logged-out'?null:{user,access_token:'local-fixture-only',expires_at:Math.floor(Date.now()/1000)+3600};
   let onAuth=()=>{};
+  let recoveryEmitted=false;
+  window.qaAuth={resetRequests:0,passwordUpdates:0};
   window.supabase={createClient:()=>({
     from,rpc:(name,params)=>api('/qa-rpc',{name,params}),
-    auth:{getSession:async()=>({data:{session},error:null}),getUser:async()=>({data:{user:session?.user||null},error:null}),refreshSession:async()=>({data:{session},error:null}),onAuthStateChange:cb=>{onAuth=cb;return {data:{subscription:{unsubscribe(){}}}};},
+    auth:{getSession:async()=>{if(mode==='recovery'&&!recoveryEmitted){recoveryEmitted=true;onAuth('PASSWORD_RECOVERY',session);}return {data:{session},error:null};},getUser:async()=>({data:{user:session?.user||null},error:null}),refreshSession:async()=>({data:{session},error:null}),onAuthStateChange:cb=>{onAuth=cb;return {data:{subscription:{unsubscribe(){}}}};},
+      resetPasswordForEmail:async()=>{window.qaAuth.resetRequests++;return {data:{},error:null};},
+      updateUser:async()=>{window.qaAuth.passwordUpdates++;onAuth('USER_UPDATED',session);return {data:{user},error:null};},
       signInWithPassword:async()=>{session={user,expires_at:Date.now()/1000+3600};onAuth('SIGNED_IN',session);return {data:{user},error:null};},
       signOut:async()=>{session=null;onAuth('SIGNED_OUT',null);return {error:null};}},
     functions:{invoke:async(name,{body})=>name==='sync-youtube-video'?api('/qa-youtube-sync',{ids:body.videoRecordIds}):({data:null,error:{message:'Unexpected function'}})},
@@ -185,7 +189,7 @@ http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png'})[path.extname(name)]);
     let content=fs.readFileSync(path.join(root,name));
     if(name==='index.html')content=content.toString().replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js','/qa-client.js');
-    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace('name="app-version" content="23.37"','name="app-version" content="obsolete"');
+    if(name==='index.html'&&new URL(req.url,origin).searchParams.get('qa')==='version')content=content.toString().replace(/name="app-version" content="[^"]+"/,'name="app-version" content="obsolete"');
     if(name==='app.js')content=content.toString().replace('const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";',`const SUPABASE_URL = "${origin}";`).replaceAll('https://img.youtube.com',origin+'/qa-thumbnails');
     res.end(content);
   }catch(error){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:null,error:{code:error.code,message:error.message}}));}

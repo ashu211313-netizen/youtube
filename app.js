@@ -3,7 +3,23 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.37";
+const APP_VERSION = "23.38";
+
+// Capture only the callback intent before the SDK consumes/clears the fragment.
+// A URL flag alone never authorizes changing a password.
+function hasPasswordRecoveryIntent() {
+  const url = new URL(window.location.href || "https://invalid.local/");
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  return fragment.get("type") === "recovery" || url.searchParams.get("recovery") === "1" ||
+    fragment.has("error_code") || url.searchParams.has("error_code");
+}
+let passwordRecoveryIntent = hasPasswordRecoveryIntent();
+let passwordRecoveryActive = false;
+let passwordRecoveryUserId = "";
+let passwordRecoveryBusy = false;
+let passwordRecoveryUpdated = false;
+let passwordResetRequestedAt = 0;
+let authEventRevision = 0;
 
 if (!window.supabase?.createClient) {
   throw new Error("Supabaseライブラリを読み込めませんでした。");
@@ -146,11 +162,24 @@ const elements = {
   dashboardPostingPace: document.getElementById("dashboardPostingPace"),
   videoViewToggle: document.getElementById("videoViewToggle"),
   authScreen: document.getElementById("authScreen"),
+  authDescription: document.getElementById("authDescription"),
   appRoot: document.getElementById("appRoot"),
   todayLabel: document.getElementById("todayLabel"),
   weeklyScheduleList: document.getElementById("weeklyScheduleList"),
   mobileNav: document.getElementById("mobileNav"),
   loginForm: document.getElementById("loginForm"),
+  forgotPasswordButton: document.getElementById("forgotPasswordButton"),
+  passwordRecoveryPanel: document.getElementById("passwordRecoveryPanel"),
+  passwordResetRequestForm: document.getElementById("passwordResetRequestForm"),
+  passwordResetEmail: document.getElementById("passwordResetEmail"),
+  passwordResetRequestButton: document.getElementById("passwordResetRequestButton"),
+  passwordUpdateForm: document.getElementById("passwordUpdateForm"),
+  recoveryPassword: document.getElementById("recoveryPassword"),
+  recoveryPasswordConfirm: document.getElementById("recoveryPasswordConfirm"),
+  passwordUpdateButton: document.getElementById("passwordUpdateButton"),
+  passwordRecoveryMessage: document.getElementById("passwordRecoveryMessage"),
+  finishRecoveryButton: document.getElementById("finishRecoveryButton"),
+  recoveryBackButton: document.getElementById("recoveryBackButton"),
   loginEmail: document.getElementById("loginEmail"),
   loginPassword: document.getElementById("loginPassword"),
   loginButton: document.getElementById("loginButton"),
@@ -159,6 +188,7 @@ const elements = {
   loginUserLabel: document.getElementById("loginUserLabel"),
   logoutButton: document.getElementById("logoutButton"),
   syncStatus: document.getElementById("syncStatus"),
+  dataLoadStatus: document.getElementById("dataLoadStatus"),
   appLoadError: document.getElementById("appLoadError"),
   appLoadErrorMessage: document.getElementById("appLoadErrorMessage"),
   retryAppLoadButton: document.getElementById("retryAppLoadButton"),
@@ -271,6 +301,15 @@ function showToast(message, type = "success") {
 function setSyncStatus(text, status = "") {
   elements.syncStatus.textContent = text;
   elements.syncStatus.className = `sync-status${status ? ` ${status}` : ""}`;
+}
+
+// A Realtime connection is not evidence that every database read succeeded.
+function setDataLoadStatus(phase = "idle", optionalErrors = []) {
+  const labels = { idle: "データ未取得", loading: "データ取得中", current: "データ取得済み", partial: "一部データ未取得", error: "データ取得失敗" };
+  if (!elements.dataLoadStatus) return;
+  elements.dataLoadStatus.textContent = labels[phase] || labels.idle;
+  elements.dataLoadStatus.className = `sync-status data-load-status ${phase === "current" ? "online" : ["partial", "error"].includes(phase) ? "error" : ""}`;
+  elements.dataLoadStatus.title = optionalErrors.map(item => item.label).filter(Boolean).join("・");
 }
 
 function setLoading(button, loading, loadingText = "保存中...") {
@@ -465,9 +504,9 @@ function logAuthDiagnostic(stage, { session = null, error = null, attempt = 0 } 
     visibilityState: document.visibilityState,
     online: navigator.onLine,
     recoveryAttempt: attempt,
-    errorCode: error?.code || null,
+    errorCode: /^[a-zA-Z0-9_]{1,50}$/.test(error?.code || "") ? error.code : null,
     errorStatus: error?.status || null,
-    errorMessage: error ? getErrorMessage(error) : null
+    errorCategory: error ? (isRecoverableAuthError(error) ? "authentication" : "request_failed") : null
   });
 }
 
@@ -493,7 +532,7 @@ function hideAuthRecovery() {
 function showAuthRecovery(error) {
   elements.loginMessage.textContent = isRecoverableAuthError(error)
     ? "ログイン状態を確認できませんでした。再確認するか、必要な場合はログインし直してください。"
-    : `ログイン状態を確認できませんでした：${getErrorMessage(error)}`;
+    : "ログイン状態を確認できませんでした。通信状態を確認して再試行してください。";
   elements.authRetryButton?.classList.remove("is-hidden");
 }
 
@@ -1863,6 +1902,7 @@ async function fetchAllDataOnce(generation = appSessionGeneration) {
 
 async function performDataLoad({ silent = false } = {}) {
   const generation = appSessionGeneration;
+  setDataLoadStatus("loading");
   if (!silent) {
     setSyncStatus("同期中");
   }
@@ -1919,6 +1959,7 @@ async function performDataLoad({ silent = false } = {}) {
     const error = result?.error || new Error("データを取得できませんでした。");
     console.error("データ読み込み:", error);
     setSyncStatus(navigator.onLine ? "同期エラー" : "オフライン", "error");
+    setDataLoadStatus("error");
     showAppLoadError(error);
     if (!silent) {
       showToast("データを読み込めませんでした。再試行してください。", "error");
@@ -1929,6 +1970,7 @@ async function performDataLoad({ silent = false } = {}) {
   hideAppLoadError();
 
   if (result.optionalErrors.length) {
+    setDataLoadStatus("partial", result.optionalErrors);
     console.warn("一部データの読み込み:", result.optionalErrors);
     setSyncStatus("一部同期エラー", "error");
     if (!silent) {
@@ -1938,6 +1980,7 @@ async function performDataLoad({ silent = false } = {}) {
       );
     }
   } else {
+    setDataLoadStatus("current");
     setSyncStatus("同期済み", "online");
   }
 
@@ -2906,19 +2949,24 @@ function hasYouTubeSyncEvidence(video) {
 function getVideoDataWarnings(video) {
   const warnings = [];
   if (!getVideoPublishedDateKey(video)) warnings.push("投稿日未設定");
-  if (!getYouTubeVideoId(video)) warnings.push("YouTube URL未設定");
+  if (!getYouTubeVideoId(video)) warnings.push(String(video.youtubeUrl || video.youtubeVideoId || "").trim() ? "YouTube URLを確認" : "YouTube URL未設定");
   else if (video.status === "投稿済み" && !hasYouTubeSyncEvidence(video)) warnings.push("YouTube情報未同期");
   return warnings;
 }
 
-function renderVideoWarnings(video) {
+function renderVideoWarnings(video, { compact = false } = {}) {
   const warnings = getVideoDataWarnings(video);
-  return warnings.length ? `<div class="video-data-warnings">${warnings.map(message => `<span>⚠ ${message}</span>`).join("")}</div>` : "";
+  if (!warnings.length) return "";
+  const tone = video.status === "投稿済み" ? "warning" : "info";
+  const icon = tone === "warning" ? "⚠" : "ⓘ";
+  const summary = `${video.status === "投稿済み" ? "要確認" : "投稿前の確認"}：${warnings.join("・")}`;
+  if (compact) return `<span class="video-warning-summary is-${tone}" title="${escapeHtml(summary)}" aria-label="${escapeHtml(summary)}">${icon} ${warnings.length}</span>`;
+  return `<div class="video-data-warnings is-${tone}" aria-label="${escapeHtml(summary)}">${warnings.map(message => `<span>${icon} ${message}</span>`).join("")}</div>`;
 }
 
 function renderVideoMinimalRow(video) {
   return `<article class="video-minimal-row" data-video-card-id="${video.id}" tabindex="0" role="button" aria-label="${escapeHtml(video.title)}の詳細を開く">
-    <div class="video-minimal-main"><h4>${escapeHtml(video.title)}</h4>
+    <div class="video-minimal-main"><div class="video-minimal-heading"><h4>${escapeHtml(video.title)}</h4>${renderVideoWarnings(video, { compact: true })}</div>
       <div class="video-minimal-meta"><span>${escapeHtml(video.type)}</span><span>${formatDate(getVideoPublishedDateKey(video))}</span><strong>${formatYouTubeMetric(video.youtubeViews, "回")}</strong></div>
     </div>
     <select class="video-row-status" data-video-status-id="${video.id}" aria-label="${escapeHtml(video.title)}のステータス">${VIDEO_STATUSES.map(status => `<option value="${status}" ${status === video.status ? "selected" : ""}>${videoStatusLabel(status)}</option>`).join("")}</select>
@@ -2985,6 +3033,8 @@ function renderVideos() {
             </div>
 
             <h4>${escapeHtml(video.title)}</h4>
+
+            ${renderVideoWarnings(video)}
 
             <div class="video-card-metrics" aria-label="YouTube統計">
               <article>
@@ -4327,7 +4377,7 @@ function subscribeRealtime({ force = false } = {}) {
       realtimeStatus = status;
 
       if (status === "SUBSCRIBED") {
-        setSyncStatus("リアルタイム同期中", "online");
+        setSyncStatus("Realtime接続中", "online");
       }
 
       if (
@@ -4458,6 +4508,160 @@ function validateAuthenticatedSession(options = {}) {
   return authValidationInFlight;
 }
 
+function clearRecoveryPasswordFields() {
+  elements.recoveryPassword.value = "";
+  elements.recoveryPasswordConfirm.value = "";
+}
+
+function showPasswordRecoveryPanel(mode = "request", message = "") {
+  showAuthScreen();
+  elements.authDescription.textContent = "メールのリンクからパスワードを再設定します。";
+  elements.loginForm.classList.add("is-hidden");
+  elements.passwordRecoveryPanel.classList.remove("is-hidden");
+  elements.passwordResetRequestForm.classList.toggle("is-hidden", mode !== "request");
+  elements.passwordUpdateForm.classList.toggle("is-hidden", mode !== "update");
+  elements.passwordUpdateButton.disabled = mode !== "update" || !passwordRecoveryUserId || passwordRecoveryBusy;
+  elements.finishRecoveryButton.classList.toggle("is-hidden", !passwordRecoveryUpdated);
+  elements.recoveryBackButton.classList.toggle("is-hidden", passwordRecoveryUpdated);
+  elements.passwordRecoveryMessage.textContent = message;
+  elements.loginPassword.value = "";
+}
+
+function clearRecoveryCallbackUrl({ finished = false } = {}) {
+  // Called only after SDK initialization; never parse/store bearer credentials ourselves.
+  const url = new URL(window.location.href || "https://invalid.local/");
+  for (const key of ["recovery", "code", "error", "error_code", "error_description"]) url.searchParams.delete(key);
+  if (!finished) url.searchParams.set("recovery", "1");
+  url.hash = "";
+  window.history?.replaceState(null, "", url.pathname + url.search);
+}
+
+function passwordResetRedirectUrl() {
+  const url = new URL("./", window.location.href);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) {
+    throw new Error("Password recovery requires HTTPS");
+  }
+  // Same deployed application directory, never an arbitrary caller-supplied redirect.
+  url.searchParams.set("recovery", "1");
+  return url.href;
+}
+
+async function requestPasswordReset() {
+  if (passwordRecoveryBusy) return false;
+  if (Date.now() - passwordResetRequestedAt < 60000) {
+    elements.passwordRecoveryMessage.textContent = "少し時間を置いてから再送してください。迷惑メールフォルダもご確認ください。";
+    return false;
+  }
+  passwordRecoveryBusy = true;
+  passwordResetRequestedAt = Date.now();
+  setLoading(elements.passwordResetRequestButton, true, "送信中...");
+  try {
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(elements.passwordResetEmail.value.trim(), { redirectTo: passwordResetRedirectUrl() });
+    if (error && !["user_not_found", "email_not_found"].includes(error.code)) throw error;
+    // Deliberately identical for known and unknown accounts.
+    elements.passwordRecoveryMessage.textContent = "登録されている場合は再設定メールを送信しました。メール内の最新のリンクを開いてください。";
+    return true;
+  } catch (error) {
+    logAuthDiagnostic("password-reset-request-failed", { error });
+    elements.passwordRecoveryMessage.textContent = Number(error?.status) === 429
+      ? "送信回数の上限です。時間を置いて再試行してください。"
+      : "送信を完了できませんでした。通信状態を確認し、時間を置いて再試行してください。";
+    return false;
+  } finally {
+    passwordRecoveryBusy = false;
+    setLoading(elements.passwordResetRequestButton, false);
+  }
+}
+
+async function validatePasswordRecovery(session, revision) {
+  try {
+    const result = await supabaseClient.auth.getUser();
+    if (revision !== authEventRevision || !passwordRecoveryActive) return false;
+    if (result.error || !result.data?.user?.id || result.data.user.id !== session?.user?.id) throw new Error("Invalid recovery session");
+    passwordRecoveryUserId = result.data.user.id;
+    clearRecoveryCallbackUrl();
+    showPasswordRecoveryPanel("update", "新しいパスワードを入力してください。");
+    return true;
+  } catch (error) {
+    if (revision !== authEventRevision) return false;
+    passwordRecoveryUserId = "";
+    clearRecoveryPasswordFields();
+    clearRecoveryCallbackUrl();
+    showPasswordRecoveryPanel("request", "リンクを確認できませんでした。有効期限切れ・使用済みの場合は再設定メールを再送してください。");
+    logAuthDiagnostic("password-recovery-verify-failed", { error });
+    return false;
+  }
+}
+
+async function finishPasswordRecovery() {
+  // Local scope only: do not sign out other devices or manipulate SDK storage keys.
+  try {
+    if (passwordRecoveryActive || passwordRecoveryUpdated) {
+      const { error } = await supabaseClient.auth.signOut({ scope: "local" });
+      if (error) throw error;
+    }
+    passwordRecoveryIntent = false;
+    passwordRecoveryActive = false;
+    passwordRecoveryUserId = "";
+    const updated = passwordRecoveryUpdated;
+    passwordRecoveryUpdated = false;
+    clearRecoveryPasswordFields();
+    await resetAuthenticatedApp({ message: updated ? "パスワードを変更しました。新しいパスワードでログインしてください。PWAも新しいパスワードでログインできます。" : "" });
+    elements.passwordRecoveryPanel.classList.add("is-hidden");
+    elements.loginForm.classList.remove("is-hidden");
+    elements.authDescription.textContent = "登録したメールアドレスとパスワードでログインしてください。";
+    clearRecoveryCallbackUrl({ finished: true });
+    return true;
+  } catch (error) {
+    logAuthDiagnostic("password-recovery-signout-failed", { error });
+    showPasswordRecoveryPanel("request", passwordRecoveryUpdated ? "パスワードは変更済みです。通信回復後に「再設定を終了してログインへ」を押してください。" : "終了できませんでした。通信状態を確認して再試行してください。");
+    return false;
+  }
+}
+
+async function updateRecoveryPassword() {
+  if (passwordRecoveryBusy || passwordRecoveryUpdated) return false;
+  const password = elements.recoveryPassword.value;
+  if (password.length < 8 || password !== elements.recoveryPasswordConfirm.value) {
+    elements.passwordRecoveryMessage.textContent = "8文字以上の同じパスワードを2回入力してください。";
+    return false;
+  }
+  if (!passwordRecoveryActive || !passwordRecoveryUserId) {
+    showPasswordRecoveryPanel("request", "再設定メールの最新のリンクからやり直してください。");
+    return false;
+  }
+  const revision = authEventRevision;
+  const recoveryUserId = passwordRecoveryUserId;
+  passwordRecoveryBusy = true;
+  setLoading(elements.passwordUpdateButton, true, "変更中...");
+  try {
+    const sessionResult = await supabaseClient.auth.getSession();
+    const userResult = await supabaseClient.auth.getUser();
+    if (revision !== authEventRevision || !passwordRecoveryActive || sessionResult.error || userResult.error ||
+      sessionResult.data?.session?.user?.id !== recoveryUserId || userResult.data?.user?.id !== recoveryUserId) {
+      throw new Error("Invalid recovery session");
+    }
+    const result = await supabaseClient.auth.updateUser({ password });
+    if (result.error) throw result.error;
+    if (revision !== authEventRevision || result.data?.user?.id !== recoveryUserId) return false;
+    passwordRecoveryUpdated = true;
+    clearRecoveryPasswordFields();
+    await finishPasswordRecovery();
+    return true;
+  } catch (error) {
+    if (revision !== authEventRevision) return false;
+    logAuthDiagnostic("password-recovery-update-failed", { error });
+    elements.passwordRecoveryMessage.textContent = ["weak_password", "same_password"].includes(error?.code)
+      ? "安全性の高い、以前とは異なるパスワードを入力してください。"
+      : "変更を完了できませんでした。通信状態を確認してください。リンクが無効な場合はメールを再送してください。";
+    return false;
+  } finally {
+    passwordRecoveryBusy = false;
+    setLoading(elements.passwordUpdateButton, false);
+    if (passwordRecoveryUpdated) elements.passwordUpdateButton.disabled = true;
+  }
+}
+
 async function login(email, password) {
   const { data: authData, error } = await supabaseClient.auth.signInWithPassword({ email, password });
   if (error) throw error;
@@ -4487,6 +4691,7 @@ function invalidateAppSessionWork() {
 async function resetAuthenticatedApp({ message = "" } = {}) {
   invalidateAppSessionWork();
   authenticatedUserId = "";
+  setDataLoadStatus("idle");
   lastSuccessfulDataLoadAt = 0;
   clearTimeout(appResumeTimer);
   appResumeTimer = null;
@@ -4503,10 +4708,12 @@ async function resetAuthenticatedApp({ message = "" } = {}) {
 }
 
 function startAuthenticatedApp(user) {
+  if (passwordRecoveryIntent || passwordRecoveryActive) return Promise.resolve(false);
   const userId = String(user?.id || "");
   if (!userId) return Promise.resolve(false);
   const isNewUser = authenticatedUserId !== userId;
   if (isNewUser) {
+    setDataLoadStatus("idle");
     invalidateAppSessionWork();
     stopYouTubeAutoSync();
     data = createEmptyDataState();
@@ -4551,6 +4758,7 @@ async function performAppResume({
   forceDataReload = false,
   forceAuthRefresh = false
 } = {}) {
+  if (passwordRecoveryIntent || passwordRecoveryActive) return false;
   const generation = appSessionGeneration;
   if (document.visibilityState === "hidden") {
     return false;
@@ -4602,8 +4810,12 @@ async function performAppResume({
     return loaded;
   } catch (error) {
     if (generation !== appSessionGeneration) return false;
-    console.error("アプリ再開:", error);
     logAuthDiagnostic(`${reason}:failed`, { error });
+
+    if (["refresh_token_not_found", "refresh_token_already_used", "session_not_found", "session_expired"].includes(error?.code)) {
+      await resetAuthenticatedApp({ message: "ログインの有効期限が切れています。もう一度ログインしてください。" });
+      return false;
+    }
 
     if (authenticatedUserId) {
       setSyncStatus(navigator.onLine ? "認証確認エラー" : "オフライン", "error");
@@ -4653,6 +4865,13 @@ function setupAuthStateListener() {
 
   const { data: listenerData } = supabaseClient.auth.onAuthStateChange(
     (event, sessionData) => {
+      if (event !== "PASSWORD_RECOVERY" && passwordRecoveryActive && passwordRecoveryUserId && sessionData?.user?.id && sessionData.user.id !== passwordRecoveryUserId) {
+        ++authEventRevision;
+        passwordRecoveryUserId = "";
+        clearRecoveryPasswordFields();
+        showPasswordRecoveryPanel("request", "ログイン状態が変わりました。再設定メールの最新のリンクからやり直してください。");
+        return;
+      }
       if (event === "TOKEN_REFRESHED") {
         logAuthDiagnostic("auth-event:token-refreshed", {
           session: sessionData
@@ -4660,15 +4879,36 @@ function setupAuthStateListener() {
         return;
       }
 
+      if (event === "PASSWORD_RECOVERY") {
+        clearRecoveryPasswordFields();
+        passwordRecoveryIntent = true;
+        passwordRecoveryActive = true;
+        passwordRecoveryUserId = "";
+        const revision = ++authEventRevision;
+        // No awaited SDK call inside the Auth callback (SDK lock).
+        void resetAuthenticatedApp();
+        showPasswordRecoveryPanel("checking", "再設定リンクを確認中...");
+        window.setTimeout(() => { void validatePasswordRecovery(sessionData, revision); }, 0);
+        return;
+      }
+      if (event === "SIGNED_OUT") {
+        ++authEventRevision;
+        passwordRecoveryUserId = "";
+        clearRecoveryPasswordFields();
+        void resetAuthenticatedApp();
+        if (passwordRecoveryIntent) showPasswordRecoveryPanel("request", passwordRecoveryUpdated ? "パスワードの変更を完了しています..." : "再設定メールの最新のリンクを開いてください。");
+        return;
+      }
+      if (event !== "SIGNED_IN" || passwordRecoveryIntent || passwordRecoveryActive) return;
+      const revision = ++authEventRevision;
+      const generation = appSessionGeneration;
+
       window.setTimeout(() => {
-        if (event === "SIGNED_OUT") {
-          void resetAuthenticatedApp();
-          return;
-        }
+        if (revision !== authEventRevision || generation !== appSessionGeneration || passwordRecoveryIntent || passwordRecoveryActive) return;
 
         if (
           event === "SIGNED_IN" &&
-          sessionData.user &&
+          sessionData?.user &&
           authenticatedUserId !== String(sessionData.user.id || "")
         ) {
           void startAuthenticatedApp(sessionData.user);
@@ -4690,8 +4930,17 @@ async function initialize() {
 
   setupAuthStateListener();
 
+  if (passwordRecoveryIntent) showPasswordRecoveryPanel("checking", "再設定リンクを確認中...");
+
   try {
     const authState = await validateAuthenticatedSession({ reason: "startup" });
+    if (passwordRecoveryIntent || passwordRecoveryActive) {
+      if (!passwordRecoveryActive) {
+        clearRecoveryCallbackUrl();
+        showPasswordRecoveryPanel("request", "リンクが無効・期限切れ・使用済みの場合は、再設定メールを再送してください。");
+      }
+      return;
+    }
     if (generation !== appSessionGeneration) return;
 
     if (authState?.user) {
@@ -4701,8 +4950,15 @@ async function initialize() {
       showAuthScreen();
     }
   } catch (error) {
+    if (passwordRecoveryIntent || passwordRecoveryActive) {
+      if (!passwordRecoveryActive) {
+        clearRecoveryCallbackUrl();
+        showPasswordRecoveryPanel("request", "リンクを確認できませんでした。通信状態を確認し、再設定メールを再送してください。");
+      }
+      return;
+    }
     if (generation !== appSessionGeneration) return;
-    console.error(error);
+    logAuthDiagnostic("startup:failed", { error });
     showAuthScreen();
     showAuthRecovery(error);
   }
@@ -4716,6 +4972,17 @@ function setupEventListeners() {
   setupVideoDetailNavigation();
   eventListenersReady = true;
 
+  elements.forgotPasswordButton.addEventListener("click", () => {
+    passwordRecoveryIntent = true;
+    elements.passwordResetEmail.value = elements.loginEmail.value.trim();
+    showPasswordRecoveryPanel("request");
+    elements.passwordResetEmail.focus();
+  });
+  elements.passwordResetRequestForm.addEventListener("submit", event => { event.preventDefault(); void requestPasswordReset(); });
+  elements.passwordUpdateForm.addEventListener("submit", event => { event.preventDefault(); void updateRecoveryPassword(); });
+  elements.finishRecoveryButton.addEventListener("click", () => { if (!passwordRecoveryBusy) void finishPasswordRecovery(); });
+  elements.recoveryBackButton.addEventListener("click", () => { if (!passwordRecoveryBusy) void finishPasswordRecovery(); });
+
   elements.loginForm.addEventListener("submit", async event => {
     event.preventDefault();
     elements.loginMessage.textContent = "";
@@ -4727,8 +4994,8 @@ function setupEventListeners() {
       elements.loginPassword.value = "";
       await startAuthenticatedApp(user);
     } catch (error) {
-      console.error(error);
-      elements.loginMessage.textContent = `ログインできませんでした：${getErrorMessage(error)}`;
+      logAuthDiagnostic("password-login-failed", { error });
+      elements.loginMessage.textContent = "ログインできませんでした。メールアドレス・パスワード・通信状態を確認してください。";
     } finally {
       setLoading(elements.loginButton, false);
     }
@@ -4758,7 +5025,7 @@ function setupEventListeners() {
 
       await startAuthenticatedApp(authState.user);
     } catch (error) {
-      console.error(error);
+      logAuthDiagnostic("manual-auth-retry-failed", { error });
       showAuthRecovery(error);
     } finally {
       setLoading(elements.authRetryButton, false);
@@ -5287,7 +5554,7 @@ function setupEventListeners() {
 }
 
 initialize().catch(error => {
-  console.error(error);
+  logAuthDiagnostic("initialize:failed", { error });
   showAuthScreen();
-  elements.loginMessage.textContent = `初期化に失敗しました：${getErrorMessage(error)}`;
+  elements.loginMessage.textContent = "初期化に失敗しました。通信状態を確認し、再読み込みしてください。";
 });

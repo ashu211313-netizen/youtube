@@ -6,13 +6,15 @@ function seed(h) {
   h.run(`data.videos=Array.from({length:10},(_,i)=>mapVideo({id:String(i),title:'動画'+i,video_type:'Shorts',status:i%2?'編集待ち':'投稿済み',post_date:'2026-09-01',tags:'選手解説,ネット競艇',youtube_views:i}));`);
 }
 const ids=html=>[...html.matchAll(/data-video-card-id="([^"]+)"/g)].map(m=>m[1]);
+// Only the explicitly requested warning additions differ from the canonical view.
+const withoutWarnings=html=>html.replace(/\s*<div class="video-data-warnings[^>]*>.*?<\/div>/gs,'').replace(/<span class="video-warning-summary[^>]*>.*?<\/span>/gs,'').replace(/<div class="video-minimal-heading">(<h4>.*?<\/h4>)<\/div>/gs,'$1').replace(/\n\s*\n/g,'\n');
 test('default card; minimal then card restores latest-main card markup exactly',()=>{
   const h=harness(),base=harness({ref:'3d5470c7ccccf6e315d9f9d850869e4db0885012'});seed(h);seed(base);
   h.run('renderVideos()');base.run('renderVideos()');
   assert.equal(h.run('activeVideoViewMode'),'card');
-  assert.equal(h.node('videoList').innerHTML,base.node('videoList').innerHTML);
+  assert.equal(withoutWarnings(h.node('videoList').innerHTML),withoutWarnings(base.node('videoList').innerHTML));
   h.run(`setVideoViewMode('minimal')`);assert.match(h.node('videoList').innerHTML,/video-minimal-row/);
-  h.run(`setVideoViewMode('card')`);assert.equal(h.node('videoList').innerHTML,base.node('videoList').innerHTML);
+  h.run(`setVideoViewMode('card')`);assert.equal(withoutWarnings(h.node('videoList').innerHTML),withoutWarnings(base.node('videoList').innerHTML));
 });
 test('all three filters retain exactly the same ordered IDs in either mode',()=>{
   const h=harness();seed(h);
@@ -67,7 +69,7 @@ test('resume, debounced Realtime refresh and successful sync preserve the select
 test('minimal markup matches latest main except neutral status class; obsolete thumbnail key is inert',()=>{
   const h=harness({initialStorage:[['boat-manager-video-thumbnail','off']]}),base=harness({ref:'3d5470c7ccccf6e315d9f9d850869e4db0885012'});seed(h);seed(base);
   h.run(`setVideoViewMode('minimal')`);base.run(`setVideoViewMode('minimal')`);
-  assert.equal(h.node('videoList').innerHTML,base.node('videoList').innerHTML.replaceAll('video-compact-status','video-row-status'));
+  assert.equal(withoutWarnings(h.node('videoList').innerHTML),withoutWarnings(base.node('videoList').innerHTML.replaceAll('video-compact-status','video-row-status')));
   h.run(`setVideoViewMode('card')`);assert(h.node('videoList').innerHTML.includes('video-thumbnail-shell'));
 });
 test('exactly two HTML choices; no obsolete runtime/style/DOM leftovers',()=>{
