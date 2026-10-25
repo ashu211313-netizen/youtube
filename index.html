@@ -4,16 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#f5f5f7" />
-  <meta name="app-version" content="23.38" />
+  <meta name="app-version" content="23.39" />
   <title>競艇チャンネル管理</title>
   <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=6" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=6" />
-  <link rel="manifest" href="manifest.json?v=23.38" />
+  <link rel="manifest" href="manifest.json?v=23.39" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="競艇管理" />
-  <link rel="stylesheet" href="style.css?v=23.38" />
+  <link rel="stylesheet" href="style.css?v=23.39" />
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -484,14 +484,24 @@
           <strong id="postStatsRewardRaceAmount">¥0</strong>
         </article>
 
+        <article>
+          <div>
+            <span>横動画の切り抜き</span>
+            <small id="postStatsRewardClipFormula">0本 × 0円</small>
+          </div>
+          <strong id="postStatsRewardClipAmount">¥0</strong>
+        </article>
+
         <article class="reward-total-row">
           <div>
             <span>合計</span>
-            <small>この月の支払い金額</small>
+            <small>現在のルールによる計算額</small>
           </div>
           <strong id="postStatsRewardTotal">¥0</strong>
         </article>
       </div>
+
+      <p class="post-stats-note">競艇ニュースはShorts欄に合算し、切り抜きとレース映像の併用は切り抜き欄に集計します。表示額は過去月を含め現在の報酬ルールで再計算した額で、実際の支払確定額ではありません。</p>
 
       <div class="payment-status-panel">
         <div>
@@ -571,6 +581,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js"></script>
-  <script src="app.js?v=23.38"></script>
+  <script src="app.js?v=23.39"></script>
 </body>
 </html>

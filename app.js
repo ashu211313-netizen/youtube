@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.38";
+const APP_VERSION = "23.39";
 
 // Capture only the callback intent before the SDK consumes/clears the fragment.
 // A URL flag alone never authorizes changing a password.
@@ -245,6 +245,8 @@ const elements = {
   postStatsRewardLongAmount: document.getElementById("postStatsRewardLongAmount"),
   postStatsRewardRaceFormula: document.getElementById("postStatsRewardRaceFormula"),
   postStatsRewardRaceAmount: document.getElementById("postStatsRewardRaceAmount"),
+  postStatsRewardClipFormula: document.getElementById("postStatsRewardClipFormula"),
+  postStatsRewardClipAmount: document.getElementById("postStatsRewardClipAmount"),
   postStatsRewardTotal: document.getElementById("postStatsRewardTotal"),
   postStatsPaymentStatusLabel: document.getElementById("postStatsPaymentStatusLabel"),
   dashboardMonthlyEyebrow: document.getElementById("dashboardMonthlyEyebrow"),
@@ -2097,6 +2099,7 @@ function formatYen(value) {
 
 function getVideoReward(video) {
   const tags = parseVideoTags(video?.tags);
+  if (tags.includes("横動画の切り抜き")) return 0;
   if (tags.includes("レース映像")) return 0;
   if (tags.includes("競艇ニュース")) return 100;
   if (video?.type === "Shorts") return 100;
@@ -2106,8 +2109,12 @@ function getVideoReward(video) {
 
 function calculateMonthlyReward(stats) {
   const videos = stats?.videos || [];
+  const clipVideos = videos.filter(video =>
+    parseVideoTags(video.tags).includes("横動画の切り抜き")
+  );
+  const clipVideoSet = new Set(clipVideos);
   const raceVideos = videos.filter(video =>
-    parseVideoTags(video.tags).includes("レース映像")
+    !clipVideoSet.has(video) && parseVideoTags(video.tags).includes("レース映像")
   );
   const paidShorts = videos.filter(video => getVideoReward(video) === 100);
   const paidLong = videos.filter(video =>
@@ -2119,6 +2126,7 @@ function calculateMonthlyReward(stats) {
   return {
     paidShortsCount: paidShorts.length,
     paidLongCount: paidLong.length,
+    clipVideoCount: clipVideos.length,
     raceVideoCount: raceVideos.length,
     shortsAmount,
     longAmount,
@@ -2222,6 +2230,10 @@ function renderPostStats() {
   elements.postStatsRewardRaceFormula.textContent =
     `${selectedReward.raceVideoCount}本 × 0円`;
   elements.postStatsRewardRaceAmount.textContent = formatYen(0);
+
+  elements.postStatsRewardClipFormula.textContent =
+    `${selectedReward.clipVideoCount}本 × 0円`;
+  elements.postStatsRewardClipAmount.textContent = formatYen(0);
 
   elements.postStatsRewardTotal.textContent =
     formatYen(selectedReward.totalAmount);

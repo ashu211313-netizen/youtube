@@ -29,10 +29,10 @@ test('old snapshot and raw legacy JSON remain unchanged after rendering new tags
   assert.equal(JSON.stringify(raw),before);assert.equal(h.run('JSON.stringify(data.achievementSnapshots)'),mappedBefore);
   assert(!h.node('achievementTagBreakdown').innerHTML.includes('疑問解決系'));
 });
-test('new tags leave type-based rewards and race/news priority unchanged',()=>{
+test('question tag keeps type rates; clip tag takes priority over news and type rates',()=>{
   const h=harness();for(const tag of ['疑問解決系','横動画の切り抜き'])for(const [type,reward]of [['Shorts',100],['横動画',1000]]){
-    h.context.video={type,tags:tag};assert.equal(h.run('getVideoReward(video)'),reward);
-    h.context.video.tags=tag+',競艇ニュース';assert.equal(h.run('getVideoReward(video)'),100);
+    h.context.video={type,tags:tag};assert.equal(h.run('getVideoReward(video)'),tag==='横動画の切り抜き'?0:reward);
+    h.context.video.tags=tag+',競艇ニュース';assert.equal(h.run('getVideoReward(video)'),tag==='横動画の切り抜き'?0:100);
     h.context.video.tags=tag+',競艇ニュース,レース映像';assert.equal(h.run('getVideoReward(video)'),0);
   }
 });
