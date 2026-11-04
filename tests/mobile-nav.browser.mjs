@@ -6,7 +6,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 const engineName=process.env.QA_ENGINE||'webkit';
 const touch=process.env.QA_MOBILE==='1';
 const { [engineName]:engine }=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
-const output=`../../outputs/ios-nav-clip-${engineName}${touch?'-touch':''}`;
+const output=process.env.QA_OUTPUT||`../../outputs/ios-nav-clip-${engineName}${touch?'-touch':''}`;
 await fs.mkdir(output,{recursive:true});
 const server=spawn(process.execPath,[fileURLToPath(new URL('./browser-server.mjs',import.meta.url))],{cwd:fileURLToPath(new URL('../',import.meta.url)),env:process.env,stdio:['ignore','pipe','pipe'],windowsHide:true});
 let browser;
@@ -23,22 +23,41 @@ try {
   const page=await context.newPage(),issues=[],measurements=[];
   page.on('pageerror',e=>issues.push(e.message));page.on('console',m=>{if(['error','warning'].includes(m.type()))issues.push(m.text());});
   const go=async id=>{const button=page.locator(`[data-page="${id}"]:visible`).first();if(touch)await button.tap();else await button.click();};
+  const afterPaint=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   const scroll=async y=>page.evaluate(async y=>{window.scrollTo({top:y,behavior:'instant'});await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);},y);
   const measure=async label=>{
     const m=await page.evaluate(()=>{
       const nav=document.querySelector('#mobileNav'),r=nav.getBoundingClientRect(),v=visualViewport;
+      const s=getComputedStyle(nav),ps=getComputedStyle(nav,'::before');
+      const safe=parseFloat(s.paddingBottom),first=nav.querySelector('button').getBoundingClientRect();
       return {width:innerWidth,height:innerHeight,scrollY,visualHeight:v?.height,visualTop:v?.offsetTop,visualScale:v?.scale,
-        visibleBottom:(v?.offsetTop||0)+(v?.height||innerHeight),nav:{top:r.top,bottom:r.bottom,height:r.height,position:getComputedStyle(nav).position,paddingBottom:getComputedStyle(nav).paddingBottom},
+        visibleBottom:(v?.offsetTop||0)+(v?.height||innerHeight),nav:{top:r.top,bottom:r.bottom,height:r.height,position:s.position,paddingBottom:s.paddingBottom,background:s.backgroundColor,blur:s.backdropFilter},
+        panel:{height:parseFloat(ps.height),background:ps.backgroundColor,topGap:first.top-r.top-parseFloat(ps.top),bottomGap:r.bottom-parseFloat(ps.bottom)-first.bottom},
+        transparentBand:parseFloat(ps.bottom),
+        safeAreaHit:safe>0&&!!document.elementFromPoint(r.x+r.width/2,r.bottom-safe/2)?.closest('#mobileNav'),
+        mainPadding:parseFloat(getComputedStyle(document.querySelector('.main')).paddingBottom),
         horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
-        buttons:[...nav.querySelectorAll('button')].map(b=>{const r=b.getBoundingClientRect();return {page:b.dataset.page,height:r.height,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-page]')===b};})};
+        buttons:[...nav.querySelectorAll(':scope > button')].map(b=>{const r=b.getBoundingClientRect();return {page:b.dataset.page,height:r.height,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-page]')===b};})};
     });
     assert.equal(m.horizontalOverflow,false,label);assert.equal(m.nav.position,'fixed',label);
     assert(Math.abs(m.nav.bottom-m.visibleBottom)<=1,`${label}: visible bottom gap ${m.visibleBottom-m.nav.bottom}`);
+    assert.equal(m.nav.background,'rgba(0, 0, 0, 0)',label+' host is transparent');
+    assert.equal(m.nav.blur,'none',label+' host has no backdrop filter');
+    assert.notEqual(m.panel.background,m.nav.background,label+' panel keeps its background');
+    assert.equal(m.panel.height,60,label+' white panel stays 60px');
+    assert.equal(m.panel.topGap,8,label+' top padding plus border');
+    assert.equal(m.panel.bottomGap,8,label+' bottom padding plus border');
+    assert.equal(m.transparentBand,parseFloat(m.nav.paddingBottom),label+' separate safe-area');
+    assert.equal(m.nav.height,m.panel.height+m.transparentBand,label+' full fixed footprint');
+    assert.equal(m.mainPadding,m.nav.height+16,label+' shared main clearance');
+    assert.equal(m.safeAreaHit,false,label+' safe-area does not catch touches');
+    assert.equal(m.buttons.length,4,label);
     assert(m.buttons.every(b=>b.height>=44&&b.hit),label+' four tappable controls');measurements.push({label,...m});return m;
   };
   for(const [width,height] of [[390,844],[430,932],[768,1024],[1280,900],[844,390]]){
     await page.setViewportSize({width,height});await page.goto('http://127.0.0.1:8766/');
     await page.waitForFunction(()=>document.querySelector('#dataLoadStatus').textContent==='データ取得済み');
+    await afterPaint();
     if(width>900){
       assert.equal(await page.locator('#mobileNav').isVisible(),false);assert.equal(await page.locator('.sidebar').isVisible(),true);
       await page.locator('#postStatsButton').click();await page.mouse.click(2,2);assert.equal(await page.locator('#postStatsModal').evaluate(d=>d.open),true);
@@ -50,6 +69,8 @@ try {
       await go(id);assert.equal(await page.locator(`#mobileNav [data-page="${id}"]`).getAttribute('class'),'mobile-nav-item active');
       await scroll(0);await measure(id+'-top');await scroll(await page.evaluate(()=>document.documentElement.scrollHeight/2));await measure(id+'-middle');
       await scroll(100000);const end=await measure(id+'-end');
+      const activePage=await page.locator(`#${id}`).boundingBox();
+      assert(activePage.y+activePage.height<=end.nav.top-8,id+' last content is reachable above nav');
       if(id==='dashboard'){
         const last=await page.locator('#weeklyScheduleList .weekly-schedule-day').last().boundingBox();assert(last.y+last.height<=end.nav.top-8,'last weekday card is reachable above nav');
       }
@@ -69,11 +90,21 @@ try {
       await dialog.locator('[data-close]').first().click();await page.waitForFunction(()=>!document.body.classList.contains('modal-scroll-locked'));
       assert.equal(await page.evaluate(()=>document.body.style.top),'');assert(Math.abs(await page.evaluate(()=>scrollY)-before)<=1,'background restored');await measure('after-'+call.split('(')[0]);
     }
-    for(const shortHeight of [Math.max(320,height-280),height]){await page.setViewportSize({width,height:shortHeight});await measure('visible-region-resize');}
+    for(const shortHeight of [Math.max(320,height-280),height]){
+      await page.setViewportSize({width,height:shortHeight});
+      // WebKit can deliver the visual viewport resize after setViewportSize resolves.
+      await page.waitForFunction(h=>innerHeight===h&&Math.abs((visualViewport?.height??innerHeight)-h)<=1,shortHeight);
+      await afterPaint();
+      await measure('visible-region-resize');
+    }
     await page.evaluate(()=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));window.dispatchEvent(new Event('focus'));});
     await page.waitForFunction(()=>appResumeTimer===null&&appResumeInFlight===null);await measure('foreground-resume');
     // Simulated non-zero env substitute: verifies shared CSS geometry, not device OS insets.
     await page.evaluate(()=>document.documentElement.style.setProperty('--mobile-nav-safe-bottom','34px'));await scroll(100000);const inset=await measure('synthetic-safe-area');assert.equal(inset.nav.paddingBottom,'34px');
+    assert.equal(inset.nav.height,94);assert.equal(inset.mainPadding,110);
+    await page.evaluate(()=>document.querySelector('.main').style.setProperty('--mobile-nav-height','initial'));
+    await measure('missing-inherited-nav-height');
+    await page.evaluate(()=>document.querySelector('.main').style.removeProperty('--mobile-nav-height'));
     const last=await page.locator('#weeklyScheduleList .weekly-schedule-day').last().boundingBox();assert(last.y+last.height<=inset.nav.top-8);
     await page.evaluate(()=>document.documentElement.style.removeProperty('--mobile-nav-safe-bottom'));await page.screenshot({path:`${output}/${width}x${height}-nav.png`,fullPage:true});
     console.log(`PASS ${engineName} ${width}x${height}: four pages, scroll bounds, eight dialogs, resize/resume`);
