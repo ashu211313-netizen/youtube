@@ -744,8 +744,9 @@ textarea:disabled {
   :root {
     --mobile-nav-padding: 7px;
     --mobile-nav-control-height: 44px;
-    --mobile-nav-safe-bottom: max(var(--mobile-nav-padding), env(safe-area-inset-bottom, 0px));
-    --mobile-nav-height: calc(var(--mobile-nav-control-height) + var(--mobile-nav-padding) + var(--mobile-nav-safe-bottom) + 2px);
+    --mobile-nav-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --mobile-nav-panel-height: calc(var(--mobile-nav-control-height) + 2 * var(--mobile-nav-padding) + 2px);
+    --mobile-nav-height: calc(var(--mobile-nav-panel-height) + var(--mobile-nav-safe-bottom));
   }
 
   .app-shell {
@@ -757,9 +758,11 @@ textarea:disabled {
   }
 
   .main {
-    padding: 20px 18px calc(var(--mobile-nav-height) + 16px);
+    padding: 20px 18px;
+    /* Preserve clearance when mobile WebKit initially lacks inherited nav tokens. */
+    padding-bottom: calc(var(--mobile-nav-height, calc(60px + var(--mobile-nav-safe-bottom, env(safe-area-inset-bottom, 0px)))) + 16px);
   }
-.mobile-nav {
+  .mobile-nav {
     position: fixed;
     left: max(12px, env(safe-area-inset-left, 0px));
     right: max(12px, env(safe-area-inset-right, 0px));
@@ -767,17 +770,27 @@ textarea:disabled {
     z-index: 9999;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: minmax(var(--mobile-nav-panel-height), auto);
     align-items: center;
-    min-height: var(--mobile-nav-height);
-    padding: var(--mobile-nav-padding) var(--mobile-nav-padding) var(--mobile-nav-safe-bottom);
+    gap: 3px;
+    padding: 0 calc(var(--mobile-nav-padding) + 1px) var(--mobile-nav-safe-bottom);
+    pointer-events: none;
+  }
+
+  /* Keep the four direct children compatible with either cached stylesheet. */
+  .mobile-nav::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 var(--mobile-nav-safe-bottom) 0;
+    z-index: -1;
+    box-sizing: border-box;
     border: 1px solid var(--line);
     border-radius: 22px;
     background: rgba(255, 255, 255, 0.96);
     -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
-    pointer-events: auto;
-    touch-action: manipulation;
+    pointer-events: none;
   }
 
   .mobile-nav button {
@@ -1670,7 +1683,7 @@ body.modal-scroll-locked {
 }
 
 body.modal-scroll-locked .app-shell,
-body.modal-scroll-locked .mobile-nav {
+body.modal-scroll-locked .mobile-nav button {
   pointer-events: none !important;
 }
 
@@ -2282,6 +2295,60 @@ body.modal-scroll-locked dialog[open] {
   margin-bottom: 16px;
 }
 .video-list-toolbar .filter-row { margin-bottom: 0; }
+.video-tag-filter {
+  width: 100%;
+  min-width: 0;
+}
+.video-tag-filter-heading,
+.video-list-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.video-tag-filter-heading { font-size: 14px; font-weight: 700; }
+.video-tag-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.video-tag-filter-chip,
+.video-tag-filter-clear {
+  min-height: 44px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+.video-tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.video-tag-filter-check { flex: none; visibility: hidden; }
+.video-tag-filter-chip[aria-pressed="true"] { background: var(--text); color: #fff; }
+.video-tag-filter-chip[aria-pressed="true"] .video-tag-filter-check { visibility: visible; }
+.video-tag-filter-clear {
+  padding: 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-decoration: underline;
+}
+.video-tag-filter-clear[aria-disabled="true"] { color: var(--muted); text-decoration: none; cursor: default; }
+.video-list-toolbar-actions { width: 100%; }
+.video-visible-count { margin: 0; color: var(--muted); font-size: 13px; }
+.video-tag-filter button:focus-visible {
+  outline: 3px solid #007aff;
+  outline-offset: 2px;
+}
 .video-view-toggle {
   display: flex;
   gap: 4px;
@@ -3204,12 +3271,6 @@ select {
 }
 
 @media (max-width: 900px) {
-  .mobile-nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: 3px;
-    padding: var(--mobile-nav-padding) var(--mobile-nav-padding) var(--mobile-nav-safe-bottom);
-  }
-
   .mobile-nav-item {
     min-width: 0;
     min-height: var(--mobile-nav-control-height);

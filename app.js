@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.39";
+const APP_VERSION = "23.40";
 
 // Capture only the callback intent before the SDK consumes/clears the fragment.
 // A URL flag alone never authorizes changing a password.
@@ -122,6 +122,7 @@ function createEmptyDataState() {
 let data = createEmptyDataState();
 
 let activeVideoFilter = "all";
+const activeVideoTagFilters = new Set();
 const VIDEO_VIEW_STORAGE_KEY = "boat-manager-video-view";
 let activeVideoViewMode = readVideoViewMode();
 let realtimeChannel = null;
@@ -161,6 +162,9 @@ let versionMismatchDetected = false;
 const elements = {
   dashboardPostingPace: document.getElementById("dashboardPostingPace"),
   videoViewToggle: document.getElementById("videoViewToggle"),
+  videoTagFilters: document.getElementById("videoTagFilters"),
+  clearVideoTagFilters: document.getElementById("clearVideoTagFilters"),
+  videoVisibleCount: document.getElementById("videoVisibleCount"),
   authScreen: document.getElementById("authScreen"),
   authDescription: document.getElementById("authDescription"),
   appRoot: document.getElementById("appRoot"),
@@ -2933,6 +2937,35 @@ function renderVideoFilterCounts() {
   });
 }
 
+function setupVideoTagFilters() {
+  // A cached older HTML document may still need the version-mismatch recovery UI.
+  if (!elements.videoTagFilters || !elements.clearVideoTagFilters) return;
+  // Create these controls once; list redraws must not replace the focused chip.
+  elements.videoTagFilters.innerHTML = ACTIVE_VIDEO_TAGS.map(tag => `
+    <button type="button" class="video-tag-filter-chip" data-video-tag-filter="${escapeHtml(tag)}" aria-pressed="false">
+      <span class="video-tag-filter-check" aria-hidden="true">✓</span>${escapeHtml(tag)}
+    </button>
+  `).join("");
+  elements.videoTagFilters.addEventListener("click", event => {
+    const tag = event.target.closest("[data-video-tag-filter]")?.dataset.videoTagFilter;
+    if (!ACTIVE_VIDEO_TAGS.includes(tag)) return;
+    if (!activeVideoTagFilters.delete(tag)) activeVideoTagFilters.add(tag);
+    renderVideos();
+  });
+  elements.clearVideoTagFilters.addEventListener("click", () => {
+    if (!activeVideoTagFilters.size) return;
+    activeVideoTagFilters.clear();
+    renderVideos();
+  });
+}
+
+function renderVideoTagFilterState() {
+  elements.videoTagFilters?.querySelectorAll("[data-video-tag-filter]").forEach(button => {
+    button.setAttribute("aria-pressed", String(activeVideoTagFilters.has(button.dataset.videoTagFilter)));
+  });
+  elements.clearVideoTagFilters?.setAttribute("aria-disabled", String(activeVideoTagFilters.size === 0));
+}
+
 
 function readVideoViewMode() {
   try {
@@ -2950,7 +2983,11 @@ function setVideoViewMode(mode) {
 }
 
 function getVisibleVideos() {
-  return activeVideoFilter === "all" ? data.videos : data.videos.filter(video => video.status === activeVideoFilter);
+  if (activeVideoFilter === "all" && !activeVideoTagFilters.size) return data.videos;
+  return data.videos.filter(video =>
+    (activeVideoFilter === "all" || video.status === activeVideoFilter) &&
+    (!activeVideoTagFilters.size || parseVideoTags(video.tags).some(tag => activeVideoTagFilters.has(tag)))
+  );
 }
 
 function hasYouTubeSyncEvidence(video) {
@@ -2988,15 +3025,23 @@ function renderVideoMinimalRow(video) {
 function renderVideos() {
   const list = document.getElementById("videoList");
   renderVideoFilterCounts();
+  renderVideoTagFilterState();
   list.classList.toggle("video-list--minimal", activeVideoViewMode === "minimal");
   elements.videoViewToggle.querySelectorAll("[data-video-view]").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.videoView === activeVideoViewMode));
   });
 
   const videos = getVisibleVideos();
+  const visibleCount = `表示中 ${videos.length}件`;
+  if (elements.videoVisibleCount && elements.videoVisibleCount.textContent !== visibleCount) {
+    elements.videoVisibleCount.textContent = visibleCount;
+  }
 
   if (!videos.length) {
-    list.innerHTML = `<div class="card empty-state">該当する動画はありません</div>`;
+    const message = data.videos.length
+      ? "選択した条件に一致する動画はありません"
+      : "該当する動画はありません";
+    list.innerHTML = `<div class="card empty-state">${message}</div>`;
     return;
   }
 
@@ -4703,6 +4748,7 @@ function invalidateAppSessionWork() {
 async function resetAuthenticatedApp({ message = "" } = {}) {
   invalidateAppSessionWork();
   authenticatedUserId = "";
+  activeVideoTagFilters.clear();
   setDataLoadStatus("idle");
   lastSuccessfulDataLoadAt = 0;
   clearTimeout(appResumeTimer);
@@ -4725,6 +4771,7 @@ function startAuthenticatedApp(user) {
   if (!userId) return Promise.resolve(false);
   const isNewUser = authenticatedUserId !== userId;
   if (isNewUser) {
+    activeVideoTagFilters.clear();
     setDataLoadStatus("idle");
     invalidateAppSessionWork();
     stopYouTubeAutoSync();
@@ -5490,6 +5537,8 @@ function setupEventListeners() {
     openManagedDialog(elements.trashModal);
   });
 
+
+  setupVideoTagFilters();
 
   elements.videoViewToggle.addEventListener("click", event => {
     const button = event.target.closest("[data-video-view]");
