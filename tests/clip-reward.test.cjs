@@ -66,6 +66,38 @@ test('clip/race/news overlaps get one reward category but count each independent
   assert.equal(stats.total,1);for(const tag of ['横動画の切り抜き','レース映像','競艇ニュース'])assert.equal(stats.tagCounts[tag],1);
 });
 
+test('quiz and price are 100-yen categories for either video type, below clip and race',()=>{
+  const h=harness();
+  for(const type of ['Shorts','横動画']){
+    for(const tags of ['競艇クイズ','競艇値段','競艇クイズ、競艇値段、競艇ニュース']){
+      h.context.video={type,tags};assert.equal(h.run('getVideoReward(video)'),100);
+      for(const zero of ['横動画の切り抜き','レース映像']){
+        h.context.video.tags=tags+', '+zero;assert.equal(h.run('getVideoReward(video)'),0);
+      }
+    }
+  }
+});
+
+test('quiz/price overlaps pay once in the same 100-yen bucket; zero-yen overrides and independent counts still hold',()=>{
+  const h=harness();h.run(`data.videos=[
+    {type:'横動画',tags:'競艇クイズ'},
+    {type:'横動画',tags:'競艇値段'},
+    {type:'Shorts',tags:'競艇クイズ、競艇値段、競艇ニュース'},
+    {type:'横動画',tags:'競艇クイズ、競艇値段、レース映像'},
+    {type:'Shorts',tags:'競艇クイズ、競艇値段、横動画の切り抜き、レース映像'},
+    {type:'横動画',tags:'選手解説'}
+  ].map((video,i)=>({...video,id:i,status:'投稿済み',postDate:'2026-10-01'}))`);
+  const stats=h.run("getMonthlyPostStats('2026-10')"),reward=h.run("calculateMonthlyReward(getMonthlyPostStats('2026-10'))");
+  assert.equal(stats.total,6);
+  assert.equal(stats.tagCounts['競艇クイズ'],4);
+  assert.equal(stats.tagCounts['競艇値段'],4);
+  assert.equal(reward.paidShortsCount,3);
+  assert.equal(reward.paidLongCount,1);
+  assert.equal(reward.raceVideoCount,1);
+  assert.equal(reward.clipVideoCount,1);
+  assert.equal(reward.totalAmount,1300);
+});
+
 test('waiting and undated posts stay excluded; an empty month stays zero',()=>{
   const h=populated();h.run("data.videos.push({id:'waiting',type:'横動画',tags:'選手解説',status:'編集待ち',postDate:'2026-10-02'},{id:'undated',type:'横動画',status:'投稿済み'})");
   assert.equal(h.run("getMonthlyPostStats('2026-10').total"),7);

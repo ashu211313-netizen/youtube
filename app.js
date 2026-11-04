@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.41";
+const APP_VERSION = "23.42";
 
 // Capture only the callback intent before the SDK consumes/clears the fragment.
 // A URL flag alone never authorizes changing a password.
@@ -50,8 +50,11 @@ const ACTIVE_VIDEO_TAGS = Object.freeze([
   "横動画の切り抜き",
   "レース映像",
   "横動画",
-  "競艇ニュース"
+  "競艇ニュース",
+  "競艇クイズ",
+  "競艇値段"
 ]);
+const FIXED_100_YEN_VIDEO_TAGS = Object.freeze(["競艇ニュース", "競艇クイズ", "競艇値段"]);
 // Retired tags stay in stored video/goal/snapshot data but are never newly selectable.
 const LEGACY_VIDEO_TAGS = Object.freeze(["ネット競艇"]);
 // Fixed editorial guidance: independent of videos, goals and Supabase availability.
@@ -86,7 +89,9 @@ const ACHIEVEMENT_TAG_GOAL_KEYS = {
   "疑問解決系": "tag_question",
   "横動画の切り抜き": "tag_clip",
   "レース映像": "tag_race",
-  "競艇ニュース": "tag_news"
+  "競艇ニュース": "tag_news",
+  "競艇クイズ": "tag_quiz",
+  "競艇値段": "tag_price"
 };
 const IDEA_IMAGE_BUCKET = "idea-images";
 const IDEA_IMAGE_LIMIT = 10;
@@ -861,12 +866,14 @@ function getLegacyVideoTags(value) {
     .filter(tag => LEGACY_VIDEO_TAGS.includes(tag) || !ACTIVE_VIDEO_TAGS.includes(tag))
     .filter((tag, index, array) => array.indexOf(tag) === index);
 }
+function renderParsedTagChips(tags) {
+  return tags.length ? `<div class="tag-chip-row">${tags.map(tag => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join("")}</div>` : "";
+}
 function renderTagChips(tags) {
-  const parsed = parseTags(tags);
-  return parsed.length ? `<div class="tag-chip-row">${parsed.map(tag => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join("")}</div>` : "";
+  return renderParsedTagChips(parseTags(tags));
 }
 function renderVideoTagChips(tags) {
-  return renderTagChips(parseVideoTags(tags));
+  return renderParsedTagChips(parseVideoTags(tags));
 }
 function isUploadableImage(file) { return file && typeof file === "object" && file.name && file.size > 0; }
 function getFileExt(filename) {
@@ -2119,7 +2126,7 @@ function getVideoReward(video) {
   const tags = parseVideoTags(video?.tags);
   if (tags.includes("横動画の切り抜き")) return 0;
   if (tags.includes("レース映像")) return 0;
-  if (tags.includes("競艇ニュース")) return 100;
+  if (tags.some(tag => FIXED_100_YEN_VIDEO_TAGS.includes(tag))) return 100;
   if (video?.type === "Shorts") return 100;
   if (video?.type === "横動画") return 1000;
   return 0;
@@ -3226,6 +3233,31 @@ function renderVideos() {
   }).join("");
 }
 
+function sortIdeasByActivity(ideas, ideaItems) {
+  const timeOrMissing = value => {
+    const time = Date.parse(value || "");
+    return Number.isFinite(time) ? time : -Infinity;
+  };
+  const latestChildByParent = new Map();
+  for (const item of ideaItems) {
+    const parentId = String(item.parentIdeaId);
+    const activity = Math.max(timeOrMissing(item.createdAt), timeOrMissing(item.updatedAt));
+    if (activity > (latestChildByParent.get(parentId) ?? -Infinity)) {
+      latestChildByParent.set(parentId, activity);
+    }
+  }
+  // Parent edits do not bump a board. Its creation and persisted child activity are the only sources.
+  return ideas
+    .map(idea => ({
+      idea,
+      activity: Math.max(timeOrMissing(idea.createdAt), latestChildByParent.get(String(idea.id)) ?? -Infinity)
+    }))
+    .sort((left, right) => left.activity === right.activity
+      ? compareCreatedAtDesc(left.idea, right.idea)
+      : left.activity > right.activity ? -1 : 1)
+    .map(entry => entry.idea);
+}
+
 function getIdeaItemProgress(parentIdeaId) {
   const items = data.ideaItems.filter(
     item => String(item.parentIdeaId) === String(parentIdeaId)
@@ -3239,9 +3271,10 @@ function getIdeaItemProgress(parentIdeaId) {
 
 function renderIdeas() {
   const board = document.getElementById("ideaBoard");
+  const sortedIdeas = sortIdeasByActivity(data.ideas, data.ideaItems);
 
   board.innerHTML = IDEA_STATUSES.map(status => {
-    const items = data.ideas.filter(
+    const items = sortedIdeas.filter(
       idea => idea.status === status
     );
 

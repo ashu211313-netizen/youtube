@@ -13,7 +13,7 @@ test('selecting multiple video tags returns their ordered union', () => {
   assert.equal(h.run("getVisibleVideos().map(video => video.id).join(',')"), 'A,B,D');
 });
 
-const activeTags = ['選手解説', '用語解説', '競艇場解説', '疑問解決系', '横動画の切り抜き', 'レース映像', '横動画', '競艇ニュース'];
+const activeTags = ['選手解説', '用語解説', '競艇場解説', '疑問解決系', '横動画の切り抜き', 'レース映像', '横動画', '競艇ニュース', '競艇クイズ', '競艇値段'];
 const tagRows = () => [
   ['A', '投稿済み', '選手解説, ネット競艇'],
   ['C', '編集待ち', '用語解説'],
@@ -68,7 +68,7 @@ function fixture(client = {from() { assert.fail('tag controls must not access th
     countText: () => h.node('videoVisibleCount').textContent};
 }
 
-test('exact eight active tags in canonical order, no legacy choice; unselected includes legacy and no-tag rows', () => {
+test('exact ten active tags in canonical order, no legacy choice; unselected includes legacy and no-tag rows', () => {
   const f = fixture();
   assert.deepEqual([...f.chips.keys()], activeTags);
   assert.doesNotMatch(f.tagRoot.innerHTML, /ネット競艇/);
@@ -78,6 +78,28 @@ test('exact eight active tags in canonical order, no legacy choice; unselected i
   for (const button of f.chips.values()) assert.equal(button.getAttribute('aria-pressed'), 'false');
   f.select('ネット競艇');
   assert.equal(f.countText(), '全7件');
+});
+
+test('quiz and price filter individually and as a union with no duplicates or reordered rows', () => {
+  const f = fixture();
+  f.h.run(`data.videos = [
+    {id:'A',title:'quiz only',status:'投稿済み',tags:'競艇クイズ'},
+    {id:'B',title:'legacy',status:'投稿済み',tags:'ネット競艇'},
+    {id:'C',title:'both',status:'投稿済み',tags:'競艇クイズ、競艇値段'},
+    {id:'D',title:'price only',status:'編集待ち',tags:'競艇値段'}
+  ];renderVideos()`);
+  f.select('競艇値段');
+  assert.deepEqual(f.ids(), ['C', 'D']);
+  f.select('競艇クイズ');
+  assert.deepEqual(f.ids(), ['A', 'C', 'D']);
+  assert.equal(f.h.node('videoTagSelectionCount').textContent,'2タグ選択中');
+  assert.equal(f.countText(),'4件中 3件を表示');
+  f.h.run("setVideoViewMode('minimal')");
+  assert.deepEqual(f.ids(), ['A', 'C', 'D']);
+  f.status('投稿済み');
+  assert.deepEqual(f.ids(), ['A', 'C']);
+  f.select('競艇値段');
+  assert.deepEqual(f.ids(), ['A', 'C']);
 });
 
 test('click toggles 1/2/3 tags, keeps node identity, does not register twice, scroll, save or query', () => {

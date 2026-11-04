@@ -37,6 +37,8 @@ const VIDEO_TAGS = [
   "ネット競艇",
   "レース映像",
   "競艇ニュース",
+  "競艇クイズ",
+  "競艇値段",
 ] as const;
 const METRIC_GOAL_KEYS = [
   "subscribers",
@@ -56,6 +58,8 @@ const TAG_GOAL_KEYS: Record<(typeof VIDEO_TAGS)[number], string> = {
   "ネット競艇": "tag_online",
   "レース映像": "tag_race",
   "競艇ニュース": "tag_news",
+  "競艇クイズ": "tag_quiz",
+  "競艇値段": "tag_price",
 };
 
 const jsonHeaders = {
