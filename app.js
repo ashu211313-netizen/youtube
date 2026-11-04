@@ -3,7 +3,7 @@
 // ============================================================
 const SUPABASE_URL = "https://jyxrrnfnypqaecfojsle.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LZXPf3IuPOO5bKrakEH3bg_ZM85JePb";
-const APP_VERSION = "23.40";
+const APP_VERSION = "23.41";
 
 // Capture only the callback intent before the SDK consumes/clears the fragment.
 // A URL flag alone never authorizes changing a password.
@@ -123,6 +123,9 @@ let data = createEmptyDataState();
 
 let activeVideoFilter = "all";
 const activeVideoTagFilters = new Set();
+let videoTitleQuery = "";
+let includeUntaggedVideos = false;
+let videoTagFiltersExpanded = false;
 const VIDEO_VIEW_STORAGE_KEY = "boat-manager-video-view";
 let activeVideoViewMode = readVideoViewMode();
 let realtimeChannel = null;
@@ -162,7 +165,13 @@ let versionMismatchDetected = false;
 const elements = {
   dashboardPostingPace: document.getElementById("dashboardPostingPace"),
   videoViewToggle: document.getElementById("videoViewToggle"),
+  videoTitleSearch: document.getElementById("videoTitleSearch"),
+  clearVideoTitleSearch: document.getElementById("clearVideoTitleSearch"),
+  toggleVideoTagFilters: document.getElementById("toggleVideoTagFilters"),
+  videoTagFilterPanel: document.getElementById("videoTagFilterPanel"),
+  videoTagSelectionCount: document.getElementById("videoTagSelectionCount"),
   videoTagFilters: document.getElementById("videoTagFilters"),
+  filterVideoUntagged: document.getElementById("filterVideoUntagged"),
   clearVideoTagFilters: document.getElementById("clearVideoTagFilters"),
   videoVisibleCount: document.getElementById("videoVisibleCount"),
   authScreen: document.getElementById("authScreen"),
@@ -828,9 +837,15 @@ function parseTags(value) {
   return source.map(item => String(item).trim()).filter(Boolean).filter((item, index, array) => array.indexOf(item) === index).slice(0, 8);
 }
 function serializeTags(value) { return parseTags(value).join(", "); }
+function getSavedVideoTagTokens(value) {
+  return Array.isArray(value) ? value : String(value || "").split(/[、,\n]/);
+}
+function isVideoUntagged(value) {
+  // A retired or unknown non-empty saved tag is still a tag.
+  return !getSavedVideoTagTokens(value).some(tag => String(tag ?? "").trim());
+}
 function parseVideoTags(value) {
-  const source = Array.isArray(value) ? value : String(value || "").split(/[、,\n]/);
-  return source
+  return getSavedVideoTagTokens(value)
     .map(item => String(item).trim())
     .filter(tag => ACTIVE_VIDEO_TAGS.includes(tag))
     .filter((tag, index, array) => array.indexOf(tag) === index);
@@ -839,8 +854,7 @@ function serializeVideoTags(value, legacyValue = "") {
   return [...parseVideoTags(value), ...getLegacyVideoTags(legacyValue)].join(", ");
 }
 function getLegacyVideoTags(value) {
-  const source = Array.isArray(value) ? value : String(value || "").split(/[、,\n]/);
-  return source
+  return getSavedVideoTagTokens(value)
     .map(item => String(item).trim())
     .filter(Boolean)
     // Preserve retired known tags (including ネット競艇) and unknown historical values.
@@ -2935,6 +2949,58 @@ function renderVideoFilterCounts() {
   document.querySelectorAll("[data-filter-count]").forEach(element => {
     element.textContent = counts[element.dataset.filterCount] ?? 0;
   });
+  document.querySelectorAll(".filter-btn[data-filter]").forEach(button => {
+    const active = button.dataset.filter === activeVideoFilter;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function normalizeVideoTitleSearch(value) {
+  return String(value ?? "").normalize("NFKC").trim().toLowerCase();
+}
+
+function hasVideoTagFilter() {
+  return activeVideoTagFilters.size > 0 || includeUntaggedVideos;
+}
+
+function clearVideoTagSelection() {
+  activeVideoTagFilters.clear();
+  includeUntaggedVideos = false;
+}
+
+function clearVideoSearchAndFilters() {
+  activeVideoFilter = "all";
+  videoTitleQuery = "";
+  if (elements.videoTitleSearch) elements.videoTitleSearch.value = "";
+  if (elements.clearVideoTitleSearch) elements.clearVideoTitleSearch.hidden = true;
+  clearVideoTagSelection();
+}
+
+function resetVideoFiltersForUser() {
+  clearVideoSearchAndFilters();
+  videoTagFiltersExpanded = false;
+}
+
+function setupVideoTitleSearch() {
+  const input = elements.videoTitleSearch;
+  if (!input) return;
+  const updateQuery = () => {
+    const nextQuery = normalizeVideoTitleSearch(input.value);
+    if (elements.clearVideoTitleSearch) elements.clearVideoTitleSearch.hidden = !input.value;
+    if (nextQuery === videoTitleQuery) return;
+    videoTitleQuery = nextQuery;
+    renderVideos();
+  };
+  input.addEventListener("input", event => {
+    if (!event.isComposing) updateQuery();
+  });
+  input.addEventListener("compositionend", updateQuery);
+  elements.clearVideoTitleSearch?.addEventListener("click", () => {
+    input.value = "";
+    input.focus({ preventScroll: true });
+    updateQuery();
+  });
 }
 
 function setupVideoTagFilters() {
@@ -2943,7 +3009,7 @@ function setupVideoTagFilters() {
   // Create these controls once; list redraws must not replace the focused chip.
   elements.videoTagFilters.innerHTML = ACTIVE_VIDEO_TAGS.map(tag => `
     <button type="button" class="video-tag-filter-chip" data-video-tag-filter="${escapeHtml(tag)}" aria-pressed="false">
-      <span class="video-tag-filter-check" aria-hidden="true">✓</span>${escapeHtml(tag)}
+      <span class="video-tag-filter-check" aria-hidden="true">✓</span><span class="video-tag-filter-chip-label">${escapeHtml(tag)}</span>
     </button>
   `).join("");
   elements.videoTagFilters.addEventListener("click", event => {
@@ -2953,17 +3019,40 @@ function setupVideoTagFilters() {
     renderVideos();
   });
   elements.clearVideoTagFilters.addEventListener("click", () => {
-    if (!activeVideoTagFilters.size) return;
-    activeVideoTagFilters.clear();
+    if (!hasVideoTagFilter()) return;
+    clearVideoTagSelection();
     renderVideos();
   });
+  elements.filterVideoUntagged?.addEventListener("click", () => {
+    includeUntaggedVideos = !includeUntaggedVideos;
+    renderVideos();
+  });
+  elements.toggleVideoTagFilters?.addEventListener("click", () => {
+    videoTagFiltersExpanded = !videoTagFiltersExpanded;
+    renderVideoTagFilterDisclosure();
+  });
+}
+
+function renderVideoTagFilterDisclosure() {
+  const { toggleVideoTagFilters: toggle, videoTagFilterPanel: panel } = elements;
+  if (!toggle || !panel) return;
+  toggle.setAttribute("aria-expanded", String(videoTagFiltersExpanded));
+  const label = toggle.querySelector("[data-video-tag-toggle-label]");
+  if (label) label.textContent = videoTagFiltersExpanded ? "閉じる" : "開く";
+  panel.hidden = !videoTagFiltersExpanded;
 }
 
 function renderVideoTagFilterState() {
   elements.videoTagFilters?.querySelectorAll("[data-video-tag-filter]").forEach(button => {
     button.setAttribute("aria-pressed", String(activeVideoTagFilters.has(button.dataset.videoTagFilter)));
   });
-  elements.clearVideoTagFilters?.setAttribute("aria-disabled", String(activeVideoTagFilters.size === 0));
+  elements.filterVideoUntagged?.setAttribute("aria-pressed", String(includeUntaggedVideos));
+  elements.clearVideoTagFilters?.setAttribute("aria-disabled", String(!hasVideoTagFilter()));
+  const selection = `${activeVideoTagFilters.size}タグ選択中${includeUntaggedVideos ? "・未設定あり" : ""}`;
+  if (elements.videoTagSelectionCount && elements.videoTagSelectionCount.textContent !== selection) {
+    elements.videoTagSelectionCount.textContent = selection;
+  }
+  renderVideoTagFilterDisclosure();
 }
 
 
@@ -2983,10 +3072,14 @@ function setVideoViewMode(mode) {
 }
 
 function getVisibleVideos() {
-  if (activeVideoFilter === "all" && !activeVideoTagFilters.size) return data.videos;
+  const hasTagFilter = hasVideoTagFilter();
+  if (activeVideoFilter === "all" && !videoTitleQuery && !hasTagFilter) return data.videos;
   return data.videos.filter(video =>
     (activeVideoFilter === "all" || video.status === activeVideoFilter) &&
-    (!activeVideoTagFilters.size || parseVideoTags(video.tags).some(tag => activeVideoTagFilters.has(tag)))
+    (!videoTitleQuery || normalizeVideoTitleSearch(video.title).includes(videoTitleQuery)) &&
+    (!hasTagFilter ||
+      (includeUntaggedVideos && isVideoUntagged(video.tags)) ||
+      (activeVideoTagFilters.size > 0 && parseVideoTags(video.tags).some(tag => activeVideoTagFilters.has(tag))))
   );
 }
 
@@ -3032,16 +3125,19 @@ function renderVideos() {
   });
 
   const videos = getVisibleVideos();
-  const visibleCount = `表示中 ${videos.length}件`;
+  const total = data.videos.length;
+  const hasFilters = activeVideoFilter !== "all" || Boolean(videoTitleQuery) || hasVideoTagFilter();
+  const visibleCount = hasFilters ? `${total}件中 ${videos.length}件を表示` : `全${total}件`;
   if (elements.videoVisibleCount && elements.videoVisibleCount.textContent !== visibleCount) {
     elements.videoVisibleCount.textContent = visibleCount;
   }
 
   if (!videos.length) {
-    const message = data.videos.length
-      ? "選択した条件に一致する動画はありません"
-      : "該当する動画はありません";
-    list.innerHTML = `<div class="card empty-state">${message}</div>`;
+    list.innerHTML = total
+      ? `<div class="card empty-state">選択した条件に一致する動画はありません
+          <button type="button" id="clearAllVideoFilters" class="ghost-btn video-filter-reset">検索・絞り込みをリセット</button>
+        </div>`
+      : `<div class="card empty-state">動画が登録されていません</div>`;
     return;
   }
 
@@ -4748,7 +4844,7 @@ function invalidateAppSessionWork() {
 async function resetAuthenticatedApp({ message = "" } = {}) {
   invalidateAppSessionWork();
   authenticatedUserId = "";
-  activeVideoTagFilters.clear();
+  resetVideoFiltersForUser();
   setDataLoadStatus("idle");
   lastSuccessfulDataLoadAt = 0;
   clearTimeout(appResumeTimer);
@@ -4771,7 +4867,7 @@ function startAuthenticatedApp(user) {
   if (!userId) return Promise.resolve(false);
   const isNewUser = authenticatedUserId !== userId;
   if (isNewUser) {
-    activeVideoTagFilters.clear();
+    resetVideoFiltersForUser();
     setDataLoadStatus("idle");
     invalidateAppSessionWork();
     stopYouTubeAutoSync();
@@ -5109,6 +5205,12 @@ function setupEventListeners() {
   elements.logoutButton.addEventListener("click", logout);
 
   document.addEventListener("click", event => {
+    if (event.target.closest("#clearAllVideoFilters")) {
+      clearVideoSearchAndFilters();
+      document.querySelector('#videoFilters [data-filter="all"]')?.focus({ preventScroll: true });
+      renderVideos();
+      return;
+    }
     const removeImageButton = event.target.closest("[data-remove-idea-image]");
     if (removeImageButton) {
       event.preventDefault();
@@ -5539,16 +5641,15 @@ function setupEventListeners() {
 
 
   setupVideoTagFilters();
+  setupVideoTitleSearch();
 
   elements.videoViewToggle.addEventListener("click", event => {
     const button = event.target.closest("[data-video-view]");
     if (button) setVideoViewMode(button.dataset.videoView);
   });
 
-  document.querySelectorAll(".filter-btn").forEach(button => {
+  document.querySelectorAll(".filter-btn[data-filter]").forEach(button => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".filter-btn").forEach(item => item.classList.remove("active"));
-      button.classList.add("active");
       activeVideoFilter = button.dataset.filter;
       renderVideos();
     });

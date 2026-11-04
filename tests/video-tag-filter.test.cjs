@@ -56,7 +56,7 @@ function fixture(client = {from() { assert.fail('tag controls must not access th
   const query = h.context.document.querySelectorAll;
   h.context.document.querySelectorAll = selector => {
     if (selector === '[data-filter-count]') return [...counts.values()];
-    if (selector === '.filter-btn') return [...statuses.values()];
+    if (selector === '.filter-btn[data-filter]') return [...statuses.values()];
     return query(selector);
   };
   h.context.rows = tagRows();
@@ -73,11 +73,11 @@ test('exact eight active tags in canonical order, no legacy choice; unselected i
   assert.deepEqual([...f.chips.keys()], activeTags);
   assert.doesNotMatch(f.tagRoot.innerHTML, /ネット競艇/);
   assert.deepEqual(f.ids(), ['A', 'C', 'D', 'B', 'E', 'F', 'G']);
-  assert.equal(f.countText(), '表示中 7件');
+  assert.equal(f.countText(), '全7件');
   assert.equal(f.clear.getAttribute('aria-disabled'), 'true');
   for (const button of f.chips.values()) assert.equal(button.getAttribute('aria-pressed'), 'false');
   f.select('ネット競艇');
-  assert.equal(f.countText(), '表示中 7件');
+  assert.equal(f.countText(), '全7件');
 });
 
 test('click toggles 1/2/3 tags, keeps node identity, does not register twice, scroll, save or query', () => {
@@ -94,12 +94,12 @@ test('click toggles 1/2/3 tags, keeps node identity, does not register twice, sc
   assert.deepEqual(f.ids(), ['A', 'D', 'B']);
   f.select('用語解説');
   assert.deepEqual(f.ids(), ['A', 'C', 'D', 'B']);
-  assert.equal(f.countText(), '表示中 4件');
+  assert.equal(f.countText(), '7件中 4件を表示');
   f.select('選手解説');
   assert.deepEqual(f.ids(), ['C', 'D', 'B']);
   assert.equal(chip.getAttribute('aria-pressed'), 'false');
   f.clearTags();
-  assert.equal(f.countText(), '表示中 7件');
+  assert.equal(f.countText(), '全7件');
   assert.equal(f.clear.getAttribute('aria-disabled'), 'true');
   assert.equal(f.chips.get('選手解説'), chip);
   assert.equal(f.builds(), 1);
@@ -111,10 +111,10 @@ test('status AND tags; clearing tags preserves status and status counts reflect 
   f.select('選手解説'); f.select('競艇ニュース');
   f.status('編集待ち');
   assert.deepEqual(f.ids(), ['B']);
-  assert.equal(f.countText(), '表示中 1件');
+  assert.equal(f.countText(), '7件中 1件を表示');
   f.status('投稿済み');
   assert.deepEqual(f.ids(), ['A', 'D']);
-  assert.equal(f.countText(), '表示中 2件');
+  assert.equal(f.countText(), '7件中 2件を表示');
   f.clearTags();
   assert.deepEqual(f.ids(), ['A', 'D', 'E', 'F']);
   assert.equal(f.h.run('activeVideoFilter'), '投稿済み');
@@ -124,13 +124,13 @@ test('status AND tags; clearing tags preserves status and status counts reflect 
 test('empty result with registered videos distinguishes filter mismatch and provides a tag-clear action', () => {
   const f = fixture();
   f.select('競艇場解説');
-  assert.equal(f.countText(), '表示中 0件');
+  assert.equal(f.countText(), '7件中 0件を表示');
   assert.match(f.h.node('videoList').innerHTML, /選択した条件に一致する動画はありません/);
   assert.equal(f.clear.getAttribute('aria-disabled'), 'false');
   f.clearTags();
-  assert.equal(f.countText(), '表示中 7件');
+  assert.equal(f.countText(), '全7件');
   f.h.run('data.videos=[];renderVideos()');
-  assert.match(f.h.node('videoList').innerHTML, /該当する動画はありません/);
+  assert.match(f.h.node('videoList').innerHTML, /動画が登録されていません/);
   assert.doesNotMatch(f.h.node('videoList').innerHTML, /選択した条件/);
 });
 
@@ -164,25 +164,30 @@ test('detail navigation and touch swipes step over tag-mismatched and status-mis
   assert.equal(f.h.run('currentDetailVideoId'), 'A');
 });
 
-test('logout and new account clear tag state only; same-account startup retains selection', async () => {
+test('logout and new account clear filter state but not the view; same-account startup retains selection', async () => {
   const f = fixture();
   f.h.run("authenticatedUserId='qa';loadAllData=async()=>false;setVideoViewMode('minimal')");
   f.status('投稿済み'); f.select('選手解説');
   await f.h.run("startAuthenticatedApp({id:'qa'})");
   assert.equal(f.h.run('activeVideoTagFilters.size'), 1);
+  assert.equal(f.h.run('activeVideoFilter'), '投稿済み');
   await f.h.run("startAuthenticatedApp({id:'other'})");
   assert.equal(f.h.run('activeVideoTagFilters.size'), 0);
   assert.equal(f.chips.get('選手解説').getAttribute('aria-pressed'), 'false');
+  assert.equal(f.h.run('activeVideoFilter'), 'all');
+  f.status('投稿済み');
   f.select('競艇ニュース');
   await f.h.run('resetAuthenticatedApp()');
   assert.equal(f.h.run('activeVideoTagFilters.size'), 0);
-  assert.equal(f.h.run('activeVideoFilter'), '投稿済み');
+  assert.equal(f.h.run('activeVideoFilter'), 'all');
   assert.equal(f.h.run('activeVideoViewMode'), 'minimal');
 });
 
 test('older cached HTML without tag controls still reaches the version-mismatch recovery UI', async () => {
   const h = harness();
-  h.run('elements.videoTagFilters=null;elements.clearVideoTagFilters=null;elements.videoVisibleCount=null');
+  h.run(`for (const id of ['videoTagFilters', 'clearVideoTagFilters', 'videoVisibleCount',
+    'videoTitleSearch', 'clearVideoTitleSearch', 'toggleVideoTagFilters', 'videoTagFilterPanel',
+    'videoTagSelectionCount', 'filterVideoUntagged']) elements[id] = null`);
   h.context.document.querySelector = () => ({content:'obsolete'});
   await h.run('initialize()');
   assert.equal(h.run('versionMismatchDetected'), true);
