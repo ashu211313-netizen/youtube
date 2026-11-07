@@ -75,7 +75,7 @@
 - 過去月は保存済みsnapshotを優先。なければ投稿本数・当月保存目標だけを利用し、復元不能なYouTube値は「履歴データなし」。現在月の目標を補完しない。
 - タグ目標カードは選択月に正の目標があるタグだけ。目標あり・実績0は表示する。
 - 報酬は横動画の切り抜き0円 → レース映像0円 → 競艇ニュース・競艇クイズ・競艇値段のいずれか100円 → Shorts100円 → 横動画1000円 → 既存fallback0円。100円対象は複数該当してもShorts報酬欄に一度だけ加算。切り抜き/レース併用は報酬内訳では切り抜きだけ、通常のタグ本数は該当タグすべてへ数える。過去月も現ルールのLIVE再計算額であり、実支払確定額ではない。動画タイプと「横動画」タグを混同しない。
-- 企画は既存のステータスごとに、親の作成日時と企画内アイデアの作成・更新日時のうち最も新しい日時を基準に並べる。親の更新日時、表示する「追加日」、企画内アイデアそのものの順番は変更しない。
+- 企画は既存のステータスごとに、親の作成日時と企画内アイデアの作成・更新日時のうち最も新しい日時を基準に並べる。子のステータス更新時刻はDBで決め、対象IDの返却がなければ成功扱いせず再取得する。親の更新日時、表示する「追加日」、企画内アイデアそのものの順番は変更しない。
 
 ## Supabase（2026-09-14 読み取り監査）
 
@@ -101,7 +101,7 @@ Storage `idea-images` は既存public bucket。アップロード/更新はauthe
 
 Cron `finalize-monthly-achievements-jst` は有効、`5 15 * * *`（毎日00:05 JST）。既存snapshotを再確定しない。今回、Cron commandやVault/Secret値は取得していない。
 
-本番のsync v6 / finalize v2と共有youtube.tsはmainと内容一致。両Functionはverify_jwt=falseで、sync内でユーザー検証、finalize内で既存publishable key照合を行う。既存 `smart-action` はrepo外・今回対象外。
+2026-09-14監査時点の本番sync v6 / finalize v2と共有youtube.tsは当時のmainと内容一致。その後finalizeのみv3に更新・再取得確認済み（[Deploy記録](finalizer-deployment-20261019.md)）。23.42の新タグ対応は未Deploy。両Functionはverify_jwt=falseで、sync内でユーザー検証、finalize内で既存publishable key照合を行う。既存 `smart-action` はrepo外・今回対象外。
 
 migration履歴は空だが画像テーブル/RPCは本番に存在する。履歴の空だけで未適用と判断しない。既存baseline SQLを無条件に再実行すると新しい移動RPCを旧定義に戻しうるため、通常更新では実行しない。
 

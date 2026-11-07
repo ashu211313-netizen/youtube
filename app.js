@@ -3140,11 +3140,13 @@ function renderVideos() {
   }
 
   if (!videos.length) {
-    list.innerHTML = total
+    const emptyMarkup = total
       ? `<div class="card empty-state">選択した条件に一致する動画はありません
           <button type="button" id="clearAllVideoFilters" class="ghost-btn video-filter-reset">検索・絞り込みをリセット</button>
         </div>`
       : `<div class="card empty-state">動画が登録されていません</div>`;
+    // Background refreshes must not replace the focused reset button.
+    if (list.innerHTML !== emptyMarkup) list.innerHTML = emptyMarkup;
     return;
   }
 
@@ -4023,15 +4025,22 @@ async function updateIdeaItemStatus(itemId, status, triggerElement) {
   }
 
   try {
-    const { error } = await supabaseClient
+    const { data: updatedItem, error } = await supabaseClient
       .from("idea_items")
       .update({
         status,
-        updated_at: new Date().toISOString()
+        // PostgreSQL resolves this timestamp input at the start of the request transaction.
+        updated_at: "now"
       })
-      .eq("id", itemId);
+      .eq("id", itemId)
+      .select("id")
+      .maybeSingle();
 
     if (error) throw error;
+    if (!updatedItem || !sameId(updatedItem.id, itemId)) {
+      await loadAllData({ silent: true });
+      throw new Error("対象の企画内アイデアの更新を確認できませんでした。");
+    }
 
     const parentIdea = findById(data.ideas, item.parentIdeaId);
 

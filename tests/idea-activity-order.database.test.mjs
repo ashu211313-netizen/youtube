@@ -61,6 +61,7 @@ test("real add/edit/status paths reorder from persisted child timestamps after a
     const readParents = () => db.query("select * from public.ideas order by id").then(result => result.rows);
     const parentsBefore = await readParents();
     const writes = [];
+    const activityLogs = [];
     let denyStatusUpdate = false;
     const client = {
       async rpc(name, values) {
@@ -79,16 +80,16 @@ test("real add/edit/status paths reorder from persisted child timestamps after a
           is() { return q; },
           limit() { return q; },
           maybeSingle() { single = true; return q; },
-          insert() { assert.equal(table, "activity_logs"); return q; },
+          insert(value) { assert.equal(table, "activity_logs"); activityLogs.push(value); return q; },
           update(value) { assert.equal(table, "idea_items"); payload = value; return q; },
           eq(key, value) { if (key === "id") id = value; return q; },
           then(resolve, reject) {
             return (async () => {
               if (payload) {
                 if (denyStatusUpdate) return { data: null, error: { message: "fixture refused status update" } };
-                writes.push("status");
-                await db.query("update public.idea_items set status=$1,updated_at=$2 where id=$3", [payload.status, payload.updated_at, id]);
-                return { data: null, error: null };
+                const { rows } = await db.query("update public.idea_items set status=$1,updated_at=$2 where id=$3 returning id", [payload.status, payload.updated_at, id]);
+                if (rows.length) writes.push("status");
+                return { data: single ? rows[0] ?? null : null, error: null };
               }
               if (table === "ideas" || table === "idea_items") {
                 const { rows } = await db.query(`select * from public.${table} order by created_at desc,id desc`);
@@ -145,11 +146,41 @@ test("real add/edit/status paths reorder from persisted child timestamps after a
     assert.deepEqual(cardIds(h), [newer, old]);
     assert.equal(h.run(`getIdeaItemById(${newChild.id}).status`), "アイデア");
     denyStatusUpdate = false;
-    await h.run(`updateIdeaItemStatus(${newChild.id},"実行済み")`);
+    const { rows: [{ bound: beforeStatus }] } = await db.query("select clock_timestamp()::text as bound");
+    h.context.Date = class SkewedBrowserDate extends Date {
+      constructor(...args) { super(...(args.length ? args : ["2040-01-01T00:00:00Z"])); }
+    };
+    try {
+      await h.run(`updateIdeaItemStatus(${newChild.id},"実行済み")`);
+    } finally {
+      h.context.Date = Date;
+    }
+    const { rows: [{ database_time: usedDatabaseTime }] } = await db.query(
+      "select updated_at between $2::timestamptz and clock_timestamp() as database_time from public.idea_items where id=$1",
+      [newChild.id, beforeStatus]
+    );
+    assert.equal(usedDatabaseTime, true, "a skewed client clock cannot pin the parent above later database activity");
     assert.deepEqual(cardIds(h), [old, newer]);
     h = await fresh();
     assert.deepEqual(cardIds(h), [old, newer]);
     assert.equal(h.run(`getIdeaItemById(${newChild.id}).status`), "実行済み");
+    assert.deepEqual(writes, ["add", "edit", "status"]);
+
+    // Another user may delete a child while this tab still shows its status control.
+    const { rows: [staleChild] } = await db.query(`insert into public.idea_items(parent_idea_id,title,created_at,updated_at)
+      values($1,'別の利用者が削除するアイデア','2020-11-03T00:00:00Z','2020-11-03T00:00:00Z') returning id`, [newer]);
+    h = await fresh();
+    assert.ok(h.run(`getIdeaItemById(${staleChild.id})`));
+    await db.query("delete from public.idea_items where id=$1", [staleChild.id]);
+    const beforeLogs = activityLogs.length;
+    h.run('globalThis.staleStatusControl = {value:"実行済み", disabled:false, isConnected:true}');
+    await h.run(`updateIdeaItemStatus(${staleChild.id},"実行済み",staleStatusControl)`);
+    assert.equal(h.run(`getIdeaItemById(${staleChild.id})`), null, "refresh removes the stale control");
+    assert.deepEqual(cardIds(h), [old, newer]);
+    assert.equal(activityLogs.length, beforeLogs, "a zero-row update does not write a success log");
+    assert.match(h.node("toast").textContent, /変更できませんでした/);
+    assert.equal(h.run("staleStatusControl.value"), "アイデア");
+    assert.equal(h.run("staleStatusControl.disabled"), false);
     assert.deepEqual(writes, ["add", "edit", "status"]);
     assert.deepEqual(await readParents(), parentsBefore);
   } finally {
