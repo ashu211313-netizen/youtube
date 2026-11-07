@@ -10,14 +10,14 @@ const engines = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(proce
 const engineNames = process.env.QA_ENGINE ? [process.env.QA_ENGINE] : ['chromium', 'webkit'];
 assert(engineNames.every(name => ['chromium', 'webkit'].includes(name)), 'supported QA browser engines');
 const baseline = process.env.QA_BASELINE_DIR && resolve(process.env.QA_BASELINE_DIR);
-const output = new URL('../../../outputs/video-management-ux/', import.meta.url);
+const output = new URL('../../../outputs/video-quiz-price-qa/', import.meta.url);
 await mkdir(output, { recursive: true });
 const appRoot = baseline || fileURLToPath(new URL('../', import.meta.url));
 const server = spawn(process.execPath, [join(appRoot, 'tests', 'browser-server.mjs')], {
   cwd: appRoot, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true
 });
-const tags = ['選手解説', '用語解説', '競艇場解説', '疑問解決系', '横動画の切り抜き', 'レース映像', '横動画', '競艇ニュース'];
-const [player, terms, , unused, clip, , , news] = tags;
+const tags = ['選手解説', '用語解説', '競艇場解説', '疑問解決系', '横動画の切り抜き', 'レース映像', '横動画', '競艇ニュース', '競艇クイズ', '競艇値段'];
+const [player, terms, , unused, clip, , , news, quiz, price] = tags;
 const measurements = [];
 const fixtureId = n => `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const viewports = [[390, 844], [430, 932], [768, 1024], [1280, 900], [320, 640], [844, 390]];
@@ -47,7 +47,7 @@ try {
   });
   const fixtureTags = [player, news, terms, `${player}、${news}`, player, 'ネット競艇', `ネット競艇、${player}`, null,
     ' \t ', ', 、\n,', '過去独自タグ', '', null,
-    ...Array.from({ length: 16 }, () => player)];
+    quiz, price, `${quiz}、${price}`, ...Array.from({ length: 13 }, () => player)];
   const fixtureTitles = ['住之江 Cup １１２', '住之江 ＣＵＰ 2026', 'QA <img> [#1]', '住之江 Cup 404', '住之江 Cup 待ち',
     '住之江 Legacy', '住之江 Active+Legacy', '住之江 Cup 未設定', '住之江 空白', '住之江 Cup 区切り', '住之江 歴史', '住之江 空文字', null];
   const seed = fixtureTags.map((value, index) => ({ id: fixtureId(index + 1), title: index < fixtureTitles.length ? fixtureTitles[index] : `QA tag filter ${index + 1}`,
@@ -190,9 +190,9 @@ try {
           const expandedOverview = await measureOverview('candidate expanded');
           const columns = width >= 768 ? 4 : 2;
           const grid = expandedOverview.dimensions;
-          assert.deepEqual(grid.map(button => button.tag), tags, 'exactly eight tags, fixed order');
+          assert.deepEqual(grid.map(button => button.tag), tags, 'exactly ten tags, fixed order');
           assert.equal(new Set(grid.map(button => Math.round(button.x))).size, columns, 'equal-width grid column count');
-          assert.equal(new Set(grid.map(button => Math.round(button.y))).size, 8 / columns, 'grid row count');
+          assert.equal(new Set(grid.map(button => Math.round(button.y))).size, Math.ceil(tags.length / columns), 'grid row count');
           assert(grid.every((button, i) => Math.abs(button.width - grid[0].width) < 1 && Math.abs(button.height - grid[0].height) < 1 && button.width >= 44 && button.height >= 44 &&
             (i % columns ? button.x > grid[i - 1].x && button.y === grid[i - 1].y : i === 0 || button.y > grid[i - 1].y)), 'grid sizes/tap targets and reading order');
           const labelsFit = await page.locator('#videoTagFilters .video-tag-filter-chip-label').evaluateAll(labels => labels.every(label => {
@@ -203,7 +203,7 @@ try {
           }));
           assert(labelsFit, 'tag labels including 横動画の切り抜き are not clipped');
           const untaggedBox = await untaggedControl.boundingBox();
-          assert(untaggedBox.y >= grid.at(-1).bottom && untaggedBox.height >= 44, 'untagged control is separate from the 8-tag grid');
+          assert(untaggedBox.y >= grid.at(-1).bottom && untaggedBox.height >= 44, 'untagged control is separate from the 10-tag grid');
           const stored = (await fixtureQuery(page, 'select')).filter(row => !row.deleted_at);
           const byId = new Map(stored.map(row => [row.id, row]));
           const all = await ids();
@@ -234,6 +234,11 @@ try {
           };
           await check([]);
           assert(all.includes(fixtureId(6)) && all.includes(fixtureId(8)), 'legacy-only and untagged included in all');
+          await press(tag(quiz)); await check([quiz]);
+          await press(tag(price)); await check([quiz, price]);
+          assert.deepEqual(await ids(), [fixtureId(16), fixtureId(15), fixtureId(14)], 'two new tags OR, without double-counting the mixed video');
+          await press(clear); await check([]);
+          await scroll(page, 0);
           const monthlyTotals = () => page.evaluate(() => {
             const { videos, ...posts } = getMonthlyPostStats('2020-01');
             const { videos: _, ...achievements } = getMonthlyAchievementStats('2020-01');

@@ -113,4 +113,19 @@ await test('paid_at/is_paid, historical source row and immutable achievement sna
   assert(writes.every(write=>write.table==='videos'));
   assert(writes.every(write=>!write.payload.paid_at&&!Object.hasOwn(write.payload,'is_paid')));
 });
+await test('new quiz/price tags pay once after a fresh read without touching finalized or paid records',async()=>{
+  const before=await protect();
+  h=fresh();await h.run('loadAllData()');
+  const row=await h.run("saveVideo({title:'quiz price',type:'横動画',status:'投稿済み',postDate:'2026-10-12',youtubeUrl:'',tags:['競艇クイズ','競艇値段','競艇ニュース'],memo:''},'add')");
+  h=fresh();await h.run('loadAllData()');
+  assert.equal(h.node('postStatsRewardShortsFormula').textContent,'2本 × 100円');
+  assert.equal(h.node('postStatsRewardTotal').textContent,'¥200');
+  h.context.editId=row.id;
+  await h.run("saveVideo({title:'quiz price',type:'横動画',status:'投稿済み',postDate:'2026-10-12',youtubeUrl:'',tags:['競艇クイズ','競艇値段','レース映像'],memo:''},'edit',editId)");
+  h=fresh();await h.run('loadAllData()');
+  assert.equal(h.node('postStatsRewardShortsFormula').textContent,'1本 × 100円');
+  assert.equal(h.node('postStatsRewardRaceFormula').textContent,'1本 × 0円');
+  assert.equal(h.node('postStatsRewardTotal').textContent,'¥100');
+  assert.equal(await protect(),before);
+});
 await db.close();

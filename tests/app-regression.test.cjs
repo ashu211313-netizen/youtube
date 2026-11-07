@@ -77,7 +77,7 @@ test('progress 0 / 50 / 100 / 125 and absent/invalid values never overflow or sh
   }
 });
 test('eight active tags exclude retired online tag from choices and summaries',()=>{
-  const h=harness();assert.equal(h.run('ACTIVE_VIDEO_TAGS.length'),8);
+  const h=harness();assert.equal(h.run('ACTIVE_VIDEO_TAGS.length'),10);
   assert.equal(h.run(`ACTIVE_VIDEO_TAGS.includes('ネット競艇')`),false);
   const html=h.run(`renderMonthlyTagRows({'横動画':0,'選手解説':5,'競艇ニュース':2},{targets:{tag_horizontal:10,tag_news:3}})`);
   assert(html.includes('横動画'));assert(html.includes('競艇ニュース'));assert(!html.includes('選手解説'));

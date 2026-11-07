@@ -1,4 +1,8 @@
-# 構成・変更時の入口（23.41）
+# 構成・変更時の入口（23.42）
+
+23.42は「競艇クイズ」「競艇値段」を追加し、動画の現役タグを10個に拡張。月末確定には新しい件数・目標キーを追加し、過去の確定snapshotは変更しない。企画の一覧は企画内アイデアの活動日時を反映する。
+
+23.42公開時は、次の月末確定前に承認済みソースの `finalize-monthly-achievements` のみを既存の `_shared/youtube.ts` とともに再Deployする。SQL・Cron・Auth設定の変更や、確定済みsnapshotの再実行は不要。
 
 23.41は動画管理の操作・タイトル検索・件数・タグの配置を整理。既存の並び順を保ち、一覧と詳細はタイトル・投稿ステータス・タグの共通条件を使用する。[計測・検証記録](video-management-ux-ver23-41.md)を参照。
 
@@ -35,7 +39,7 @@
 
 | 入口 | 内容・不変条件 |
 | --- | --- |
-| 定数 / `elements` | ステータス、active 8タグ、legacyタグ、目標キー、DOM参照。DB内部値と表示名を区別 |
+| 定数 / `elements` | ステータス、active 10タグ、legacyタグ、目標キー、DOM参照。DB内部値と表示名を区別 |
 | `createEmptyDataState`, `mapVideo`, `mapIdea`, `mapAchievementSnapshot` | DB snake_case → UIデータ。未取得を0と混同しない |
 | `selectNewestRows`, `fetchAllDataOnce`, `loadAllData` | videos/ideas/idea_itemsが必須。目標・実績履歴・支払い・通知・channel_statsは任意取得。既存画像へのfallbackあり |
 | `getMonthlyPostStats`, `getMonthlyAchievementStats` | 投稿日月ごとのLIVE集計。Dashboardは選択月の最新video統計に利用し、実績snapshotとは分離 |
@@ -70,7 +74,8 @@
 - 実績6指標は `ACHIEVEMENT_METRIC_DEFINITIONS` をフォームと描画で共有する。過去月の文言だけ「その月」に変える。
 - 過去月は保存済みsnapshotを優先。なければ投稿本数・当月保存目標だけを利用し、復元不能なYouTube値は「履歴データなし」。現在月の目標を補完しない。
 - タグ目標カードは選択月に正の目標があるタグだけ。目標あり・実績0は表示する。
-- 報酬は横動画の切り抜き0円 → レース映像0円 → 競艇ニュース100円 → Shorts100円 → 横動画1000円 → 既存fallback0円。ニュース100円対象はShorts報酬欄に一度だけ加算。切り抜き/レース併用は報酬内訳では切り抜きだけ、通常のタグ本数は両方へ数える。過去月も現ルールのLIVE再計算額であり、実支払確定額ではない。動画タイプと「横動画」タグを混同しない。
+- 報酬は横動画の切り抜き0円 → レース映像0円 → 競艇ニュース・競艇クイズ・競艇値段のいずれか100円 → Shorts100円 → 横動画1000円 → 既存fallback0円。100円対象は複数該当してもShorts報酬欄に一度だけ加算。切り抜き/レース併用は報酬内訳では切り抜きだけ、通常のタグ本数は該当タグすべてへ数える。過去月も現ルールのLIVE再計算額であり、実支払確定額ではない。動画タイプと「横動画」タグを混同しない。
+- 企画は既存のステータスごとに、親の作成日時と企画内アイデアの作成・更新日時のうち最も新しい日時を基準に並べる。子のステータス更新時刻はDBで決め、対象IDの返却がなければ成功扱いせず再取得する。親の更新日時、表示する「追加日」、企画内アイデアそのものの順番は変更しない。
 
 ## Supabase（2026-09-14 読み取り監査）
 
@@ -78,7 +83,7 @@
 
 | テーブル | 用途 |
 | --- | --- |
-| videos | 動画、投稿日時、タグ（TEXT）、YouTube現在統計。active選択肢は8タグ。旧「ネット競艇」と未知の歴史タグは編集時に保存値を維持。旧views_24系は残存するがアプリ未使用 |
+| videos | 動画、投稿日時、タグ（TEXT）、YouTube現在統計。active選択肢は10タグ。旧「ネット競艇」と未知の歴史タグは編集時に保存値を維持。旧views_24系は残存するがアプリ未使用 |
 | ideas / idea_items | 企画・企画内アイデア。親IDはUUID、子IDはbigint、parent_idea_idはTEXT |
 | idea_images | UUID/関連親FK/URL/path/並び順。旧image_urlは互換用先頭画像 |
 | goals | 実績ページ内の月別目標。旧目標タブは復活させない |
@@ -96,7 +101,7 @@ Storage `idea-images` は既存public bucket。アップロード/更新はauthe
 
 Cron `finalize-monthly-achievements-jst` は有効、`5 15 * * *`（毎日00:05 JST）。既存snapshotを再確定しない。今回、Cron commandやVault/Secret値は取得していない。
 
-本番のsync v6 / finalize v2と共有youtube.tsはmainと内容一致。両Functionはverify_jwt=falseで、sync内でユーザー検証、finalize内で既存publishable key照合を行う。既存 `smart-action` はrepo外・今回対象外。
+2026-09-14監査時点の本番sync v6 / finalize v2と共有youtube.tsは当時のmainと内容一致。その後finalizeのみv3に更新・再取得確認済み（[Deploy記録](finalizer-deployment-20261019.md)）。23.42の新タグ対応は未Deploy。両Functionはverify_jwt=falseで、sync内でユーザー検証、finalize内で既存publishable key照合を行う。既存 `smart-action` はrepo外・今回対象外。
 
 migration履歴は空だが画像テーブル/RPCは本番に存在する。履歴の空だけで未適用と判断しない。既存baseline SQLを無条件に再実行すると新しい移動RPCを旧定義に戻しうるため、通常更新では実行しない。
 

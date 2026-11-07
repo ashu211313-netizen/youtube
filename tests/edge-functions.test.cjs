@@ -91,6 +91,53 @@ test('monthly finalization: first success, repeated run skips all stats and snap
   assert.equal(client.state.saved[0].tag_counts['レース映像'],1);assert.equal(client.state.saved[0].tag_targets.tag_question,3);
 });
 
+test('monthly finalization: quiz and price are counted once per tagged post, with monthly targets',async()=>{
+  const client=monthlyClient({
+    rows:[
+      {id:'quiz',post_date:'2026-10-05',tags:'競艇クイズ, 選手解説, ネット競艇'},
+      {id:'price',post_date:'2026-10-06',tags:'競艇値段'},
+      {id:'both',post_date:'2026-11-01',youtube_published_at:'2026-10-31T14:59:59Z',tags:'競艇クイズ、競艇値段, 競艇クイズ\n競艇値段, レース映像'},
+      {id:'next-month',post_date:'2026-10-31',youtube_published_at:'2026-10-31T15:00:00Z',tags:'競艇クイズ, 競艇値段'},
+    ],
+    goals:[
+      {goal_key:'tag_quiz',target_value:'5'},
+      {goal_key:'tag_price',target_value:7},
+      {goal_key:'tag_online',target_value:2},
+    ],
+  });
+  const h=fixture('finalize-monthly-achievements',client);
+  h.run(`currentJstMonthKey=()=> '2026-11'`);
+  const response=await h.request('POST',{apikey:'fixture-public'},'{}');
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).finalized,true);
+  const [saved]=client.state.saved;
+  assert.equal(saved.month_key,'2026-10');
+  assert.equal(saved.post_count,3);
+  assert.equal(saved.tag_counts['競艇クイズ'],2);
+  assert.equal(saved.tag_counts['競艇値段'],2);
+  assert.equal(saved.tag_counts['ネット競艇'],1);
+  assert.equal(saved.tag_counts['選手解説'],1);
+  assert.equal(saved.tag_counts['レース映像'],1);
+  assert.equal(saved.tag_targets.tag_quiz,5);
+  assert.equal(saved.tag_targets.tag_price,7);
+  assert.equal(saved.tag_targets.tag_online,2);
+});
+
+test('monthly finalization: no quiz or price posts and goals are saved as zero and null',async()=>{
+  const client=monthlyClient({rows:[{post_date:'2026-10-01',tags:'競艇ニュース'}]});
+  const h=fixture('finalize-monthly-achievements',client);
+  h.run(`currentJstMonthKey=()=> '2026-11'`);
+  const response=await h.request('POST',{apikey:'fixture-public'},'{}');
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).finalized,true);
+  const [saved]=client.state.saved;
+  assert.equal(saved.tag_counts['競艇ニュース'],1);
+  assert.equal(saved.tag_counts['競艇クイズ'],0);
+  assert.equal(saved.tag_counts['競艇値段'],0);
+  assert.equal(saved.tag_targets.tag_quiz,null);
+  assert.equal(saved.tag_targets.tag_price,null);
+});
+
 test('monthly finalization: concurrent unique conflict is skipped, never overwritten',async()=>{
   const client=monthlyClient({insertError:{code:'23505'}}),h=fixture('finalize-monthly-achievements',client);h.run(`currentJstMonthKey=()=> '2026-11'`);
   const response=await h.request('POST',{apikey:'fixture-public'},'{}');assert.equal(response.status,200);assert.equal((await response.json()).skipped,'already_finalized');assert.equal(client.state.saved.length,0);
