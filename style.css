@@ -2312,6 +2312,12 @@ body.modal-scroll-locked dialog[open] {
   line-height: 1.2;
 }
 .video-list-toolbar [hidden] { display: none; }
+@media (max-width: 900px) {
+  /* Keep browser-driven focus scrolling above the fixed navigation. */
+  html:has(#appRoot:not(.is-hidden) #videos.active) {
+    scroll-padding-bottom: calc(var(--mobile-nav-height, calc(60px + var(--mobile-nav-safe-bottom, env(safe-area-inset-bottom, 0px)))) + 8px);
+  }
+}
 .video-title-search { position: relative; min-width: 0; }
 .video-title-search input {
   display: block;

@@ -3133,11 +3133,13 @@ function renderVideos() {
   }
 
   if (!videos.length) {
-    list.innerHTML = total
+    const emptyMarkup = total
       ? `<div class="card empty-state">選択した条件に一致する動画はありません
           <button type="button" id="clearAllVideoFilters" class="ghost-btn video-filter-reset">検索・絞り込みをリセット</button>
         </div>`
       : `<div class="card empty-state">動画が登録されていません</div>`;
+    // Background refreshes must not replace the focused reset button.
+    if (list.innerHTML !== emptyMarkup) list.innerHTML = emptyMarkup;
     return;
   }
 

@@ -174,6 +174,19 @@ try {
           await checkControlGeometry();
           await disclosure.focus(); await page.keyboard.press('Enter'); await checkDisclosure(true);
           assert(await disclosure.evaluate(element => element === document.activeElement), 'disclosure preserves keyboard focus');
+          if (touch) {
+            await scroll(page, 0);
+            for (const control of await panel.locator('button').all()) {
+              await page.keyboard.press('Tab');
+              await control.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+              assert(await control.evaluate(button => {
+                const box = button.getBoundingClientRect();
+                const nav = document.querySelector('#mobileNav').getBoundingClientRect();
+                const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+                return document.activeElement === button && box.top >= 0 && box.bottom <= nav.top + 1 && button.contains(hit);
+              }), 'keyboard-focused tag controls remain visible above the fixed nav');
+            }
+          }
           const expandedOverview = await measureOverview('candidate expanded');
           const columns = width >= 768 ? 4 : 2;
           const grid = expandedOverview.dimensions;
@@ -267,7 +280,13 @@ try {
           await press(clear); await check([], '編集待ち', { query: '住之江' });
           assert.equal(await mode('minimal').getAttribute('aria-pressed'), 'true', 'tag clear keeps the presentation mode');
           await search.fill('一致しない'); await check([], '編集待ち', { query: '一致しない' });
-          await press(page.locator('#clearAllVideoFilters')); await check([]); await checkDisclosure(true);
+          const reset = page.locator('#clearAllVideoFilters');
+          await reset.focus();
+          const resetBeforeRefresh = await reset.elementHandle();
+          await page.evaluate(() => renderVideos());
+          assert(await resetBeforeRefresh.evaluate(button => button.isConnected && document.activeElement === button),
+            'an unchanged no-results redraw preserves the reset control and focus');
+          await press(reset); await check([]); await checkDisclosure(true);
           assert.equal(await mode('minimal').getAttribute('aria-pressed'), 'true', 'reset-all keeps the presentation mode');
           await press(mode('card'));
           const scrollToTag = await tag(player).evaluate(element => element.getBoundingClientRect().top + scrollY - Math.min(180, innerHeight / 4));
