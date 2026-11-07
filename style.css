@@ -2278,28 +2278,81 @@ body.modal-scroll-locked dialog[open] {
 }
 
 /* Video / YouTube */
-.page-section-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
+.main:has(> #videos.active) > .topbar {
+  margin-bottom: 12px;
 }
 
-.video-list-toolbar {
+.video-management-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
-.video-list-toolbar .filter-row { margin-bottom: 0; }
-.video-tag-filter {
+.video-management-actions button {
+  min-width: 44px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 8px 14px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.video-management-actions .ghost-btn { background: transparent; }
+
+.video-list-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.video-list-toolbar #videoFilters { margin-bottom: 0; }
+.video-list-toolbar #videoFilters .filter-btn {
+  min-height: 44px;
+  white-space: normal;
+  line-height: 1.2;
+}
+.video-list-toolbar [hidden] { display: none; }
+@media (max-width: 900px) {
+  /* Keep browser-driven focus scrolling above the fixed navigation. */
+  html:has(#appRoot:not(.is-hidden) #videos.active) {
+    scroll-padding-bottom: calc(var(--mobile-nav-height, calc(60px + var(--mobile-nav-safe-bottom, env(safe-area-inset-bottom, 0px)))) + 8px);
+  }
+}
+.video-title-search { position: relative; min-width: 0; }
+.video-title-search input {
+  display: block;
   width: 100%;
+  min-height: 44px;
+  padding: 8px 76px 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  font-size: 16px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.video-title-search input::-webkit-search-cancel-button { display: none; }
+.video-title-search button {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 2px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+.video-tag-filter {
   min-width: 0;
+  border-block: 1px solid var(--line);
 }
 .video-tag-filter-heading,
+.video-tag-filter-panel-actions,
 .video-list-toolbar-actions {
   display: flex;
   align-items: center;
@@ -2308,46 +2361,106 @@ body.modal-scroll-locked dialog[open] {
   gap: 8px;
 }
 .video-tag-filter-heading { font-size: 14px; font-weight: 700; }
-.video-tag-filter-chips {
+.video-tag-filter-caption {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 2px 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.video-tag-selection-count { color: var(--muted); font-size: 13px; }
+.video-tag-filter-panel {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.video-tag-filter-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 8px;
 }
 .video-tag-filter-chip,
+.video-tag-filter-toggle,
 .video-tag-filter-clear {
+  min-width: 44px;
   min-height: 44px;
   border-radius: 999px;
   font: inherit;
-  font-size: 13px;
+  font-size: .875rem;
   font-weight: 700;
 }
 .video-tag-filter-chip {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: .85em minmax(0, 1fr) .85em;
   align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  padding: 6px 10px;
+  gap: 3px;
+  min-height: 48px;
+  padding: 5px;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--text);
+  text-align: center;
+}
+.video-tag-filter-chip::after { content: ""; }
+.video-tag-filter-chip-label {
+  min-width: 0;
+  line-height: 1.25;
+  text-wrap: balance;
   overflow-wrap: anywhere;
 }
-.video-tag-filter-check { flex: none; visibility: hidden; }
+.video-tag-filter-check { visibility: hidden; }
 .video-tag-filter-chip[aria-pressed="true"] { background: var(--text); color: #fff; }
 .video-tag-filter-chip[aria-pressed="true"] .video-tag-filter-check { visibility: visible; }
+.video-tag-filter-toggle,
 .video-tag-filter-clear {
-  padding: 4px 10px;
+  padding: 4px 9px;
   border: 0;
   background: transparent;
   color: var(--text);
-  text-decoration: underline;
 }
-.video-tag-filter-clear[aria-disabled="true"] { color: var(--muted); text-decoration: none; cursor: default; }
-.video-list-toolbar-actions { width: 100%; }
+.video-tag-filter-toggle { margin-inline-start: auto; }
+.video-tag-filter-toggle,
+.video-tag-filter-clear:not([aria-disabled="true"]) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.video-tag-filter-panel-actions .video-tag-filter-chip { min-height: 44px; }
+.video-tag-filter-clear[aria-disabled="true"] { color: var(--muted); cursor: default; }
 .video-visible-count { margin: 0; color: var(--muted); font-size: 13px; }
-.video-tag-filter button:focus-visible {
+.video-list-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.video-management-actions button:focus-visible,
+.video-list-toolbar button:focus-visible,
+.video-title-search input:focus-visible,
+#videos .video-filter-reset:focus-visible {
   outline: 3px solid #007aff;
   outline-offset: 2px;
+}
+#videos .video-filter-reset {
+  display: block;
+  min-height: 44px;
+  max-width: 100%;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 768px) {
+  .video-tag-filter-chips { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 360px) {
+  .video-list-toolbar #videoFilters .filter-btn {
+    flex-direction: column;
+    gap: 2px;
+    padding-block: 4px;
+  }
 }
 .video-view-toggle {
   display: flex;
@@ -2407,8 +2520,6 @@ body.modal-scroll-locked dialog[open] {
 .dashboard-posting-pace small { color: var(--muted); }
 .achievement-record-badge { display: inline-block; margin: 4px 0 0 8px; font-size: 11px; color: #795100; white-space: nowrap; }
 @media (max-width: 620px) {
-  .video-list-toolbar { align-items: stretch; }
-  .video-list-toolbar .filter-row { width: 100%; }
   .video-view-toggle { margin-left: auto; }
 }
 
@@ -2596,20 +2707,6 @@ body.modal-scroll-locked dialog[open] {
 }
 
 @media (max-width: 620px) {
-  #videos .page-section-head {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  #videos .page-section-actions {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  #videos .page-section-actions > button {
-    width: 100%;
-  }
-
   .video-card-layout {
     grid-template-columns: 1fr;
     gap: 14px;

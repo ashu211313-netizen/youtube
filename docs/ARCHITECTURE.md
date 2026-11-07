@@ -1,4 +1,6 @@
-# 構成・変更時の入口（23.40）
+# 構成・変更時の入口（23.41）
+
+23.41は動画管理の操作・タイトル検索・件数・タグの配置を整理。既存の並び順を保ち、一覧と詳細はタイトル・投稿ステータス・タグの共通条件を使用する。[計測・検証記録](video-management-ux-ver23-41.md)を参照。
 
 23.40は下端固定の透明navコンテナと白いカプセルを分離し、動画一覧に8タグの複数選択を追加。実装・計測は[検証記録](mobile-nav-tag-filter-verification.md)を参照。
 
@@ -52,7 +54,7 @@
 - 削除3入口は `runDeleteOperation` を共有。DBのID返却確認→ローカル反映→画像/log/既存single-flight再取得の順。DB要求は30秒でabort、各後処理は10秒まで待つ。timeout/transport障害は結果未確認として再送禁止、ページ内の項目ロックを保持。確定DB削除と補助処理失敗を区別し、finallyでボタンを復帰。世代が変わった場合は古い画面を更新しない。削除中の復元も競合させない。
 - `openManagedDialog` はnative focus前に背景位置を捕捉し、上部closeへpreventScrollでfocus、実scroll ownerのdialogを先頭に戻す。PWA復帰は従来の復帰処理であり、編集中の位置を無条件にリセットしない。
 - `selectedDashboardMetricsMonth` / `selectedAchievementMonth` / `selectedPostStatsMonth` / `activeVideoFilter` は互いに独立した表示選択。
-- `activeVideoTagFilters` はセッション内の表示条件だけを保持する。タグ内OR、ステータスとANDを `getVisibleVideos` で適用する。解除はタグ条件だけ、アカウント変更・logoutでタグ条件を空にする。タグ選択は取得・保存・月次集計・報酬に渡さない。
+- `videoTitleQuery`（NFKC・前後空白除去・小文字化）、`activeVideoTagFilters`、`includeUntaggedVideos` はセッション内の表示条件。`getVisibleVideos` でステータス・タイトル・タグをAND、通常タグと未設定をORで適用する。未設定は保存済みの生タグが空の場合だけで、旧タグ・未知のタグは未設定に含めない。開閉状態は表示条件と独立。検索・絞り込みは取得・保存・月次集計・報酬に渡さない。別ユーザーへの切替・logoutで絞り込みと開閉を初期化し、既存の端末内表示方式は維持する。
 - `ideaImageEditors` は各エディタの既存・追加予定・明示削除予定を保持するWeakMap。保存/キャンセル後にObject URLを解放する。
 - `pendingIdeaImageCleanup` は参照のなくなった画像の掃除再試行。`localStorage`への保存不能時はメモリ内。認証の保存はsupabase-jsが担当する。
 - `dataLoadInFlight` / `authValidationInFlight` / `appStartInFlight` / `appResumeInFlight` / `realtimeSubscribeInFlight` は各処理の同時実行をまとめる。

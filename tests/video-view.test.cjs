@@ -51,7 +51,7 @@ test('status filter removes changed row and empty state is identical',()=>{
   const h=harness();seed(h);h.run(`activeVideoFilter='投稿済み';setVideoViewMode('minimal');data.videos[0].status='編集待ち';renderVideos()`);
   assert(!ids(h.node('videoList').innerHTML).includes('0'));
   h.run(`data.videos=[];renderVideos()`);const minimal=h.node('videoList').innerHTML;
-  h.run(`setVideoViewMode('card')`);assert.equal(h.node('videoList').innerHTML,minimal);assert.match(minimal,/該当する動画はありません/);
+  h.run(`setVideoViewMode('card')`);assert.equal(h.node('videoList').innerHTML,minimal);assert.match(minimal,/動画が登録されていません/);
 });
 
 test('resume, debounced Realtime refresh and successful sync preserve the selected view/filter',async()=>{
